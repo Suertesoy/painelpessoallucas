@@ -1,72 +1,48 @@
 'use client';
 
-import { useSyncExternalStore, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRepositories } from '@/providers/repository.provider';
-import { Item } from '@/modules/items/domain/item.schema';
-import { Project } from '@/modules/projects/domain/project.schema';
-import { DailyPlan } from '@/modules/planning/domain/daily-plan.schema';
-import { LocalStorageItemRepository } from '@/modules/items/infrastructure/local-storage-item.repository';
-import { LocalStorageProjectRepository } from '@/modules/projects/infrastructure/local-storage-project.repository';
-import { LocalStorageDailyPlanRepository } from '@/modules/planning/infrastructure/local-storage-daily-plan.repository';
 
-// Note: To avoid hydration mismatch, we must provide a safe initial state on the server.
-const emptyItems: Item[] = [];
-const emptyProjects: Project[] = [];
+export function useReactiveQuery<T>(
+  queryFn: () => Promise<T>,
+  deps: React.DependencyList,
+  initialData?: T
+): { data: T | undefined, isLoading: boolean } {
+  const { itemRepository, projectRepository, dailyPlanRepository } = useRepositories();
+  const [data, setData] = useState<T | undefined>(initialData);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const queryFnRef = useRef(queryFn);
+  queryFnRef.current = queryFn;
 
-export function useItems(): Item[] {
-  const { itemRepository } = useRepositories();
-  const repo = itemRepository as LocalStorageItemRepository;
+  useEffect(() => {
+    let mounted = true;
+    
+    const runFetch = async () => {
+      try {
+        const result = await queryFnRef.current();
+        if (mounted) setData(result);
+      } catch (e) {
+        console.error("Erro na query reativa", e);
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    };
 
-  const subscribe = useCallback((onStoreChange: () => void) => {
-    return repo.subscribe(onStoreChange);
-  }, [repo]);
+    runFetch();
 
-  const getSnapshot = useCallback(() => {
-    return repo.getItems();
-  }, [repo]);
+    const unsub1 = (itemRepository as { subscribe: (fn: () => void) => () => void }).subscribe(runFetch);
+    const unsub2 = (projectRepository as { subscribe: (fn: () => void) => () => void }).subscribe(runFetch);
+    const unsub3 = (dailyPlanRepository as { subscribe: (fn: () => void) => () => void }).subscribe(runFetch);
 
-  const getServerSnapshot = useCallback(() => {
-    return emptyItems;
-  }, []);
+    return () => {
+      mounted = false;
+      unsub1();
+      unsub2();
+      unsub3();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
 
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-}
-
-export function useProjects(): Project[] {
-  const { projectRepository } = useRepositories();
-  const repo = projectRepository as LocalStorageProjectRepository;
-
-  const subscribe = useCallback((onStoreChange: () => void) => {
-    return repo.subscribe(onStoreChange);
-  }, [repo]);
-
-  const getSnapshot = useCallback(() => {
-    return repo.getItems();
-  }, [repo]);
-
-  const getServerSnapshot = useCallback(() => {
-    return emptyProjects;
-  }, []);
-
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-}
-
-export function useDailyPlan(date: string): DailyPlan | null {
-  const { dailyPlanRepository } = useRepositories();
-  const repo = dailyPlanRepository as LocalStorageDailyPlanRepository;
-
-  const subscribe = useCallback((onStoreChange: () => void) => {
-    return repo.subscribe(onStoreChange);
-  }, [repo]);
-
-  const getSnapshot = useCallback(() => {
-    const plans = repo.getItems();
-    return plans.find(p => p.date === date) || null;
-  }, [repo, date]);
-
-  const getServerSnapshot = useCallback(() => {
-    return null;
-  }, []);
-
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  return { data, isLoading };
 }

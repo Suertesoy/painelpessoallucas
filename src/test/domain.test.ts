@@ -6,22 +6,20 @@ import { LocalStorageEventRepository } from '@/platform/events/local-storage-eve
 import { LocalStorageItemRepository } from '@/modules/items/infrastructure/local-storage-item.repository';
 import { LocalStorageProjectRepository } from '@/modules/projects/infrastructure/local-storage-project.repository';
 
-// Mock simple localStorage for tests
-const mockStorage = new Map<string, string>();
-global.window = {
-  localStorage: {
-    getItem: (key: string) => mockStorage.get(key) || null,
-    setItem: (key: string, value: string) => mockStorage.set(key, value),
-    removeItem: (key: string) => mockStorage.delete(key),
-    clear: () => mockStorage.clear(),
-  } as unknown,
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-} as unknown;
+
 
 describe('Domain Rules & Adapters Validation', () => {
   beforeEach(() => {
-    mockStorage.clear();
+    const store: Record<string, string> = {};
+    const mockStorage = {
+      getItem: (key: string) => store[key] || null,
+      setItem: (key: string, value: string) => { store[key] = value; },
+      removeItem: (key: string) => { delete store[key]; },
+      clear: () => { Object.keys(store).forEach(k => delete store[k]); }
+    };
+    
+    vi.stubGlobal('window', { localStorage: mockStorage, addEventListener: vi.fn(), removeEventListener: vi.fn() });
+    vi.stubGlobal('localStorage', mockStorage);
   });
 
   it('1. Limite máximo de três itens no foco diário', async () => {

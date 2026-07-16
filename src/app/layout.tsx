@@ -3,6 +3,9 @@ import Link from 'next/link';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { RepositoryProvider } from '@/providers/repository.provider';
+import { QuickCaptureModal } from '@/components/quick-capture-modal';
+import { GlobalSearchModal } from '@/components/global-search-modal';
+import { Search } from 'lucide-react';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -22,7 +25,12 @@ export default function RootLayout({
         <RepositoryProvider>
           {/* Futura Sidebar / Navigation */}
           <aside className="w-64 bg-white border-r h-full flex flex-col p-4 space-y-2">
-             <div className="font-bold text-xl mb-6">Painel Lucas</div>
+             <div className="font-bold text-xl mb-6 flex justify-between items-center">
+                <span>Painel Lucas</span>
+                <button className="p-1 text-gray-500 hover:bg-gray-100 rounded" title="Buscar (Ctrl+K)">
+                  <Search size={18} />
+                </button>
+             </div>
              <Link href="/hoje" className="p-2 hover:bg-gray-100 rounded">Hoje</Link>
              <Link href="/entrada" className="p-2 hover:bg-gray-100 rounded">Caixa de Entrada</Link>
              <Link href="/projetos" className="p-2 hover:bg-gray-100 rounded">Projetos</Link>
@@ -33,6 +41,8 @@ export default function RootLayout({
           <main className="flex-1 overflow-auto">
             {children}
           </main>
+          <QuickCaptureModal />
+          <GlobalSearchModal />
         </RepositoryProvider>
       </body>
     </html>

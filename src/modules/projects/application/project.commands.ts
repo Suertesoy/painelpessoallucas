@@ -1,6 +1,6 @@
 import { ProjectRepository } from './project.repository';
 import { EventRepository } from '@/platform/events/event.repository';
-import { CreateProjectDTO, Project, ProjectSchema } from '../domain/project.schema';
+import { CreateProjectDTO, Project, ProjectSchema, UpdateProjectDTO } from '../domain/project.schema';
 
 export class ProjectCommands {
   constructor(
@@ -37,5 +37,57 @@ export class ProjectCommands {
     });
 
     return project;
+  }
+
+  async updateProject(id: string, dto: UpdateProjectDTO): Promise<Project> {
+    const existing = await this.projectRepo.findById(id);
+    if (!existing) throw new Error("Projeto não encontrado");
+
+    const updated: Project = {
+      ...existing,
+      ...dto,
+      updatedAt: new Date().toISOString()
+    };
+
+    ProjectSchema.parse(updated);
+    await this.projectRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'project.updated',
+      entityId: updated.id,
+      workspaceId: updated.workspaceId,
+      source: 'manual',
+      payload: { previous: existing, new: updated },
+      createdAt: new Date().toISOString(),
+    });
+
+    return updated;
+  }
+
+  async archiveProject(id: string): Promise<Project> {
+    const existing = await this.projectRepo.findById(id);
+    if (!existing) throw new Error("Projeto não encontrado");
+
+    const updated: Project = {
+      ...existing,
+      status: 'archived',
+      updatedAt: new Date().toISOString()
+    };
+
+    ProjectSchema.parse(updated);
+    await this.projectRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'project.archived',
+      entityId: updated.id,
+      workspaceId: updated.workspaceId,
+      source: 'manual',
+      payload: updated,
+      createdAt: new Date().toISOString(),
+    });
+
+    return updated;
   }
 }
