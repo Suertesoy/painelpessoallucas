@@ -1,61 +1,96 @@
 # 📊 Painel Pessoal Lucas
 
-Este repositório foi configurado para hospedar o **Painel Pessoal Lucas**, estruturado para integração contínua e deploy simplificado na **Vercel**.
+O **Painel Pessoal Lucas** é uma central operacional pessoal construída para organizar tarefas, ideias, insights, decisões, projetos, agenda, prioridades e futuras automações. Esta aplicação foi desenhada com uma arquitetura de Monólito Modular, preparada para evoluir futuramente com Supabase, inteligência artificial (OpenAI), Webhooks, ferramentas MCP e outras integrações externas sem a necessidade de reescrever a camada de aplicação principal.
+
+## Estado Atual da Implementação (Fase 1)
+O sistema atualmente opera com uma **fundação local funcional**, permitindo criar e organizar itens, vinculá-los a projetos e manter o foco diário.
+**Aviso importante sobre persistência:** Nesta etapa, o armazenamento de dados é feito através da API `localStorage` do navegador. 
+* Os dados **não serão sincronizados** entre diferentes navegadores ou dispositivos.
+* A limpeza de dados do navegador (limpar cache/cookies) apagará suas informações.
+* O deploy na Vercel não transforma o `localStorage` num banco remoto; a Vercel hospedará a interface e cada usuário que acessar terá seu próprio banco em branco.
+A migração para um banco de dados real (Supabase) ocorrerá na Fase 2.
+
+### Funcionalidades Implementadas
+- Navegação entre Hoje, Caixa de Entrada, Projetos, Ideias, Agenda e Revisão.
+- Captura rápida acessível por toda a aplicação.
+- Criação e edição de Itens (task, idea, insight, decision, etc.) e Projetos.
+- Gerenciamento de Foco Diário (limite de 3 itens).
+- Adaptação reativa para alterações de estado sem atualizar a página.
+
+### Funcionalidades Futuras (Ainda não implementadas)
+- Integração com Supabase (Persistência real na nuvem).
+- Autenticação de Usuários.
+- Inteligência Artificial via OpenAI (triagem e sumários).
+- Integrações com Google Calendar, Gmail, GitHub e Google Drive.
+- Servidor MCP para interação com Agentes.
+- Eventos assíncronos processados via Vercel Workflows ou Webhooks.
 
 ---
 
-## 🚀 Como Conectar este Repositório à Vercel
+## 🛠️ Stack Tecnológica (Atual)
+- **Framework:** Next.js (App Router)
+- **Linguagem:** TypeScript
+- **Estilos:** Tailwind CSS com Design System via variáveis CSS
+- **Validação:** Zod
+- **Testes:** Vitest
+- **Qualidade de Código:** ESLint
 
-Siga os passos abaixo para realizar o deploy do seu painel pessoal na Vercel a partir deste repositório do GitHub:
+---
 
-### 1. Preparar o Repositório Local
-Antes de conectar à Vercel, certifique-se de que os arquivos do seu projeto (como `index.html`, arquivos de estilo CSS, scripts JS, ou arquivos de configuração de frameworks como Next.js ou React) estejam adicionados e commitados no repositório.
-
-Para criar o seu primeiro commit e enviar as alterações para o GitHub, execute no terminal:
-```bash
-# Adicionar todos os arquivos ao Git
-git add .
-
-# Criar o commit inicial
-git commit -m "Initial commit: Configuração inicial e README"
-
-# Garantir que a branch principal se chama main
-git branch -M main
-
-# Enviar para o GitHub
-git push -u origin main
+## 📂 Estrutura de Diretórios
+```
+docs/           # Documentação arquitetural do projeto
+src/
+  app/          # Rotas Next.js (hoje, entrada, projetos, ideias, agenda, revisao, api)
+  components/   # Componentes React (layout, forms, feedback)
+  modules/      # Camadas da aplicação (items, projects, planning, review) separadas por domínio, aplicação, infra, ui
+  platform/     # Interfaces para serviços e contratos de infraestrutura global (events, ai, storage, mcp)
+  providers/    # Provedores de injeção de dependência e React Context
+  lib/          # Utilitários compartilhados
+  types/        # Tipagens globais e configurações
+  test/         # Arquivos globais e utilitários para testes unitários
 ```
 
-### 2. Importar o Projeto na Vercel
-1. Acesse o painel da [Vercel](https://vercel.com) e faça login com a sua conta do GitHub.
-2. Clique no botão **"Add New..."** no canto superior direito e selecione **"Project"**.
-3. Na lista de repositórios do seu GitHub, localize o repositório **`painelpessoallucas`** e clique em **"Import"**.
+---
 
-### 3. Configurar o Deploy
-Durante a importação na Vercel, ajuste as seguintes configurações:
-- **Project Name:** `painelpessoallucas` (ou outro nome de sua preferência)
-- **Framework Preset:** Se você estiver utilizando HTML/CSS/JS puro, selecione **"Other"**. Se estiver utilizando frameworks (como Next.js, Vite/React, Vue, etc.), a Vercel detectará automaticamente.
-- **Root Directory:** `./` (diretório raiz do repositório)
-- **Build and Output Settings:** Caso utilize HTML/JS puro, não é necessário alterar nada. Para frameworks, a Vercel preenche os comandos corretos automaticamente.
-- **Environment Variables (Opcional):** Se o seu painel consumir APIs que exigem chaves secretas, adicione-as aqui.
+## 🚀 Como Executar o Projeto Localmente
 
-Após conferir as configurações, clique em **"Deploy"**.
+### 1. Instalação
+Clone este repositório e certifique-se de que está usando uma versão recente do Node.js.
+```bash
+npm install
+```
 
-### 4. Deploy Automático (CI/CD)
-Uma vez conectado, **toda vez que você fizer um `git push`** para a branch `main` no GitHub, a Vercel irá:
-1. Detectar as novas alterações automaticamente.
-2. Executar o build do projeto (se necessário).
-3. Publicar a nova versão online em segundos, fornecendo uma URL pública de produção.
+### 2. Variáveis de Ambiente
+Crie um arquivo `.env` baseado no arquivo de exemplo (`.env.example`).
+**Regra:** Arquivos como `.env`, `.env.local`, `.env.development.local` não serão commitados.
+Nesta fase, nenhuma variável de ambiente requer credenciais reais. 
+Não exponha `OPENAI_API_KEY` ou `SUPABASE_SERVICE_ROLE_KEY` ao navegador em hipótese alguma.
+
+### 3. Rodando o Servidor de Desenvolvimento
+```bash
+npm run dev
+```
+Abra [http://localhost:3000](http://localhost:3000) no seu navegador para ver a aplicação.
 
 ---
 
-## 🛠️ Tecnologias Recomendadas
-Para o desenvolvimento do seu painel pessoal, sugerimos:
-- **HTML5 & CSS3** (com variáveis CSS e design responsivo).
-- **JavaScript (Vanilla)** para controle de lógica e interações dinâmicas.
-- **Integração com APIs** de terceiros (ex: clima, calendário, tarefas, finanças).
+## ✅ Como Validar o Código
+Para assegurar a qualidade do projeto e garantir que tudo funcionará corretamente na Vercel, utilize os seguintes comandos antes de realizar push para a branch `main`:
+```bash
+npm run lint      # Analisa erros e qualidade de código com ESLint
+npm run typecheck # Valida se todas as tipagens TypeScript estão corretas
+npm run test      # Roda os testes unitários da lógica e repositórios usando Vitest
+npm run build     # Simula a build de produção no Next.js
+```
+Nenhum push deve ocorrer se a etapa de build apresentar erros.
 
 ---
 
-## 📄 Licença
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes (caso aplicável).
+## 🚀 Deploy na Vercel
+O repositório já está estruturado para deploy simplificado na **Vercel** usando a detecção automática do Next.js.
+Toda vez que você realizar um push para a branch `main`:
+```bash
+git push -u origin main
+```
+A Vercel importará as alterações, rodará o comando `npm run build` e publicará a aplicação. O sistema dispensa um arquivo `vercel.json` nesta etapa pois aproveita as configurações de zero-config da plataforma.
