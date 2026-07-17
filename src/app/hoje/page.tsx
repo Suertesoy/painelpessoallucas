@@ -8,8 +8,16 @@ import { useWorkspace } from '@/providers/auth.provider';
 import { todayDateStr } from '@/lib/dates';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
-import { CheckCircle, AlertCircle, Clock, Layout, Target, Plus, X } from 'lucide-react';
+import { CheckCircle, AlertCircle, Clock, Layout, Target, Plus, X, Hourglass, CalendarCheck } from 'lucide-react';
 import Link from 'next/link';
+import { TodayCalendarCard } from '@/components/today-calendar-card';
+import {
+  formatMinutes,
+  suggestFreeSlot,
+  itemSourceLabel,
+  type CapacitySummary,
+  type TimeInterval,
+} from '@/lib/capacity';
 
 const PRIORITY_ORDER: Record<string, number> = { critical: 4, high: 3, normal: 2, low: 1 };
 
@@ -29,6 +37,14 @@ export default function HojePage() {
   const [isAddingFocus, setIsAddingFocus] = useState(false);
   const [focusSelectId, setFocusSelectId] = useState('');
   const [focusError, setFocusError] = useState('');
+  const [capacity, setCapacity] = useState<CapacitySummary | null>(null);
+  const [busyBlocks, setBusyBlocks] = useState<{ start: string; end: string }[]>([]);
+  const [overflowWarning, setOverflowWarning] = useState<{
+    itemId: string;
+    impactMinutes: number;
+    movable: Item[];
+    suggestedTime: string | null;
+  } | null>(null);
 
   const focusItems = useMemo<Item[]>(() => {
     if (!dailyPlan || !allItems) return [];
@@ -45,6 +61,50 @@ export default function HojePage() {
     return projects?.filter(p => p.status === 'active') || [];
   }, [projects]);
 
+  // Atividades geradas por planos e recorrências (hoje ou sem data).
+  const planItemsToday = useMemo(() => {
+    return (allItems ?? []).filter(
+      i =>
+        i.executionPlanId &&
+        i.status !== 'completed' &&
+        i.status !== 'archived' &&
+        (!i.scheduledAt || i.scheduledAt.slice(0, 10) === today || (i.occurrenceAt ?? '').slice(0, 10) === today)
+    );
+  }, [allItems, today]);
+
+  const recurrentItemsToday = useMemo(
+    () => planItemsToday.filter(i => i.recurrenceRuleId),
+    [planItemsToday]
+  );
+
+  // Itens aguardando (bloqueados).
+  const waitingItems = useMemo(
+    () => (allItems ?? []).filter(i => i.status === 'blocked'),
+    [allItems]
+  );
+
+  // Próxima revisão: domingo (ou hoje, se for domingo).
+  const nextReviewLabel = useMemo(() => {
+    const now = new Date();
+    const dow = now.getDay();
+    if (dow === 0) return 'hoje (domingo)';
+    const days = 7 - dow;
+    return days === 1 ? 'amanhã (domingo)' : `em ${days} dias (domingo)`;
+  }, []);
+
+  const confirmAddFocus = async (itemId: string) => {
+    const currentFocus = dailyPlan?.focusItemIds || [];
+    try {
+      await dailyPlanCmds.setDailyFocus(workspaceId, today, [...currentFocus, itemId]);
+      setFocusSelectId('');
+      setFocusError('');
+      setIsAddingFocus(false);
+      setOverflowWarning(null);
+    } catch (err) {
+      setFocusError(err instanceof Error ? err.message : 'Erro ao definir foco');
+    }
+  };
+
   const handleAddFocus = async () => {
     if (!focusSelectId) return;
     const currentFocus = dailyPlan?.focusItemIds || [];
@@ -54,14 +114,38 @@ export default function HojePage() {
     }
     if (currentFocus.includes(focusSelectId)) return;
 
-    try {
-      await dailyPlanCmds.setDailyFocus(workspaceId, today, [...currentFocus, focusSelectId]);
-      setFocusSelectId('');
-      setFocusError('');
-      setIsAddingFocus(false);
-    } catch (err) {
-      setFocusError(err instanceof Error ? err.message : 'Erro ao definir foco');
+    // Impacto na capacidade do dia: a IA/painel sugere; você decide.
+    const candidate = allItems?.find(i => i.id === focusSelectId);
+    const estimate = candidate?.estimatedMinutes ?? 30;
+    if (capacity && !candidate?.scheduledAt && capacity.remainingMinutes - estimate < 0) {
+      const movable = (todayOverview?.scheduled ?? [])
+        .filter((i): i is Item => Boolean(i.estimatedMinutes))
+        .sort((a, b) => (b.estimatedMinutes ?? 0) - (a.estimatedMinutes ?? 0))
+        .slice(0, 3);
+      const dayStart = new Date(`${today}T08:00:00-03:00`).getTime();
+      const dayEnd = new Date(`${today}T18:00:00-03:00`).getTime();
+      const intervals: TimeInterval[] = [
+        ...busyBlocks.map(b => ({ startMs: new Date(b.start).getTime(), endMs: new Date(b.end).getTime() })),
+        ...(todayOverview?.scheduled ?? [])
+          .filter(i => i.scheduledAt)
+          .map(i => {
+            const startMs = new Date(i.scheduledAt!).getTime();
+            return { startMs, endMs: startMs + (i.estimatedMinutes ?? 30) * 60000 };
+          }),
+      ];
+      const slot = suggestFreeSlot(intervals, dayStart, dayEnd, estimate);
+      setOverflowWarning({
+        itemId: focusSelectId,
+        impactMinutes: estimate - Math.max(0, capacity.remainingMinutes),
+        movable,
+        suggestedTime: slot
+          ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(slot))
+          : null,
+      });
+      return;
     }
+
+    await confirmAddFocus(focusSelectId);
   };
 
   const handleRemoveFocus = async (id: string) => {
@@ -121,6 +205,40 @@ export default function HojePage() {
               )}
 
               {focusError && <p className="text-sm text-red-600" role="alert">{focusError}</p>}
+
+              {overflowWarning && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">
+                  <p className="font-medium">Esta atividade ultrapassa a capacidade do dia.</p>
+                  <ul className="mt-2 space-y-1 text-xs">
+                    <li>Impacto estimado: +{formatMinutes(overflowWarning.impactMinutes)} além da capacidade.</li>
+                    {overflowWarning.movable.length > 0 && (
+                      <li>
+                        Candidatas a remanejar:{' '}
+                        {overflowWarning.movable.map(m => `${m.title} (${formatMinutes(m.estimatedMinutes ?? 0)})`).join(', ')}
+                      </li>
+                    )}
+                    <li>
+                      {overflowWarning.suggestedTime
+                        ? `Sugestão: começar às ${overflowWarning.suggestedTime}.`
+                        : 'Sem janela livre suficiente hoje — considere mover para amanhã.'}
+                    </li>
+                  </ul>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => void confirmAddFocus(overflowWarning.itemId)}
+                      className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+                    >
+                      Manter mesmo assim
+                    </button>
+                    <button
+                      onClick={() => setOverflowWarning(null)}
+                      className="rounded border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {focusItems.length < 3 && !isAddingFocus && (
                 <button
@@ -196,22 +314,84 @@ export default function HojePage() {
         {/* Coluna Secundária */}
         <div className="space-y-6">
 
+          {/* Capacidade + Google Calendar */}
+          <TodayCalendarCard
+            date={today}
+            scheduledItems={todayOverview?.scheduled ?? []}
+            focusItems={focusItems}
+            onCapacityChange={(summary, busy) => {
+              setCapacity(summary);
+              setBusyBlocks(busy);
+            }}
+          />
+
           {/* Linha do Tempo */}
           <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
             <h2 className="text-lg font-bold flex items-center gap-2 mb-4"><Clock className="text-purple-500" /> Agendado para Hoje</h2>
+            <p className="mb-3 text-xs text-gray-400">Horário planejado ≠ prazo — prazos aparecem em Atenção.</p>
             {todayOverview?.scheduled.length === 0 ? (
               <p className="text-gray-500 text-sm">Nada agendado para hoje.</p>
             ) : (
               <ol className="space-y-3 border-l-2 border-purple-200 pl-4">
-                {todayOverview?.scheduled.map(item => (
-                  <li key={item.id} className="relative">
-                    <span className="absolute -left-[1.35rem] top-1.5 w-2.5 h-2.5 rounded-full bg-purple-500" aria-hidden="true" />
-                    <div className="text-xs font-bold text-purple-700">{format(parseISO(item.scheduledAt!), 'HH:mm')}</div>
-                    <div className="text-sm font-medium text-gray-900 truncate">{item.title}</div>
-                  </li>
-                ))}
+                {todayOverview?.scheduled.map(item => {
+                  const sourceLabel = itemSourceLabel(item);
+                  return (
+                    <li key={item.id} className="relative">
+                      <span className="absolute -left-[1.35rem] top-1.5 w-2.5 h-2.5 rounded-full bg-purple-500" aria-hidden="true" />
+                      <div className="text-xs font-bold text-purple-700">{format(parseISO(item.scheduledAt!), 'HH:mm')}</div>
+                      <div className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5">
+                        <span className="truncate">{item.title}</span>
+                        {sourceLabel && (
+                          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{sourceLabel}</span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ol>
             )}
+          </section>
+
+          {/* Atividades de planos e recorrências */}
+          <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
+            <h2 className="text-lg font-bold flex items-center gap-2 mb-3"><CalendarCheck className="text-emerald-500" /> Dos planos ativos</h2>
+            {planItemsToday.length === 0 ? (
+              <p className="text-gray-500 text-sm">Nenhuma atividade de plano para hoje.</p>
+            ) : (
+              <ul className="space-y-1.5 text-sm">
+                {planItemsToday.slice(0, 8).map(item => (
+                  <li key={item.id} className="flex items-center gap-2">
+                    <span className="truncate">{item.title}</span>
+                    <span className="ml-auto shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">
+                      {item.recurrenceRuleId ? 'Recorrente' : 'Plano'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {recurrentItemsToday.length > 0 && (
+              <p className="mt-2 text-xs text-gray-400">
+                {recurrentItemsToday.length} recorrente(s) hoje.
+              </p>
+            )}
+          </section>
+
+          {/* Aguardando + próxima revisão */}
+          <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
+            <h2 className="text-lg font-bold flex items-center gap-2 mb-3"><Hourglass className="text-amber-500" /> Aguardando</h2>
+            {waitingItems.length === 0 ? (
+              <p className="text-gray-500 text-sm">Nada aguardando terceiros.</p>
+            ) : (
+              <ul className="space-y-1.5 text-sm">
+                {waitingItems.slice(0, 5).map(item => (
+                  <li key={item.id} className="truncate">{item.title}</li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-4 border-t pt-3 text-xs text-gray-500">
+              Próxima revisão: {nextReviewLabel} ·{' '}
+              <Link href="/revisao" className="text-blue-600 hover:underline">abrir Revisão</Link>
+            </p>
           </section>
 
           {/* Atenção Necessária */}
