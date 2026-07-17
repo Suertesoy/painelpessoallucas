@@ -18,6 +18,7 @@ import {
   SourceDocumentRepository,
   ExecutionPlanRepository,
 } from '../application/plan.repository';
+import { PlanProposalSchema } from '../domain/plan-proposal.schema';
 import { ChangeNotifier } from '@/platform/supabase/change-notifier';
 
 // ----------------------------------------------------------------------------
@@ -364,6 +365,20 @@ export class SupabaseExecutionPlanRepository implements ExecutionPlanRepository 
       actions: (actionsRes.data ?? []).map(actionRowToDomain),
       recurrenceRules: (rulesRes.data ?? []).map(ruleRowToDomain),
     };
+  }
+
+  async findLatestProposal(planId: string) {
+    const { data, error } = await this.supabase
+      .from('ai_runs')
+      .select('response_metadata')
+      .eq('execution_plan_id', planId)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Não foi possível carregar a proposta da IA: ${error.message}`);
+    const parsed = PlanProposalSchema.safeParse(data?.response_metadata);
+    return parsed.success ? parsed.data : null;
   }
 
   subscribe(listener: () => void): () => void {

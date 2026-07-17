@@ -6,6 +6,7 @@ import type {
   RecurrenceRule,
   PlanDetail,
 } from '../domain/plan.schema';
+import type { PlanProposal } from '../domain/plan-proposal.schema';
 
 export interface SourceDocumentRepository {
   save(doc: SourceDocument): Promise<void>;
@@ -25,5 +26,7 @@ export interface ExecutionPlanRepository {
   findAllPlans(): Promise<ExecutionPlan[]>;
   findPlansByProject(projectId: string): Promise<ExecutionPlan[]>;
   findDetail(planId: string): Promise<PlanDetail | null>;
+  /** Proposta validada da última execução de IA concluída para o plano. */
+  findLatestProposal(planId: string): Promise<PlanProposal | null>;
   subscribe(listener: () => void): () => void;
 }

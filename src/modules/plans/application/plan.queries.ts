@@ -33,4 +33,8 @@ export class PlanQueries {
   getPlanDetail(planId: string): Promise<PlanDetail | null> {
     return this.planRepo.findDetail(planId);
   }
+
+  getPlanProposal(planId: string) {
+    return this.planRepo.findLatestProposal(planId);
+  }
 }
