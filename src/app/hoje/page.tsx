@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { useReactiveQuery, useMounted } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { Item } from '@/modules/items/domain/item.schema';
-import { WORKSPACE_ID } from '@/lib/constants';
+import { useWorkspace } from '@/providers/auth.provider';
 import { todayDateStr } from '@/lib/dates';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
@@ -16,6 +16,7 @@ const PRIORITY_ORDER: Record<string, number> = { critical: 4, high: 3, normal: 2
 export default function HojePage() {
   const { item: itemQueries, project: projectQueries, dailyPlan: dailyPlanQueries } = useQueries();
   const { item: itemCmds, dailyPlan: dailyPlanCmds } = useCommands();
+  const { workspaceId } = useWorkspace();
   const mounted = useMounted();
   const today = todayDateStr();
 
@@ -54,7 +55,7 @@ export default function HojePage() {
     if (currentFocus.includes(focusSelectId)) return;
 
     try {
-      await dailyPlanCmds.setDailyFocus(WORKSPACE_ID, today, [...currentFocus, focusSelectId]);
+      await dailyPlanCmds.setDailyFocus(workspaceId, today, [...currentFocus, focusSelectId]);
       setFocusSelectId('');
       setFocusError('');
       setIsAddingFocus(false);
@@ -64,7 +65,7 @@ export default function HojePage() {
   };
 
   const handleRemoveFocus = async (id: string) => {
-    await dailyPlanCmds.removeDailyFocusItem(WORKSPACE_ID, today, id);
+    await dailyPlanCmds.removeDailyFocusItem(workspaceId, today, id);
   };
 
   const handleCompleteItem = async (id: string) => {

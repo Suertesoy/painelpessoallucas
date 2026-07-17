@@ -3,8 +3,9 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Search, Plus, Menu, X, Sun, Inbox, Folder, Lightbulb, Calendar, Activity } from 'lucide-react';
+import { Search, Plus, Menu, X, Sun, Inbox, Folder, Lightbulb, Calendar, Activity, Settings, LogOut, FileText } from 'lucide-react';
 import { openGlobalSearch, openQuickCapture } from '@/lib/ui-events';
+import { useAuth } from '@/providers/auth.provider';
 
 const NAV_ITEMS = [
   { href: '/hoje', label: 'Hoje', icon: Sun },
@@ -12,8 +13,30 @@ const NAV_ITEMS = [
   { href: '/projetos', label: 'Projetos', icon: Folder },
   { href: '/ideias', label: 'Ideias e Insights', icon: Lightbulb },
   { href: '/agenda', label: 'Agenda', icon: Calendar },
+  { href: '/planos', label: 'Planos', icon: FileText },
   { href: '/revisao', label: 'Revisão', icon: Activity },
+  { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ];
+
+function UserFooter() {
+  const { user, signOut } = useAuth();
+  if (!user) return null;
+  return (
+    <div className="mt-auto border-t pt-3 flex items-center justify-between gap-2">
+      <span className="truncate text-xs text-gray-500" title={user.email ?? undefined}>
+        {user.email}
+      </span>
+      <button
+        onClick={() => void signOut()}
+        className="p-1.5 text-gray-500 hover:bg-gray-100 rounded shrink-0"
+        title="Sair"
+        aria-label="Sair da conta"
+      >
+        <LogOut size={16} />
+      </button>
+    </div>
+  );
+}
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -71,6 +94,7 @@ export function SidebarNav() {
         </button>
 
         <NavLinks />
+        <UserFooter />
       </aside>
 
       {/* Barra superior mobile */}
@@ -103,8 +127,9 @@ export function SidebarNav() {
             onClick={() => setMobileOpen(false)}
             aria-hidden="true"
           />
-          <div className="relative bg-white border-b shadow-lg p-4">
+          <div className="relative bg-white border-b shadow-lg p-4 flex flex-col gap-3">
             <NavLinks onNavigate={() => setMobileOpen(false)} />
+            <UserFooter />
           </div>
         </div>
       )}

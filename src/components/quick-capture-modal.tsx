@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import { Project } from '@/modules/projects/domain/project.schema';
-import { WORKSPACE_ID } from '@/lib/constants';
+import { useWorkspace } from '@/providers/auth.provider';
 import { QUICK_CAPTURE_EVENT } from '@/lib/ui-events';
 import { X } from 'lucide-react';
 
@@ -19,6 +19,7 @@ export function QuickCaptureModal() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const { item: itemCmds } = useCommands();
+  const { workspaceId } = useWorkspace();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
@@ -106,7 +107,7 @@ export function QuickCaptureModal() {
         priority,
         projectId: projectId || undefined,
         source: 'quick_capture'
-      }, WORKSPACE_ID);
+      }, workspaceId);
 
       setSuccess(true);
       setTimeout(() => {

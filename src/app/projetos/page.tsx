@@ -3,13 +3,14 @@
 import React, { useState, useMemo } from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
-import { WORKSPACE_ID } from '@/lib/constants';
+import { useWorkspace } from '@/providers/auth.provider';
 import { Folder, Plus, AlertCircle, Clock, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ProjetosPage() {
   const { project: projectQueries, item: itemQueries } = useQueries();
   const { project: projectCmds } = useCommands();
+  const { workspaceId } = useWorkspace();
   const { data: projects, isLoading } = useReactiveQuery(() => projectQueries.listProjects(), []);
   const { data: items } = useReactiveQuery(() => itemQueries.listItems(), []);
 
@@ -31,7 +32,7 @@ export default function ProjetosPage() {
       objective: newProject.objective.trim() || undefined,
       status: 'active',
       attentionLevel: 'normal'
-    }, WORKSPACE_ID);
+    }, workspaceId);
 
     setNewProject({ name: '', objective: '' });
     setIsCreating(false);

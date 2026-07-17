@@ -1,5 +1,9 @@
 /**
- * Identificador do workspace padrão da Fase 1 (single-user, local).
- * Na Fase 2 (Supabase + autenticação) este valor passará a vir da sessão.
+ * Identificador do workspace da Fase 1 (single-user, localStorage).
+ *
+ * Fase 2+: o workspace real vem da sessão (useWorkspace, em
+ * providers/auth.provider.tsx). Esta constante permanece APENAS para o
+ * assistente de migração reconhecer os dados locais antigos gravados
+ * com 'ws-1'. Não usar em código novo.
  */
-export const WORKSPACE_ID = 'ws-1';
+export const LEGACY_LOCAL_WORKSPACE_ID = 'ws-1';
