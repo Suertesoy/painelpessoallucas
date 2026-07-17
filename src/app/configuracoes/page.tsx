@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/providers/auth.provider';
 import { GoogleIntegrationCard } from '@/components/google-integration-card';
+import { DigestSettingsCard } from '@/components/digest-settings-card';
 
 function ConfiguracoesContent() {
   const { user } = useAuth();
@@ -44,6 +45,7 @@ function ConfiguracoesContent() {
         <div className="mt-4 space-y-4">
           <GoogleIntegrationCard service="calendar" />
           <GoogleIntegrationCard service="gmail" />
+          <DigestSettingsCard />
         </div>
       </section>
     </div>
