@@ -31,7 +31,9 @@ export class PlanCommands {
   constructor(
     private docRepo: SourceDocumentRepository,
     private planRepo: ExecutionPlanRepository,
-    private eventRepo: EventRepository
+    private eventRepo: EventRepository,
+    /** Materializa ocorrências das regras do plano na ativação (Etapa 5). */
+    private materializePlanRules?: (planId: string) => Promise<unknown>
   ) {}
 
   async createSourceDocument(
@@ -144,6 +146,11 @@ export class PlanCommands {
     const active: ExecutionPlan = { ...plan, status: 'active', updatedAt: now };
     ExecutionPlanSchema.parse(active);
     await this.planRepo.savePlan(active);
+
+    // Gera as próximas ocorrências das rotinas aprovadas (idempotente).
+    if (this.materializePlanRules) {
+      await this.materializePlanRules(planId);
+    }
 
     await this.eventRepo.save({
       id: crypto.randomUUID(),

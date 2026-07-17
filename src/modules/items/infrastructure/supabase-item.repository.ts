@@ -23,6 +23,11 @@ type ItemRow = {
   updated_at: string;
   completed_at: string | null;
   archived_at: string | null;
+  execution_plan_id: string | null;
+  plan_phase_id: string | null;
+  plan_action_id: string | null;
+  recurrence_rule_id: string | null;
+  occurrence_at: string | null;
 };
 
 function rowToItem(row: ItemRow): Item {
@@ -44,6 +49,11 @@ function rowToItem(row: ItemRow): Item {
     updatedAt: row.updated_at,
     completedAt: row.completed_at ?? undefined,
     archivedAt: row.archived_at ?? undefined,
+    executionPlanId: row.execution_plan_id ?? undefined,
+    planPhaseId: row.plan_phase_id ?? undefined,
+    planActionId: row.plan_action_id ?? undefined,
+    recurrenceRuleId: row.recurrence_rule_id ?? undefined,
+    occurrenceAt: row.occurrence_at ?? undefined,
   });
 }
 
@@ -67,6 +77,11 @@ function itemToRow(item: Item): Omit<ItemRow, 'created_at' | 'updated_at'> & {
     created_at: item.createdAt,
     completed_at: item.completedAt ?? null,
     archived_at: item.archivedAt ?? null,
+    execution_plan_id: item.executionPlanId ?? null,
+    plan_phase_id: item.planPhaseId ?? null,
+    plan_action_id: item.planActionId ?? null,
+    recurrence_rule_id: item.recurrenceRuleId ?? null,
+    occurrence_at: item.occurrenceAt ?? null,
   };
 }
 

@@ -23,6 +23,12 @@ export const ItemSchema = z.object({
   updatedAt: z.string().datetime(),
   completedAt: z.string().datetime().optional(),
   archivedAt: z.string().datetime().optional(),
+  // Proveniência (Fase 2): ocorrências materializadas por planos/recorrências.
+  executionPlanId: z.string().uuid().optional(),
+  planPhaseId: z.string().uuid().optional(),
+  planActionId: z.string().uuid().optional(),
+  recurrenceRuleId: z.string().uuid().optional(),
+  occurrenceAt: z.string().datetime().optional(),
 });
 
 export type Item = z.infer<typeof ItemSchema>;

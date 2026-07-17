@@ -210,9 +210,10 @@ alter table public.items
   add column occurrence_at timestamptz;
 
 -- Nunca gerar a mesma ocorrência duas vezes (chave natural da materialização).
+-- Índice total (não parcial) para que o upsert on_conflict do PostgREST o
+-- infira; linhas com NULL não conflitam entre si (NULLS DISTINCT).
 create unique index items_occurrence_unique_idx
-  on public.items (recurrence_rule_id, occurrence_at)
-  where recurrence_rule_id is not null and occurrence_at is not null;
+  on public.items (recurrence_rule_id, occurrence_at);
 
 create index items_plan_idx on public.items (execution_plan_id) where execution_plan_id is not null;
 

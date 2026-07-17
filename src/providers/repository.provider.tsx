@@ -25,6 +25,7 @@ import {
 } from '@/modules/plans/infrastructure/supabase-plan.repository';
 import { PlanCommands } from '@/modules/plans/application/plan.commands';
 import { PlanQueries } from '@/modules/plans/application/plan.queries';
+import { activateAndMaterializePlanRules } from '@/modules/plans/application/recurrence-materializer';
 import {
   SourceDocumentRepository,
   ExecutionPlanRepository,
@@ -92,7 +93,9 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       globalQueries: new GlobalQueries(itemQueries, projectQueries),
       sourceDocumentRepository: docRepo,
       executionPlanRepository: planRepo,
-      planCommands: new PlanCommands(docRepo, planRepo, eventRepo),
+      planCommands: new PlanCommands(docRepo, planRepo, eventRepo, (planId) =>
+        activateAndMaterializePlanRules(supabase, planId)
+      ),
       planQueries: new PlanQueries(docRepo, planRepo),
     };
   }, [status, workspaceId]);
