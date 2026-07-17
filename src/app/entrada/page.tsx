@@ -3,11 +3,15 @@
 import React, { useState, useMemo } from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
-import { Item, ItemType } from '@/modules/items/domain/item.schema';
+import { Item, ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import { Project } from '@/modules/projects/domain/project.schema';
-import { Search, Archive, CheckCircle, Tag, AlertCircle } from 'lucide-react';
+import { dateInputToISO, isoToDateInput } from '@/lib/dates';
+import { Search, Archive, CheckCircle, AlertCircle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
+
+type TypeFilter = ItemType | 'all';
+type PriorityFilter = ItemPriority | 'all';
 
 export default function EntradaPage() {
   const { item: itemQueries, project: projectQueries } = useQueries();
@@ -16,8 +20,8 @@ export default function EntradaPage() {
   const { data: projects } = useReactiveQuery(() => projectQueries.listProjects(), []);
 
   const [search, setSearch] = useState('');
-  const [filterType, setFilterType] = useState<ItemType | 'all'>('all');
-  const [filterPriority, setFilterPriority] = useState<'low' | 'normal' | 'high' | 'critical' | 'all'>('all');
+  const [filterType, setFilterType] = useState<TypeFilter>('all');
+  const [filterPriority, setFilterPriority] = useState<PriorityFilter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const filteredItems = useMemo(() => {
@@ -43,7 +47,7 @@ export default function EntradaPage() {
     }
 
     // Ordenar do mais novo para o mais antigo
-    return items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return items.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [inboxItems, projects, search, filterType, filterPriority]);
 
   const handleArchive = async (id: string) => {
@@ -65,11 +69,11 @@ export default function EntradaPage() {
   };
 
   if (isLoading) {
-    return <div className="p-8">Carregando...</div>;
+    return <div className="p-4 md:p-8">Carregando...</div>;
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto flex flex-col h-full">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto flex flex-col h-full">
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Caixa de Entrada</h1>
@@ -79,10 +83,11 @@ export default function EntradaPage() {
 
       <div className="bg-white p-4 rounded-lg shadow-sm border mb-6 flex gap-4 items-end flex-wrap">
         <div className="flex-1 min-w-[200px]">
-          <label className="block text-xs font-medium text-gray-600 mb-1">Pesquisar na Entrada</label>
+          <label htmlFor="inbox-search" className="block text-xs font-medium text-gray-600 mb-1">Pesquisar na Entrada</label>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input
+              id="inbox-search"
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -91,12 +96,13 @@ export default function EntradaPage() {
             />
           </div>
         </div>
-        
+
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
+          <label htmlFor="inbox-type" className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
           <select
+            id="inbox-type"
             value={filterType}
-            onChange={(e) => setFilterType(e.target.value as any)}
+            onChange={(e) => setFilterType(e.target.value as TypeFilter)}
             className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
           >
             <option value="all">Todos os tipos</option>
@@ -105,14 +111,17 @@ export default function EntradaPage() {
             <option value="idea">Ideia</option>
             <option value="insight">Insight</option>
             <option value="decision">Decisão</option>
+            <option value="reference">Referência</option>
+            <option value="reminder">Lembrete</option>
           </select>
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Prioridade</label>
+          <label htmlFor="inbox-priority" className="block text-xs font-medium text-gray-600 mb-1">Prioridade</label>
           <select
+            id="inbox-priority"
             value={filterPriority}
-            onChange={(e) => setFilterPriority(e.target.value as any)}
+            onChange={(e) => setFilterPriority(e.target.value as PriorityFilter)}
             className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
           >
             <option value="all">Todas as prioridades</option>
@@ -134,13 +143,13 @@ export default function EntradaPage() {
         ) : (
           <div className="divide-y">
             {filteredItems.map(item => (
-              <div key={item.id} className="p-4 hover:bg-gray-50 flex flex-col gap-3 group">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
+              <div key={item.id} className="p-4 hover:bg-gray-50 flex flex-col gap-3">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="flex-1 min-w-0">
                     {editingId === item.id ? (
-                      <input 
-                        type="text" 
-                        defaultValue={item.title} 
+                      <input
+                        type="text"
+                        defaultValue={item.title}
                         onBlur={(e) => {
                           if (e.target.value !== item.title) handleUpdate(item.id, { title: e.target.value });
                           setEditingId(null);
@@ -150,7 +159,7 @@ export default function EntradaPage() {
                         autoFocus
                       />
                     ) : (
-                      <h3 className="font-medium text-lg text-gray-900 cursor-text" onClick={() => setEditingId(item.id)}>
+                      <h3 className="font-medium text-lg text-gray-900 cursor-text" onClick={() => setEditingId(item.id)} title="Clique para editar o título">
                         {item.title}
                       </h3>
                     )}
@@ -160,11 +169,12 @@ export default function EntradaPage() {
                       </span>
                       {item.priority === 'critical' && <span className="flex items-center gap-1 text-red-600 bg-red-50 px-2 py-0.5 rounded"><AlertCircle size={12}/> Crítica</span>}
                       {item.priority === 'high' && <span className="flex items-center gap-1 text-orange-600 bg-orange-50 px-2 py-0.5 rounded">Alta</span>}
-                      
-                      <select 
-                        value={item.projectId || ''} 
+
+                      <select
+                        value={item.projectId || ''}
                         onChange={(e) => handleUpdate(item.id, { projectId: e.target.value || undefined })}
                         className="bg-transparent hover:bg-gray-100 rounded px-1 outline-none text-gray-600"
+                        aria-label="Projeto do item"
                       >
                         <option value="">Sem projeto</option>
                         {projects?.map((p: Project) => (
@@ -176,16 +186,16 @@ export default function EntradaPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-2 shrink-0">
                     {item.type === 'task' && (
-                      <button onClick={() => handleComplete(item.id)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Concluir">
+                      <button onClick={() => handleComplete(item.id)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Concluir" aria-label={`Concluir ${item.title}`}>
                         <CheckCircle size={18} />
                       </button>
                     )}
-                    <button onClick={() => handleOrganize(item.id)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded text-sm font-medium" title="Remover da Entrada">
+                    <button onClick={() => handleOrganize(item.id)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded text-sm font-medium" title="Marcar como organizado e remover da Entrada">
                       Organizar
                     </button>
-                    <button onClick={() => handleArchive(item.id)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="Arquivar">
+                    <button onClick={() => handleArchive(item.id)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="Arquivar" aria-label={`Arquivar ${item.title}`}>
                       <Archive size={18} />
                     </button>
                   </div>
@@ -194,25 +204,29 @@ export default function EntradaPage() {
                 {item.content && (
                   <p className="text-gray-700 text-sm whitespace-pre-wrap">{item.content}</p>
                 )}
-                
-                <div className="flex items-center gap-4 text-xs mt-2">
+
+                <div className="flex items-center gap-4 text-xs mt-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-500">Ação:</span>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       defaultValue={item.nextAction || ''}
                       placeholder="Próxima ação..."
-                      onBlur={(e) => handleUpdate(item.id, { nextAction: e.target.value })}
+                      onBlur={(e) => {
+                        if (e.target.value !== (item.nextAction || '')) handleUpdate(item.id, { nextAction: e.target.value || undefined });
+                      }}
                       className="bg-transparent outline-none border-b border-transparent hover:border-gray-300 focus:border-blue-500 px-1 py-0.5 min-w-[200px]"
+                      aria-label="Próxima ação"
                     />
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-500">Agendado:</span>
-                    <input 
-                      type="date" 
-                      defaultValue={item.scheduledAt ? item.scheduledAt.split('T')[0] : ''}
-                      onChange={(e) => handleUpdate(item.id, { scheduledAt: e.target.value ? new Date(e.target.value).toISOString() : undefined })}
+                    <input
+                      type="date"
+                      defaultValue={isoToDateInput(item.scheduledAt)}
+                      onChange={(e) => handleUpdate(item.id, { scheduledAt: dateInputToISO(e.target.value) })}
                       className="bg-transparent outline-none text-gray-600"
+                      aria-label="Data de agendamento"
                     />
                   </div>
                 </div>

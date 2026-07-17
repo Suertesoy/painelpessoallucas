@@ -3,25 +3,27 @@
 import React from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
-import { Activity, AlertTriangle, Clock, Inbox, Layout } from 'lucide-react';
+import { Item, UpdateItemDTO } from '@/modules/items/domain/item.schema';
+import { dateInputToISO } from '@/lib/dates';
+import { Activity, AlertTriangle, CheckCircle, Clock, Inbox, Layout } from 'lucide-react';
 import Link from 'next/link';
 
 export default function RevisaoPage() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
-  
+
   const { data: reviewOverview, isLoading: isLoadingOverview } = useReactiveQuery(() => itemQueries.getReviewOverview(), []);
   const { data: projects, isLoading: isLoadingProjects } = useReactiveQuery(() => projectQueries.listProjects(), []);
 
   const activeProjectsWithoutMilestone = projects?.filter(p => p.status === 'active' && !p.nextMilestone) || [];
-  
-  const totalIssues = (reviewOverview?.overdue.length || 0) + 
-                      (reviewOverview?.blocked.length || 0) + 
-                      (reviewOverview?.oldInbox.length || 0) + 
+
+  const totalIssues = (reviewOverview?.overdue.length || 0) +
+                      (reviewOverview?.blocked.length || 0) +
+                      (reviewOverview?.oldInbox.length || 0) +
                       (reviewOverview?.noProject.length || 0) +
                       activeProjectsWithoutMilestone.length;
 
-  const handleOrganize = async (id: string, updates: any) => {
+  const handleOrganize = async (id: string, updates: UpdateItemDTO) => {
     await itemCmds.updateItem(id, updates);
   };
 
@@ -30,11 +32,11 @@ export default function RevisaoPage() {
   };
 
   if (isLoadingOverview || isLoadingProjects) {
-    return <div className="p-8 max-w-4xl mx-auto">Carregando Revisão...</div>;
+    return <div className="p-4 md:p-8 max-w-4xl mx-auto">Carregando Revisão...</div>;
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto h-full flex flex-col">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto h-full flex flex-col">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
           <Activity className="text-blue-600" /> Revisão do Sistema
@@ -42,61 +44,79 @@ export default function RevisaoPage() {
         <p className="text-gray-600 mt-1">Análise determinística para manter sua central operacional limpa e acionável.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard title="Prazos Estourados" count={reviewOverview?.overdue.length || 0} icon={<Clock className="text-red-500" />} color="bg-red-50 text-red-700 border-red-200" />
         <StatCard title="Bloqueados" count={reviewOverview?.blocked.length || 0} icon={<AlertTriangle className="text-orange-500" />} color="bg-orange-50 text-orange-700 border-orange-200" />
         <StatCard title="Inbox Antiga (>30d)" count={reviewOverview?.oldInbox.length || 0} icon={<Inbox className="text-yellow-500" />} color="bg-yellow-50 text-yellow-700 border-yellow-200" />
         <StatCard title="Proj. Sem Marco" count={activeProjectsWithoutMilestone.length} icon={<Layout className="text-blue-500" />} color="bg-blue-50 text-blue-700 border-blue-200" />
       </div>
 
-      <div className="flex-1 overflow-auto bg-white rounded-xl shadow-sm border p-6">
+      <div className="flex-1 overflow-auto bg-white rounded-xl shadow-sm border p-4 md:p-6">
         {totalIssues === 0 ? (
           <div className="text-center py-20 text-green-700">
-            <CheckCircleIcon className="mx-auto mb-4 text-green-400" size={64} />
-            <h2 className="text-2xl font-bold">Sistema Perfeito!</h2>
+            <CheckCircle className="mx-auto mb-4 text-green-400" size={64} />
+            <h2 className="text-2xl font-bold">Sistema em ordem</h2>
             <p className="text-gray-600 mt-2">Você não possui pendências estruturais no seu painel.</p>
           </div>
         ) : (
           <div className="space-y-8">
-            
-            <Section 
-              title="Prazos Estourados" 
-              items={reviewOverview?.overdue || []} 
+
+            <Section
+              title="Prazos Estourados"
+              items={reviewOverview?.overdue || []}
               description="Itens cuja Data Limite (Due Date) já passou."
-              emptyText="Nenhum prazo estourado."
               headerIcon={<Clock className="text-red-500" size={20} />}
-              renderAction={(item: any) => (
-                <div className="flex gap-2">
-                  <input type="date" className="text-xs border rounded p-1" onChange={(e) => handleOrganize(item.id, { dueAt: new Date(e.target.value).toISOString() })} />
+              renderAction={(item) => (
+                <div className="flex gap-2 items-center">
+                  <label className="text-xs text-gray-500" htmlFor={`redate-${item.id}`}>Novo prazo:</label>
+                  <input
+                    id={`redate-${item.id}`}
+                    type="date"
+                    className="text-xs border rounded p-1"
+                    onChange={(e) => {
+                      const iso = dateInputToISO(e.target.value);
+                      if (iso) handleOrganize(item.id, { dueAt: iso });
+                    }}
+                  />
                   <button onClick={() => handleArchive(item.id)} className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200">Arquivar</button>
                 </div>
               )}
             />
 
-            <Section 
-              title="Tarefas Bloqueadas" 
-              items={reviewOverview?.blocked || []} 
+            <Section
+              title="Tarefas Bloqueadas"
+              items={reviewOverview?.blocked || []}
               description="Itens que estão travados esperando alguma coisa."
-              emptyText="Nenhuma tarefa bloqueada."
               headerIcon={<AlertTriangle className="text-orange-500" size={20} />}
-              renderAction={(item: any) => (
+              renderAction={(item) => (
                 <button onClick={() => handleOrganize(item.id, { status: 'in_progress' })} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">
                   Desbloquear
                 </button>
               )}
             />
 
-            <Section 
-              title="Inbox Estagnada" 
-              items={reviewOverview?.oldInbox || []} 
+            <Section
+              title="Inbox Estagnada"
+              items={reviewOverview?.oldInbox || []}
               description="Itens capturados há mais de 30 dias que nunca foram processados."
-              emptyText="Inbox limpa."
               headerIcon={<Inbox className="text-yellow-500" size={20} />}
-              renderAction={(item: any) => (
+              renderAction={(item) => (
                 <div className="flex gap-2">
-                  <button onClick={() => handleOrganize(item.id, { status: 'in_progress' })} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded">Organizar</button>
-                  <button onClick={() => handleArchive(item.id)} className="text-xs px-2 py-1 bg-gray-100 rounded">Arquivar</button>
+                  <button onClick={() => handleOrganize(item.id, { status: 'organized' })} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">Organizar</button>
+                  <button onClick={() => handleArchive(item.id)} className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200">Arquivar</button>
                 </div>
+              )}
+            />
+
+            <Section
+              title="Itens organizados sem projeto"
+              items={reviewOverview?.noProject || []}
+              description="Itens que saíram da Inbox mas não pertencem a nenhum projeto."
+              headerIcon={<Layout className="text-gray-500" size={20} />}
+              renderAction={() => (
+                <Link href="/ideias" className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200">
+                  Revisar em Ideias
+                </Link>
               )}
             />
 
@@ -105,7 +125,7 @@ export default function RevisaoPage() {
                 <Layout className="text-blue-500" size={20} /> Projetos Ativos sem Próximo Marco
               </h3>
               <p className="text-sm text-gray-500 mb-4">Projetos ativos precisam ter um próximo passo claro definido.</p>
-              
+
               {activeProjectsWithoutMilestone.length === 0 ? (
                 <p className="text-sm text-gray-400 italic">Todos os projetos ativos possuem marcos.</p>
               ) : (
@@ -129,7 +149,14 @@ export default function RevisaoPage() {
   );
 }
 
-function StatCard({ title, count, icon, color }: any) {
+interface StatCardProps {
+  title: string;
+  count: number;
+  icon: React.ReactNode;
+  color: string;
+}
+
+function StatCard({ title, count, icon, color }: StatCardProps) {
   return (
     <div className={`p-4 rounded-xl border ${color}`}>
       <div className="flex justify-between items-start mb-2">
@@ -141,49 +168,37 @@ function StatCard({ title, count, icon, color }: any) {
   );
 }
 
-function Section({ title, items, description, emptyText, headerIcon, renderAction }: any) {
+interface SectionProps {
+  title: string;
+  items: Item[];
+  description: string;
+  headerIcon: React.ReactNode;
+  renderAction: (item: Item) => React.ReactNode;
+}
+
+function Section({ title, items, description, headerIcon, renderAction }: SectionProps) {
   if (items.length === 0) return null;
-  
+
   return (
     <div className="border-t pt-8 first:border-0 first:pt-0">
       <h3 className="text-lg font-bold flex items-center gap-2 mb-1">
         {headerIcon} {title}
       </h3>
       <p className="text-sm text-gray-500 mb-4">{description}</p>
-      
+
       <div className="space-y-3">
-        {items.map((item: any) => (
+        {items.map(item => (
           <div key={item.id} className="p-3 border rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <div className="font-medium text-gray-900">{item.title}</div>
+            <div className="min-w-0">
+              <div className="font-medium text-gray-900 truncate">{item.title}</div>
               <div className="text-xs text-gray-500 mt-1 uppercase tracking-wide">{item.type}</div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               {renderAction(item)}
             </div>
           </div>
         ))}
       </div>
     </div>
-  );
-}
-
-function CheckCircleIcon(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
   );
 }

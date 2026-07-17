@@ -50,12 +50,12 @@ export default function AgendaPage() {
   };
 
   if (isLoadingItems || isLoadingProjects) {
-    return <div className="p-8 max-w-4xl mx-auto">Carregando Agenda...</div>;
+    return <div className="p-4 md:p-8 max-w-4xl mx-auto">Carregando Agenda...</div>;
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto h-full flex flex-col">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto h-full flex flex-col">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <Calendar className="text-blue-600" /> Agenda
@@ -141,7 +141,7 @@ export default function AgendaPage() {
                         )}
                       </div>
                       {item.type === 'task' && item.status !== 'completed' && (
-                        <button onClick={() => handleComplete(item.id)} className="text-green-600 p-1 hover:bg-green-100 rounded opacity-0 group-hover:opacity-100">
+                        <button onClick={() => handleComplete(item.id)} className="text-green-600 p-1 hover:bg-green-100 rounded" title="Concluir" aria-label="Concluir item">
                           <CheckCircle size={18}/>
                         </button>
                       )}
@@ -180,7 +180,7 @@ export default function AgendaPage() {
                         </div>
                       </div>
                       {item.type === 'task' && (
-                        <button onClick={() => handleComplete(item.id)} className="text-green-600 p-1 hover:bg-green-100 rounded opacity-0 group-hover:opacity-100">
+                        <button onClick={() => handleComplete(item.id)} className="text-green-600 p-1 hover:bg-green-100 rounded" title="Concluir" aria-label="Concluir item">
                           <CheckCircle size={18}/>
                         </button>
                       )}

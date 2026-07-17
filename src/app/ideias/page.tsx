@@ -3,33 +3,35 @@
 import React, { useState, useMemo } from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
-import { ItemType } from '@/modules/items/domain/item.schema';
+import { ItemType, UpdateItemDTO } from '@/modules/items/domain/item.schema';
 import { Lightbulb, Target, BookOpen, Search, Archive, AlertTriangle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 
+const KNOWLEDGE_TYPES: ItemType[] = ['idea', 'insight', 'decision', 'reference', 'note'];
+
+type TypeFilter = ItemType | 'all';
+
 export default function IdeiasPage() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
-  
+
   const { data: items, isLoading: isLoadingItems } = useReactiveQuery(() => itemQueries.listItems(), []);
   const { data: projects, isLoading: isLoadingProjects } = useReactiveQuery(() => projectQueries.listProjects(), []);
 
   const [search, setSearch] = useState('');
-  const [filterType, setFilterType] = useState<ItemType | 'all'>('all');
+  const [filterType, setFilterType] = useState<TypeFilter>('all');
   const [filterProject, setFilterProject] = useState<string>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const validTypes = ['idea', 'insight', 'decision', 'reference', 'note'];
-
   const filteredItems = useMemo(() => {
     if (!items) return [];
-    
-    let filtered = items.filter(i => validTypes.includes(i.type) && i.status !== 'archived');
+
+    let filtered = items.filter(i => KNOWLEDGE_TYPES.includes(i.type) && i.status !== 'archived');
 
     if (search.trim()) {
       const q = search.toLowerCase();
-      filtered = filtered.filter(i => 
+      filtered = filtered.filter(i =>
         (i.title && i.title.toLowerCase().includes(q)) ||
         (i.content && i.content.toLowerCase().includes(q))
       );
@@ -43,26 +45,26 @@ export default function IdeiasPage() {
       filtered = filtered.filter(i => i.projectId === (filterProject === 'none' ? undefined : filterProject));
     }
 
-    // Sort by Date Descending
-    return filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Mais recentes primeiro
+    return filtered.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [items, search, filterType, filterProject]);
 
   const handleArchive = async (id: string) => {
-    if (confirm("Tem certeza que deseja arquivar este item?")) {
+    if (confirm('Tem certeza que deseja arquivar este item?')) {
       await itemCmds.archiveItem(id);
     }
   };
 
-  const handleUpdate = async (id: string, updates: any) => {
+  const handleUpdate = async (id: string, updates: UpdateItemDTO) => {
     await itemCmds.updateItem(id, updates);
   };
 
   if (isLoadingItems || isLoadingProjects) {
-    return <div className="p-8 max-w-5xl mx-auto">Carregando...</div>;
+    return <div className="p-4 md:p-8 max-w-5xl mx-auto">Carregando...</div>;
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto h-full flex flex-col">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto h-full flex flex-col">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
           <Lightbulb className="text-yellow-500" /> Ideias e Insights
@@ -72,10 +74,11 @@ export default function IdeiasPage() {
 
       <div className="bg-white p-4 rounded-lg shadow-sm border mb-6 flex gap-4 items-end flex-wrap">
         <div className="flex-1 min-w-[200px]">
-          <label className="block text-xs font-medium text-gray-600 mb-1">Pesquisar</label>
+          <label htmlFor="ideas-search" className="block text-xs font-medium text-gray-600 mb-1">Pesquisar</label>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input
+              id="ideas-search"
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -84,12 +87,13 @@ export default function IdeiasPage() {
             />
           </div>
         </div>
-        
+
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
+          <label htmlFor="ideas-type" className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
           <select
+            id="ideas-type"
             value={filterType}
-            onChange={(e) => setFilterType(e.target.value as any)}
+            onChange={(e) => setFilterType(e.target.value as TypeFilter)}
             className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none capitalize"
           >
             <option value="all">Todos</option>
@@ -102,8 +106,9 @@ export default function IdeiasPage() {
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Projeto</label>
+          <label htmlFor="ideas-project" className="block text-xs font-medium text-gray-600 mb-1">Projeto</label>
           <select
+            id="ideas-project"
             value={filterProject}
             onChange={(e) => setFilterProject(e.target.value)}
             className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
@@ -126,24 +131,24 @@ export default function IdeiasPage() {
           filteredItems.map(item => {
             const isDecision = item.type === 'decision';
             const proj = projects?.find(p => p.id === item.projectId);
-            
+
             return (
-              <div 
-                key={item.id} 
-                className={`p-5 rounded-xl border shadow-sm group ${
+              <div
+                key={item.id}
+                className={`p-5 rounded-xl border shadow-sm ${
                   isDecision ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200 hover:shadow-md'
                 }`}
               >
-                <div className="flex justify-between items-start mb-2">
-                  <div className="flex items-center gap-3 flex-1">
+                <div className="flex justify-between items-start mb-2 gap-2">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
                     {isDecision && <Target className="text-red-600 shrink-0" size={24} />}
                     {item.type === 'idea' && <Lightbulb className="text-yellow-500 shrink-0" size={20} />}
                     {item.type === 'reference' && <BookOpen className="text-blue-500 shrink-0" size={20} />}
-                    
+
                     {editingId === item.id ? (
-                      <input 
-                        type="text" 
-                        defaultValue={item.title} 
+                      <input
+                        type="text"
+                        defaultValue={item.title}
                         onBlur={(e) => {
                           if (e.target.value !== item.title) handleUpdate(item.id, { title: e.target.value });
                           setEditingId(null);
@@ -153,28 +158,29 @@ export default function IdeiasPage() {
                         autoFocus
                       />
                     ) : (
-                      <h3 
-                        className={`font-bold text-lg cursor-text ${isDecision ? 'text-red-900' : 'text-gray-900'}`} 
+                      <h3
+                        className={`font-bold text-lg cursor-text truncate ${isDecision ? 'text-red-900' : 'text-gray-900'}`}
                         onClick={() => setEditingId(item.id)}
+                        title="Clique para editar o título"
                       >
                         {item.title}
                       </h3>
                     )}
                   </div>
-                  
-                  <div className="flex items-center gap-2">
+
+                  <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs text-gray-500 capitalize bg-white/50 px-2 py-1 rounded">
                       {format(parseISO(item.createdAt), 'dd MMM yyyy', { locale: ptBR })}
                     </span>
-                    <button onClick={() => handleArchive(item.id)} className="text-gray-400 hover:text-red-600 p-1 opacity-0 group-hover:opacity-100 transition-opacity" title="Arquivar">
+                    <button onClick={() => handleArchive(item.id)} className="text-gray-400 hover:text-red-600 p-1" title="Arquivar" aria-label={`Arquivar ${item.title}`}>
                       <Archive size={16} />
                     </button>
                   </div>
                 </div>
 
-                <div className="pl-9 pr-4">
+                <div className="pl-0 sm:pl-9 pr-0 sm:pr-4">
                   {editingId === `content-${item.id}` ? (
-                    <textarea 
+                    <textarea
                       defaultValue={item.content || ''}
                       onBlur={(e) => {
                         if (e.target.value !== item.content) handleUpdate(item.id, { content: e.target.value });
@@ -184,9 +190,10 @@ export default function IdeiasPage() {
                       autoFocus
                     />
                   ) : (
-                    <div 
+                    <div
                       className={`text-sm mb-4 cursor-text whitespace-pre-wrap ${isDecision ? 'text-red-800 font-medium' : 'text-gray-700'}`}
                       onClick={() => setEditingId(`content-${item.id}`)}
+                      title="Clique para editar o conteúdo"
                     >
                       {item.content || <span className="italic opacity-50">Clique para adicionar conteúdo...</span>}
                     </div>

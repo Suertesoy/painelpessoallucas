@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
-import { Project } from '@/modules/projects/domain/project.schema';
+import { WORKSPACE_ID } from '@/lib/constants';
 import { Folder, Plus, AlertCircle, Clock, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -31,7 +31,7 @@ export default function ProjetosPage() {
       objective: newProject.objective.trim() || undefined,
       status: 'active',
       attentionLevel: 'normal'
-    }, 'ws-1');
+    }, WORKSPACE_ID);
 
     setNewProject({ name: '', objective: '' });
     setIsCreating(false);
@@ -43,12 +43,12 @@ export default function ProjetosPage() {
   };
 
   if (isLoading) {
-    return <div className="p-8">Carregando projetos...</div>;
+    return <div className="p-4 md:p-8">Carregando projetos...</div>;
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto">
+      <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
             <Folder className="text-blue-500" /> Projetos
@@ -97,7 +97,7 @@ export default function ProjetosPage() {
         </div>
       )}
 
-      <div className="flex gap-4 border-b mb-6">
+      <div className="flex gap-4 border-b mb-6 overflow-x-auto">
         <button 
           onClick={() => setFilter('active')} 
           className={`pb-2 px-1 border-b-2 font-medium ${filter === 'active' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
