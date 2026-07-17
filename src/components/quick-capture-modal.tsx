@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useCommands, useQueries } from '@/providers/repository.provider';
-import { ItemType } from '@/modules/items/domain/item.schema';
+import { ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import { Project } from '@/modules/projects/domain/project.schema';
+import { WORKSPACE_ID } from '@/lib/constants';
+import { QUICK_CAPTURE_EVENT } from '@/lib/ui-events';
 import { X } from 'lucide-react';
 
 export function QuickCaptureModal() {
@@ -11,7 +13,7 @@ export function QuickCaptureModal() {
   const [content, setContent] = useState('');
   const [title, setTitle] = useState('');
   const [type, setType] = useState<ItemType>('note');
-  const [priority, setPriority] = useState<'low' | 'normal' | 'high' | 'critical'>('normal');
+  const [priority, setPriority] = useState<ItemPriority>('normal');
   const [projectId, setProjectId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -22,6 +24,11 @@ export function QuickCaptureModal() {
 
   const { project: projectQueries } = useQueries();
   const [projects, setProjects] = useState<Project[]>([]);
+
+  const openModal = useCallback(() => {
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    setIsOpen(true);
+  }, []);
 
   const closeModal = useCallback(() => {
     setIsOpen(false);
@@ -39,9 +46,16 @@ export function QuickCaptureModal() {
 
   useEffect(() => {
     if (isOpen) {
-      projectQueries.listProjects().then(setProjects);
+      projectQueries.listProjects().then(ps => setProjects(ps.filter(p => p.status === 'active')));
     }
   }, [isOpen, projectQueries]);
+
+  // Abertura via botões da interface (sidebar, FAB mobile)
+  useEffect(() => {
+    const handleOpen = () => openModal();
+    window.addEventListener(QUICK_CAPTURE_EVENT, handleOpen);
+    return () => window.removeEventListener(QUICK_CAPTURE_EVENT, handleOpen);
+  }, [openModal]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -49,13 +63,12 @@ export function QuickCaptureModal() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'Space') {
         const target = e.target as HTMLElement;
         const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
-        
+
         if (isInput && !isOpen) return; // Não abre se estiver digitando em outro lugar
-        
+
         e.preventDefault();
         if (!isOpen) {
-          previousFocusRef.current = document.activeElement as HTMLElement;
-          setIsOpen(true);
+          openModal();
         } else {
           closeModal();
         }
@@ -68,14 +81,13 @@ export function QuickCaptureModal() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen]);
+  }, [isOpen, openModal, closeModal]);
 
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen]);
-
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,12 +106,12 @@ export function QuickCaptureModal() {
         priority,
         projectId: projectId || undefined,
         source: 'quick_capture'
-      }, 'ws-1');
+      }, WORKSPACE_ID);
 
       setSuccess(true);
       setTimeout(() => {
         closeModal();
-      }, 1000);
+      }, 800);
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Erro ao criar item';
       setError(errorMsg);
@@ -111,7 +123,7 @@ export function QuickCaptureModal() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Captura rápida">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
         <div className="p-4 border-b flex justify-between items-center bg-gray-50">
           <h2 className="font-semibold text-gray-800">Captura Rápida</h2>
@@ -119,19 +131,20 @@ export function QuickCaptureModal() {
             <X size={20} />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {success ? (
-            <div className="bg-green-50 text-green-700 p-4 rounded-md text-center">
+            <div className="bg-green-50 text-green-700 p-4 rounded-md text-center" role="status">
               Item capturado com sucesso!
             </div>
           ) : (
             <>
-              {error && <div className="text-red-600 text-sm">{error}</div>}
-              
+              {error && <div className="text-red-600 text-sm" role="alert">{error}</div>}
+
               <div>
-                <label className="sr-only">Conteúdo</label>
+                <label htmlFor="qc-content" className="sr-only">Conteúdo</label>
                 <textarea
+                  id="qc-content"
                   ref={inputRef}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
@@ -141,10 +154,11 @@ export function QuickCaptureModal() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Título (Opcional)</label>
+                  <label htmlFor="qc-title" className="block text-xs font-medium text-gray-600 mb-1">Título (Opcional)</label>
                   <input
+                    id="qc-title"
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
@@ -153,8 +167,9 @@ export function QuickCaptureModal() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Projeto (Opcional)</label>
+                  <label htmlFor="qc-project" className="block text-xs font-medium text-gray-600 mb-1">Projeto (Opcional)</label>
                   <select
+                    id="qc-project"
                     value={projectId}
                     onChange={(e) => setProjectId(e.target.value)}
                     className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
@@ -166,8 +181,9 @@ export function QuickCaptureModal() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
+                  <label htmlFor="qc-type" className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
                   <select
+                    id="qc-type"
                     value={type}
                     onChange={(e) => setType(e.target.value as ItemType)}
                     className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
@@ -177,13 +193,16 @@ export function QuickCaptureModal() {
                     <option value="idea">Ideia</option>
                     <option value="insight">Insight</option>
                     <option value="decision">Decisão</option>
+                    <option value="reference">Referência</option>
+                    <option value="reminder">Lembrete</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Prioridade</label>
+                  <label htmlFor="qc-priority" className="block text-xs font-medium text-gray-600 mb-1">Prioridade</label>
                   <select
+                    id="qc-priority"
                     value={priority}
-                    onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'high' | 'critical')}
+                    onChange={(e) => setPriority(e.target.value as ItemPriority)}
                     className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
                   >
                     <option value="low">Baixa</option>
@@ -207,7 +226,7 @@ export function QuickCaptureModal() {
                   disabled={isSubmitting || !content.trim()}
                   className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Salvando...' : 'Salvar (Enter)'}
+                  {isSubmitting ? 'Salvando...' : 'Salvar'}
                 </button>
               </div>
             </>
