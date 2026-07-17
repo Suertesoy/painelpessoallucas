@@ -19,6 +19,16 @@ import { ItemQueries } from '@/modules/items/application/item.queries';
 import { ProjectQueries } from '@/modules/projects/application/project.queries';
 import { DailyPlanQueries } from '@/modules/planning/application/daily-plan.queries';
 import { GlobalQueries } from '@/modules/global/application/global.queries';
+import {
+  SupabaseSourceDocumentRepository,
+  SupabaseExecutionPlanRepository,
+} from '@/modules/plans/infrastructure/supabase-plan.repository';
+import { PlanCommands } from '@/modules/plans/application/plan.commands';
+import { PlanQueries } from '@/modules/plans/application/plan.queries';
+import {
+  SourceDocumentRepository,
+  ExecutionPlanRepository,
+} from '@/modules/plans/application/plan.repository';
 import { useAuth } from './auth.provider';
 
 interface RepositoryContextType {
@@ -33,6 +43,10 @@ interface RepositoryContextType {
   projectQueries: ProjectQueries;
   dailyPlanQueries: DailyPlanQueries;
   globalQueries: GlobalQueries;
+  sourceDocumentRepository: SourceDocumentRepository;
+  executionPlanRepository: ExecutionPlanRepository;
+  planCommands: PlanCommands;
+  planQueries: PlanQueries;
 }
 
 const RepositoryContext = createContext<RepositoryContextType | null>(null);
@@ -61,6 +75,8 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
 
     const itemQueries = new ItemQueries(itemRepo);
     const projectQueries = new ProjectQueries(projectRepo);
+    const docRepo = new SupabaseSourceDocumentRepository(supabase, workspaceId, notifier);
+    const planRepo = new SupabaseExecutionPlanRepository(supabase, workspaceId, notifier);
 
     return {
       itemRepository: itemRepo,
@@ -74,6 +90,10 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       projectQueries,
       dailyPlanQueries: new DailyPlanQueries(dailyPlanRepo),
       globalQueries: new GlobalQueries(itemQueries, projectQueries),
+      sourceDocumentRepository: docRepo,
+      executionPlanRepository: planRepo,
+      planCommands: new PlanCommands(docRepo, planRepo, eventRepo),
+      planQueries: new PlanQueries(docRepo, planRepo),
     };
   }, [status, workspaceId]);
 
@@ -137,7 +157,8 @@ export function useCommands() {
   return {
     item: context.itemCommands,
     project: context.projectCommands,
-    dailyPlan: context.dailyPlanCommands
+    dailyPlan: context.dailyPlanCommands,
+    plan: context.planCommands
   };
 }
 
@@ -148,6 +169,7 @@ export function useQueries() {
     item: context.itemQueries,
     project: context.projectQueries,
     dailyPlan: context.dailyPlanQueries,
-    global: context.globalQueries
+    global: context.globalQueries,
+    plan: context.planQueries
   };
 }
