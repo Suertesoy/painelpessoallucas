@@ -55,12 +55,44 @@ Regra do projeto (ver `src/lib/dates.ts`): "hoje", agendamento e prazo são conc
 
 Vitest em ambiente `node` (proposital: prova que os módulos não dependem de `window`). Cobrem: limite de foco, persistência do plano, reatividade (subscribe), payload de eventos, resiliência SSR, queries de inbox/busca e utilitários de data (round-trip de fuso).
 
+## Fase 2 — implementada
+
+- **Supabase**: repositórios `Supabase*Repository` implementam as MESMAS
+  interfaces da Fase 1; `useReactiveQuery` ganhou `error` e `isOffline`.
+  Sessão via `@supabase/ssr` (cookies) renovada no `src/proxy.ts` (Next 16).
+  Clientes separados: browser, server (Server Components/Route Handlers) e
+  admin (`server-only`, SUPABASE_SECRET_KEY). RLS por membership de workspace
+  (`is_workspace_member`). `workspaceId` vem da sessão (`useWorkspace`).
+- **Migração local**: assistente em `/migracao` (backup JSON, validação Zod,
+  upsert idempotente pelos IDs originais, conferência de contagens, limpeza
+  somente com confirmação).
+- **Planos + OpenAI**: domínio em `modules/plans` (schemas, commands com
+  aprovação/ativação explícitas, queries). IA server-only
+  (`platform/ai/openai-plan-structurer.ts`, Responses API + saída estruturada
+  estrita) gera PROPOSTAS validadas por Zod; execuções auditadas em `ai_runs`.
+  Falha da IA nunca perde o documento (`source_documents`).
+- **Recorrências**: motor puro e determinístico
+  (`modules/plans/domain/recurrence-engine.ts`) + materializador idempotente
+  (chave única `recurrence_rule_id + occurrence_at`).
+- **Google**: OAuth próprio (separado do login), tokens AES-256-GCM em
+  `integration_tokens` (sem policy de cliente), rotação/revogação tratadas.
+  Calendar com scopes mínimos (calendar.app.created + freebusy); Gmail apenas
+  gmail.send.
+- **Cron**: `/api/cron/automation-tick` (CRON_SECRET, hora em hora) com
+  `automation_runs` únicos por (workspace, tipo, idempotency_key) e retries.
+
+### Limitações registradas
+- Entidade + evento de domínio são gravados em duas operações (sem transação
+  client-side no PostgREST); o evento é auditoria, não fonte de verdade. A
+  outbox transacional (RPC) permanece como evolução futura.
+- Sem realtime (decisão do ROADMAP): mudanças de outro dispositivo chegam por
+  refetch em foco/visibilidade da aba.
+
 ## Evolução planejada
 
-- **Supabase (Fase 2)**: novos adaptadores implementando as mesmas interfaces + autenticação + migração dos dados locais. **Não é "só trocar o adapter"**: entram estados de loading/erro de rede em todas as telas (hoje o único ponto de loading é o `useReactiveQuery`), atualizações otimistas, conflitos, RLS e transações (entidade + evento na mesma transação — outbox). O modelo de eventos atual já tem o formato necessário.
-- **IA (Fase 3)**: contratos em `platform/ai/ai.provider.ts` (triagem estruturada com confiança e justificativa). Princípios: captura salva antes da análise; IA sugere, não sobrescreve; chave apenas no servidor (nunca `NEXT_PUBLIC_*`); execuções registradas (modelo, tokens, custo, resultado).
-- **Automações (Fase 5)**: regras centrais vivem no painel (commands/endpoints); ferramentas externas (n8n etc.) apenas chamam essas portas.
-- **MCP (Fase 6)**: servidor MCP como porta de entrada que chama os mesmos Commands/Queries — nunca o banco direto. Contratos em `platform/mcp/mcp.registry.ts`.
+- **Automações externas**: regras centrais vivem no painel (commands/endpoints); ferramentas externas (n8n etc.) apenas chamam essas portas.
+- **MCP**: servidor MCP como porta de entrada que chama os mesmos Commands/Queries — nunca o banco direto. Contratos em `platform/mcp/mcp.registry.ts`.
+- **Leitura de Gmail**: documentada como fase posterior (scopes e requisitos adicionais).
 
 ## Deploy
 

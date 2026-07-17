@@ -28,11 +28,23 @@ Todo evento respeita uma estrutura mínima:
 }
 ```
 
-## Persistência Local (Temporária)
-Na primeira fase, os eventos são persistidos em um `LocalStorageEventRepository` puramente para registro e depuração. 
+## Eventos adicionados na Fase 2
+- `source_document.created`
+- `execution_plan.draft_created` (source: `ai`)
+- `execution_plan.approved` · `execution_plan.activated` · `execution_plan.status_changed`
+- `migration.completed`
+- `digest.daily_sent` · `digest.weekly_sent` · `digest.critical_sent` · `digest.automation_failure_sent`
 
-## Futura Outbox Transacional
-Quando o banco de dados definitivo (Supabase) for introduzido, a criação da entidade e a criação do evento devem ocorrer dentro da mesma transação no banco.
+## Persistência (Fase 2)
+Os eventos vivem na tabela `domain_events` do Supabase (append-only, RLS por
+workspace, imutáveis para o cliente). O `LocalStorageEventRepository` permanece
+apenas para os dados antigos da Fase 1 e para a migração.
+
+## Outbox Transacional (pendente)
+Entidade e evento ainda são gravados em duas operações (o PostgREST não expõe
+transações client-side). O evento é auditoria, não fonte de verdade; a falha na
+gravação do evento não desfaz o command. A outbox transacional via RPC
+permanece como evolução futura.
 
 ## Idempotência, Filas e Novas Tentativas
 Serviços assíncronos que consumirem esses eventos (via Vercel Workflows, filas, ou webhooks) devem garantir que o processamento seja idempotente. Caso haja falhas, a fila deve possuir mecanismos de repetição (retries) com base no registro da Outbox.

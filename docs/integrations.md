@@ -1,20 +1,38 @@
-# Integrações (Preparação)
+# Integrações
 
-O Painel Pessoal Lucas é projetado para operar como um hub que se conecta com múltiplos serviços. Nenhuma integração direta com terceiros deve modificar repositórios diretamente.
+O Painel Pessoal Lucas opera como um hub. Nenhuma integração modifica
+repositórios diretamente: tudo passa por Commands/rotas do servidor validando
+sessão + workspace.
 
-## Contratos para Futuros Adaptadores
-Serviços externos deverão se comunicar com o painel através dos **Commands** e **Queries** definidos na camada de Aplicação.
+## Implementadas (Fase 2)
 
-Futuros adaptadores previstos:
-- **Google Calendar**: Para agendamentos e visualização na página "Agenda".
-- **Gmail**: Para transformar e-mails em tarefas/insights.
-- **Google Drive**: Para vinculação de referências a Projetos.
-- **GitHub**: Para acompanhamento de PRs e issues vinculadas.
-- **Vercel**: Status de deployments de projetos.
+### Google OAuth (separado do login)
+- Authorization Code no servidor, `access_type=offline`, `prompt=consent`.
+- Conexões por serviço em `integration_accounts`; tokens **criptografados**
+  (AES-256-GCM, `GOOGLE_TOKEN_ENCRYPTION_KEY`) em `integration_tokens` —
+  tabela sem policy de cliente (somente o servidor lê). Rotação automática de
+  access token; `invalid_grant` marca a conta como `revoked` e a UI pede
+  reconexão em Configurações → Integrações.
 
-## Tratamento de Webhooks
-Sistemas externos podem enviar webhooks para este painel. Toda rota que recebe um webhook deverá:
-1. **Validar** a origem (assinaturas criptográficas/secrets).
-2. **Registrar** a intenção.
-3. Ser **Idempotente** (não duplicar ações se o webhook for entregue múltiplas vezes).
-4. **Converter** a requisição em um Command interno ou Evento antes de processar qualquer alteração real.
+### Google Calendar (scopes mínimos)
+- `calendar.app.created` (administra apenas o calendário criado pela app —
+  "Painel Lucas") + `calendar.freebusy` (disponibilidade, sem ler eventos).
+- O painel é a fonte principal. Nada é enviado sem escolha explícita:
+  `calendar_sync` por item (`none | sync | sync_reminder`) e
+  `calendar_sync_scope` por plano (`none | milestones | timed | all | manual`).
+- `calendar_event_links` guarda vínculo, etag, status e erro; eventos levam
+  `extendedProperties.private.painelItemId` (anti-loop).
+- Consequência dos scopes mínimos: compromissos da agenda principal aparecem
+  como blocos ocupados (freebusy), sem título.
+
+### Gmail (somente envio)
+- Scope único `gmail.send`. Resumos diário/semanal e alertas em português,
+  desativados por padrão (`workspace_settings`). Leitura de e-mail fica
+  documentada como fase posterior (scopes e requisitos adicionais).
+
+## Futuras
+Google Drive, GitHub, Vercel — via Commands/Queries, nunca banco direto.
+
+## Tratamento de Webhooks (quando existirem)
+1. Validar origem (assinaturas/secrets). 2. Registrar a intenção.
+3. Idempotência. 4. Converter em Command interno antes de alterar dados.

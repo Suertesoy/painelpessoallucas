@@ -4,14 +4,26 @@ Central operacional pessoal do Lucas: capturar primeiro, organizar depois. Um co
 
 **Produção:** https://painelpessoallucas.vercel.app
 
-## Estado atual (Fase 1 — fundação local)
+## Estado atual (Fase 2 — persistência remota, IA e automações)
 
-O sistema funciona 100% no navegador, com persistência em `localStorage`.
+Aplicação sincronizada: os dados vivem no Supabase (Postgres + RLS), com login
+Google via Supabase Auth (SSR por cookies). Desktop, celular e navegadores
+diferentes compartilham o mesmo workspace. Dados da Fase 1 (localStorage) são
+migrados por um assistente idempotente em `/migracao`, com backup JSON.
 
-**Aviso sobre persistência:**
-- Os dados não sincronizam entre navegadores ou dispositivos.
-- Limpar os dados do navegador apaga as informações.
-- A Vercel hospeda apenas a interface; cada navegador tem seu próprio banco local. A migração para banco real (Supabase) é a Fase 2 (ver `docs/ROADMAP.md`).
+Novidades da fase:
+- **Planos** (`/planos`): importar documento (.md/.txt ou texto colado),
+  estruturar com OpenAI (Responses API + saída estruturada validada por Zod),
+  revisar fatos × hipóteses × sugestões × perguntas, aprovar e ativar.
+- **Recorrências determinísticas** materializadas como tarefas idempotentes
+  (chave única regra + ocorrência).
+- **Google Calendar** (scopes mínimos): calendário secundário "Painel Lucas",
+  disponibilidade via freebusy, sincronização opcional por item/plano.
+- **Gmail** (somente envio): resumos diário/semanal e alertas, opt-in.
+- **Cron horário** (`/api/cron/automation-tick`, protegido por CRON_SECRET)
+  com execuções idempotentes registradas em `automation_runs`.
+- **Hoje**: capacidade do dia (sem contar sobreposições duas vezes),
+  compromissos do Calendar, fonte de cada item, aguardando e próxima revisão.
 
 ### Funcionalidades
 - **Captura rápida** de qualquer lugar: `Ctrl/Cmd+Shift+Espaço`, botão "Capturar" na sidebar ou botão flutuante no celular.
@@ -53,7 +65,10 @@ npm run dev
 
 Abra http://localhost:3000 (redireciona para `/hoje`).
 
-Variáveis de ambiente: nenhuma é necessária na Fase 1. `.env*` não é commitado. Nunca exponha `OPENAI_API_KEY` ou `SUPABASE_SERVICE_ROLE_KEY` ao navegador.
+Variáveis de ambiente: ver `.env.example` (nomes vazios). `.env*` reais não são
+commitados. Nunca exponha `OPENAI_API_KEY`, `SUPABASE_SECRET_KEY`,
+`GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_ENCRYPTION_KEY` ou `CRON_SECRET` ao
+navegador. Migrations SQL versionadas em `supabase/migrations/`.
 
 ## Validação (obrigatória antes de push)
 

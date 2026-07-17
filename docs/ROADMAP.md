@@ -15,11 +15,21 @@ Entregue: captura rápida universal (atalho + botões + FAB mobile), inbox com p
 - Exportação/backup manual em JSON.
 - Detalhe/edição completa de item.
 
-## Fase 2 — Persistência remota e autenticação
-- Supabase: schema (workspaces, projects, items, daily_plans, events, relações), RLS, auth de usuário único.
-- Migração assistida dos dados do localStorage para o banco (import idempotente).
-- Loading/erro/otimismo nas telas; transação entidade+evento (outbox).
-- **Sem realtime** nesta fase (single user).
+## Fase 2 — Persistência remota, IA, recorrências e integrações ✅ (atual)
+Entregue na branch `feat/cloud-sync-ai-automations`:
+- Supabase (schema completo com RLS por workspace), login Google (Supabase Auth,
+  SSR por cookies), migração assistida e idempotente do localStorage.
+- Importação de planos com OpenAI (Responses API + saída estruturada + revisão
+  e aprovação humanas), `ai_runs` auditados.
+- Recorrências determinísticas com materialização idempotente.
+- Google Calendar (scopes mínimos, calendário "Painel Lucas") e Gmail (somente
+  envio de resumos, opt-in).
+- Cron horário idempotente (`automation_runs`).
+- Sem realtime nesta fase (single user); outbox transacional adiada
+  (limitação registrada em docs/ARCHITECTURE.md).
+
+**Critério de saída:** login em 2 dispositivos com os mesmos dados, um plano
+importado/aprovado gerando ocorrências, digest recebido, cron estável por 1 semana.
 
 ## Fase 3 — Triagem com IA
 - Primeira função: triagem de capturas (título, tipo, projeto, prioridade, prazo, próxima ação, confiança, justificativa) com **confirmação humana**.
