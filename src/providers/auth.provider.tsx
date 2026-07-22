@@ -25,6 +25,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+/**
+ * Guarda somente o NOME do último evento de auth (nunca tokens/sessão) para
+ * o diagnóstico temporário em Configurações → Diagnóstico de sincronização.
+ */
+export const LAST_AUTH_EVENT_KEY = 'painelpessoal_last_auth_event';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
@@ -73,6 +79,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      try {
+        window.sessionStorage.setItem(LAST_AUTH_EVENT_KEY, event);
+      } catch {
+        // sessionStorage indisponível (modo privado restrito) — não é crítico.
+      }
       if (cancelled) return;
       if (event === 'SIGNED_OUT') {
         setUser(null);

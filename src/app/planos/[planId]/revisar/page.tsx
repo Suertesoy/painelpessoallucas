@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import type {
   PlanAction,
   PlanPhase,
@@ -44,17 +45,42 @@ export default function RevisarPlanoPage({ params }: { params: Promise<{ planId:
   const { planId } = use(params);
   const { plan: planQueries } = useQueries();
 
-  const { data: detail, isLoading } = useReactiveQuery(
+  const {
+    data: detail,
+    isLoading,
+    error: detailError,
+    isOffline,
+    refetch: refetchDetail,
+  } = useReactiveQuery(
     () => planQueries.getPlanDetail(planId),
     [planId]
   );
-  const { data: proposal } = useReactiveQuery(
+  const { data: proposal, error: proposalError, refetch: refetchProposal } = useReactiveQuery(
     () => planQueries.getPlanProposal(planId),
     [planId]
   );
+  const error = detailError ?? proposalError;
 
-  if (isLoading || !detail) {
+  if (isLoading) {
     return <div className="p-8 text-sm text-gray-500">Carregando revisão…</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 md:p-8 max-w-3xl mx-auto">
+        <DataErrorNotice
+          isOffline={isOffline}
+          onRetry={() => {
+            refetchDetail();
+            refetchProposal();
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (!detail) {
+    return <div className="p-8 text-sm text-gray-500">Plano não encontrado.</div>;
   }
 
   // key remonta o editor quando o plano muda; o estado editável nasce nos

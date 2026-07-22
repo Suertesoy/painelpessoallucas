@@ -7,6 +7,7 @@ import { Item } from '@/modules/items/domain/item.schema';
 import { UpdateProjectDTO, ProjectStatus, ProjectAttentionLevel } from '@/modules/projects/domain/project.schema';
 import { ItemCommands } from '@/modules/items/application/item.commands';
 import { dateInputToISO, isoToDateInput } from '@/lib/dates';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import { ArrowLeft, CheckCircle, Lightbulb, FileText, Target, Archive } from 'lucide-react';
 import Link from 'next/link';
 
@@ -16,8 +17,19 @@ export default function ProjetoDetalhePage({ params }: { params: Promise<{ proje
   const { project: projectQueries, item: itemQueries } = useQueries();
   const { project: projectCmds, item: itemCmds } = useCommands();
 
-  const { data: project, isLoading: isLoadingProject } = useReactiveQuery(() => projectQueries.getProjectById(projectId), [projectId]);
-  const { data: items, isLoading: isLoadingItems } = useReactiveQuery(() => itemQueries.listItems(), []);
+  const {
+    data: project,
+    isLoading: isLoadingProject,
+    error: projectError,
+    isOffline,
+    refetch: refetchProject,
+  } = useReactiveQuery(() => projectQueries.getProjectById(projectId), [projectId]);
+  const { data: items, isLoading: isLoadingItems, error: itemsError, refetch: refetchItems } = useReactiveQuery(() => itemQueries.listItems(), []);
+  const error = projectError ?? itemsError;
+  const refetch = () => {
+    refetchProject();
+    refetchItems();
+  };
 
   const projectItems = useMemo(() => {
     if (!items) return [];
@@ -46,6 +58,17 @@ export default function ProjetoDetalhePage({ params }: { params: Promise<{ proje
       <div className="p-4 md:p-8 max-w-5xl mx-auto h-full flex flex-col justify-center items-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4" aria-hidden="true"></div>
         <p className="text-gray-500">Carregando dados locais do projeto...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 md:p-8 max-w-5xl mx-auto">
+        <Link href="/projetos" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors">
+          <ArrowLeft size={16} /> Voltar para Projetos
+        </Link>
+        <DataErrorNotice isOffline={isOffline} onRetry={refetch} />
       </div>
     );
   }

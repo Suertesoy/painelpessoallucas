@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { useWorkspace } from '@/providers/auth.provider';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import { Folder, Plus, AlertCircle, Clock, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -11,7 +12,13 @@ export default function ProjetosPage() {
   const { project: projectQueries, item: itemQueries } = useQueries();
   const { project: projectCmds } = useCommands();
   const { workspaceId } = useWorkspace();
-  const { data: projects, isLoading } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const {
+    data: projects,
+    isLoading,
+    error,
+    isOffline,
+    refetch,
+  } = useReactiveQuery(() => projectQueries.listProjects(), []);
   const { data: items } = useReactiveQuery(() => itemQueries.listItems(), []);
 
   const [isCreating, setIsCreating] = useState(false);
@@ -56,13 +63,25 @@ export default function ProjetosPage() {
           </h1>
           <p className="text-gray-600 mt-1">Gerencie seus objetivos de longo prazo.</p>
         </div>
-        <button 
+        <button
           onClick={() => setIsCreating(true)}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition"
         >
           <Plus size={20} /> Novo Projeto
         </button>
       </div>
+
+      {error ? (
+        <DataErrorNotice isOffline={isOffline} onRetry={refetch} />
+      ) : (
+        <>
+          {isOffline && (
+            <DataErrorNotice
+              isOffline
+              onRetry={refetch}
+              className="mb-6"
+            />
+          )}
 
       {isCreating && (
         <div className="bg-white p-6 rounded-xl border shadow-sm mb-8 animate-in fade-in slide-in-from-top-4">
@@ -166,6 +185,8 @@ export default function ProjetosPage() {
           ))
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

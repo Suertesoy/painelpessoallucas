@@ -6,6 +6,7 @@ import { CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/providers/auth.provider';
 import { GoogleIntegrationCard } from '@/components/google-integration-card';
 import { DigestSettingsCard } from '@/components/digest-settings-card';
+import { SyncDiagnosticsCard } from '@/components/sync-diagnostics-card';
 
 function ConfiguracoesContent() {
   const { user } = useAuth();
@@ -47,6 +48,10 @@ function ConfiguracoesContent() {
           <GoogleIntegrationCard service="gmail" />
           <DigestSettingsCard />
         </div>
+      </section>
+
+      <section className="mt-6">
+        <SyncDiagnosticsCard />
       </section>
     </div>
   );

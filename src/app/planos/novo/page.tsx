@@ -6,6 +6,7 @@ import { Upload, AlertCircle } from 'lucide-react';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { useWorkspace } from '@/providers/auth.provider';
 import { useReactiveQuery } from '@/lib/hooks';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import type { DocumentType } from '@/modules/plans/domain/plan.schema';
 
 const DOC_TYPES: { value: DocumentType; label: string }[] = [
@@ -24,7 +25,12 @@ export default function NovoPlanoPage() {
   const { plan: planCmds, project: projectCmds } = useCommands();
   const { project: projectQueries } = useQueries();
   const { workspaceId } = useWorkspace();
-  const { data: projects } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const {
+    data: projects,
+    error: projectsQueryError,
+    isOffline: isProjectsOffline,
+    refetch: refetchProjects,
+  } = useReactiveQuery(() => projectQueries.listProjects(), []);
 
   const [title, setTitle] = useState('');
   const [documentType, setDocumentType] = useState<DocumentType>('project_plan');
@@ -110,6 +116,13 @@ export default function NovoPlanoPage() {
       <form onSubmit={handleSubmit} className="mt-6 space-y-5">
         <div className="rounded-xl border border-gray-200 bg-white p-5">
           <h2 className="font-semibold">1. Projeto</h2>
+          {projectsQueryError && (
+            <DataErrorNotice
+              isOffline={isProjectsOffline}
+              onRetry={refetchProjects}
+              className="mt-3"
+            />
+          )}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <label htmlFor="projeto" className="block text-sm font-medium text-gray-700">

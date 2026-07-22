@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import { Calendar, CheckCircle, Folder, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format, addDays, subDays, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, parseISO, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
@@ -10,9 +11,25 @@ import { ptBR } from 'date-fns/locale/pt-BR';
 export default function AgendaPage() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
-  
-  const { data: items, isLoading: isLoadingItems } = useReactiveQuery(() => itemQueries.listItems(), []);
-  const { data: projects, isLoading: isLoadingProjects } = useReactiveQuery(() => projectQueries.listProjects(), []);
+
+  const {
+    data: items,
+    isLoading: isLoadingItems,
+    error: itemsError,
+    isOffline,
+    refetch: refetchItems,
+  } = useReactiveQuery(() => itemQueries.listItems(), []);
+  const {
+    data: projects,
+    isLoading: isLoadingProjects,
+    error: projectsError,
+    refetch: refetchProjects,
+  } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const error = itemsError ?? projectsError;
+  const refetch = () => {
+    refetchItems();
+    refetchProjects();
+  };
 
   const [currentDate, setCurrentDate] = useState(new Date());
 
@@ -51,6 +68,17 @@ export default function AgendaPage() {
 
   if (isLoadingItems || isLoadingProjects) {
     return <div className="p-4 md:p-8 max-w-4xl mx-auto">Carregando Agenda...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 md:p-8 max-w-5xl mx-auto">
+        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2 mb-6">
+          <Calendar className="text-blue-600" /> Agenda
+        </h1>
+        <DataErrorNotice isOffline={isOffline} onRetry={refetch} />
+      </div>
+    );
   }
 
   return (

@@ -6,6 +6,7 @@ import { useCommands, useQueries } from '@/providers/repository.provider';
 import { Item, ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import { Project } from '@/modules/projects/domain/project.schema';
 import { dateInputToISO, isoToDateInput } from '@/lib/dates';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import { Search, Archive, CheckCircle, AlertCircle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
@@ -16,7 +17,13 @@ type PriorityFilter = ItemPriority | 'all';
 export default function EntradaPage() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
-  const { data: inboxItems, isLoading } = useReactiveQuery(() => itemQueries.listInboxItems(), []);
+  const {
+    data: inboxItems,
+    isLoading,
+    error,
+    isOffline,
+    refetch,
+  } = useReactiveQuery(() => itemQueries.listInboxItems(), []);
   const { data: projects } = useReactiveQuery(() => projectQueries.listProjects(), []);
 
   const [search, setSearch] = useState('');
@@ -81,6 +88,10 @@ export default function EntradaPage() {
         </div>
       </div>
 
+      {error && <DataErrorNotice isOffline={isOffline} onRetry={refetch} className="mb-6" />}
+
+      {!error && (
+      <>
       <div className="bg-white p-4 rounded-lg shadow-sm border mb-6 flex gap-4 items-end flex-wrap">
         <div className="flex-1 min-w-[200px]">
           <label htmlFor="inbox-search" className="block text-xs font-medium text-gray-600 mb-1">Pesquisar na Entrada</label>
@@ -235,6 +246,8 @@ export default function EntradaPage() {
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

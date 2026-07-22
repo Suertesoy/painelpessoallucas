@@ -5,6 +5,7 @@ import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { Item, UpdateItemDTO } from '@/modules/items/domain/item.schema';
 import { dateInputToISO } from '@/lib/dates';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import { Activity, AlertTriangle, CheckCircle, Clock, Inbox, Layout } from 'lucide-react';
 import Link from 'next/link';
 
@@ -12,8 +13,24 @@ export default function RevisaoPage() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
 
-  const { data: reviewOverview, isLoading: isLoadingOverview } = useReactiveQuery(() => itemQueries.getReviewOverview(), []);
-  const { data: projects, isLoading: isLoadingProjects } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const {
+    data: reviewOverview,
+    isLoading: isLoadingOverview,
+    error: overviewError,
+    isOffline,
+    refetch: refetchOverview,
+  } = useReactiveQuery(() => itemQueries.getReviewOverview(), []);
+  const {
+    data: projects,
+    isLoading: isLoadingProjects,
+    error: projectsError,
+    refetch: refetchProjects,
+  } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const error = overviewError ?? projectsError;
+  const refetch = () => {
+    refetchOverview();
+    refetchProjects();
+  };
 
   const activeProjectsWithoutMilestone = projects?.filter(p => p.status === 'active' && !p.nextMilestone) || [];
 
@@ -33,6 +50,17 @@ export default function RevisaoPage() {
 
   if (isLoadingOverview || isLoadingProjects) {
     return <div className="p-4 md:p-8 max-w-4xl mx-auto">Carregando Revisão...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 md:p-8 max-w-5xl mx-auto">
+        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2 mb-6">
+          <Activity className="text-blue-600" /> Revisão do Sistema
+        </h1>
+        <DataErrorNotice isOffline={isOffline} onRetry={refetch} />
+      </div>
+    );
   }
 
   return (

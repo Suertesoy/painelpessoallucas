@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { useRepositories } from '@/providers/repository.provider';
 
 /**
@@ -11,6 +11,12 @@ import { useRepositories } from '@/providers/repository.provider';
  * - isLoading: primeira carga ainda em andamento.
  * - error: última execução falhou (mensagem em português vinda do repositório).
  * - isOffline: o navegador está sem conexão (dados exibidos podem estar velhos).
+ * - refetch: repete a consulta sob demanda (ex.: botão "Tentar novamente").
+ *
+ * IMPORTANTE: `error` nunca deve ser descartado pelos componentes — um erro
+ * de sessão, RLS ou rede não pode ser exibido como "lista vazia" (esse
+ * defeito já mascarou falhas reais no passado). Sempre trate `data`,
+ * `isLoading` e `error` como estados distintos.
  *
  * Nota de arquitetura: como as queries são assíncronas (Promise), este hook
  * usa o padrão effect + subscribe em vez de useSyncExternalStore (que exige
@@ -20,7 +26,13 @@ export function useReactiveQuery<T>(
   queryFn: () => Promise<T>,
   deps: React.DependencyList,
   initialData?: T
-): { data: T | undefined; isLoading: boolean; error: string | null; isOffline: boolean } {
+): {
+  data: T | undefined;
+  isLoading: boolean;
+  error: string | null;
+  isOffline: boolean;
+  refetch: () => void;
+} {
   const { itemRepository, projectRepository, dailyPlanRepository } = useRepositories();
   const [data, setData] = useState<T | undefined>(initialData);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +43,10 @@ export function useReactiveQuery<T>(
   useEffect(() => {
     queryFnRef.current = queryFn;
   }, [queryFn]);
+
+  // Exposto via `refetch`: o botão "Tentar novamente" chama a mesma função
+  // usada pelo mount inicial e pelos listeners de mudança.
+  const runFetchRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     let mounted = true;
@@ -54,6 +70,7 @@ export function useReactiveQuery<T>(
       }
     };
 
+    runFetchRef.current = runFetch;
     runFetch();
 
     const unsub1 = itemRepository.subscribe(runFetch);
@@ -69,7 +86,11 @@ export function useReactiveQuery<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  return { data, isLoading, error, isOffline };
+  const refetch = useCallback(() => {
+    void runFetchRef.current();
+  }, []);
+
+  return { data, isLoading, error, isOffline, refetch };
 }
 
 /** true quando o navegador está sem conexão (SSR: assume online). */

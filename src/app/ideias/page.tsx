@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { ItemType, UpdateItemDTO } from '@/modules/items/domain/item.schema';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import { Lightbulb, Target, BookOpen, Search, Archive, AlertTriangle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
@@ -16,8 +17,24 @@ export default function IdeiasPage() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
 
-  const { data: items, isLoading: isLoadingItems } = useReactiveQuery(() => itemQueries.listItems(), []);
-  const { data: projects, isLoading: isLoadingProjects } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const {
+    data: items,
+    isLoading: isLoadingItems,
+    error: itemsError,
+    isOffline,
+    refetch: refetchItems,
+  } = useReactiveQuery(() => itemQueries.listItems(), []);
+  const {
+    data: projects,
+    isLoading: isLoadingProjects,
+    error: projectsError,
+    refetch: refetchProjects,
+  } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const error = itemsError ?? projectsError;
+  const refetch = () => {
+    refetchItems();
+    refetchProjects();
+  };
 
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<TypeFilter>('all');
@@ -61,6 +78,17 @@ export default function IdeiasPage() {
 
   if (isLoadingItems || isLoadingProjects) {
     return <div className="p-4 md:p-8 max-w-5xl mx-auto">Carregando...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 md:p-8 max-w-5xl mx-auto">
+        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2 mb-6">
+          <Lightbulb className="text-yellow-500" /> Ideias e Insights
+        </h1>
+        <DataErrorNotice isOffline={isOffline} onRetry={refetch} />
+      </div>
+    );
   }
 
   return (

@@ -11,6 +11,7 @@ import { ptBR } from 'date-fns/locale/pt-BR';
 import { CheckCircle, AlertCircle, Clock, Layout, Target, Plus, X, Hourglass, CalendarCheck } from 'lucide-react';
 import Link from 'next/link';
 import { TodayCalendarCard } from '@/components/today-calendar-card';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import {
   formatMinutes,
   suggestFreeSlot,
@@ -28,11 +29,24 @@ export default function HojePage() {
   const mounted = useMounted();
   const today = todayDateStr();
 
-  const { data: todayOverview } = useReactiveQuery(() => itemQueries.getTodayOverview(today), [today]);
-  const { data: reviewOverview } = useReactiveQuery(() => itemQueries.getReviewOverview(), []);
-  const { data: projects } = useReactiveQuery(() => projectQueries.listProjects(), []);
-  const { data: dailyPlan } = useReactiveQuery(() => dailyPlanQueries.getDailyPlan(today), [today]);
-  const { data: allItems } = useReactiveQuery(() => itemQueries.listItems(), []);
+  const {
+    data: todayOverview,
+    error: todayOverviewError,
+    isOffline,
+    refetch: refetchTodayOverview,
+  } = useReactiveQuery(() => itemQueries.getTodayOverview(today), [today]);
+  const { data: reviewOverview, error: reviewOverviewError, refetch: refetchReviewOverview } = useReactiveQuery(() => itemQueries.getReviewOverview(), []);
+  const { data: projects, error: projectsError, refetch: refetchProjects } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const { data: dailyPlan, error: dailyPlanError, refetch: refetchDailyPlan } = useReactiveQuery(() => dailyPlanQueries.getDailyPlan(today), [today]);
+  const { data: allItems, error: allItemsError, refetch: refetchAllItems } = useReactiveQuery(() => itemQueries.listItems(), []);
+  const dataError = todayOverviewError ?? reviewOverviewError ?? projectsError ?? dailyPlanError ?? allItemsError;
+  const refetchAll = () => {
+    refetchTodayOverview();
+    refetchReviewOverview();
+    refetchProjects();
+    refetchDailyPlan();
+    refetchAllItems();
+  };
 
   const [isAddingFocus, setIsAddingFocus] = useState(false);
   const [focusSelectId, setFocusSelectId] = useState('');
@@ -165,6 +179,10 @@ export default function HojePage() {
           {mounted ? format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR }) : ''}
         </p>
       </div>
+
+      {dataError && (
+        <DataErrorNotice isOffline={isOffline} onRetry={refetchAll} className="mb-6" />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
