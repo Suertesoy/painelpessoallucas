@@ -12,6 +12,9 @@ import { CheckCircle, AlertCircle, Clock, Layout, Target, Plus, X, Hourglass, Ca
 import Link from 'next/link';
 import { TodayCalendarCard } from '@/components/today-calendar-card';
 import { DataErrorNotice } from '@/components/data-error-notice';
+import { ItemCompleteButton } from '@/components/item-complete-button';
+import { openItemDetail } from '@/lib/ui-events';
+import { selectActiveTasks } from '@/lib/item-filters';
 import {
   formatMinutes,
   suggestFreeSlot,
@@ -67,9 +70,7 @@ export default function HojePage() {
       .filter((i): i is Item => Boolean(i));
   }, [dailyPlan, allItems]);
 
-  const activeTasks = useMemo(() => {
-    return allItems?.filter(i => i.type === 'task' && i.status !== 'completed' && i.status !== 'archived') || [];
-  }, [allItems]);
+  const activeTasks = useMemo(() => selectActiveTasks(allItems ?? []), [allItems]);
 
   const activeProjects = useMemo(() => {
     return projects?.filter(p => p.status === 'active') || [];
@@ -203,14 +204,23 @@ export default function HojePage() {
                 focusItems.map(item => (
                   <div key={item.id} className="flex justify-between items-start p-3 border rounded-lg bg-blue-50/30">
                     <div className="flex-1 min-w-0">
-                      <div className={`font-medium ${item.status === 'completed' ? 'line-through text-gray-400' : ''}`}>{item.title}</div>
+                      <button
+                        type="button"
+                        onClick={() => openItemDetail(item.id)}
+                        className={`text-left font-medium hover:underline ${item.status === 'completed' ? 'line-through text-gray-400' : ''}`}
+                      >
+                        {item.title}
+                      </button>
                       {item.nextAction && <div className="text-xs text-gray-500 mt-1">Ação: {item.nextAction}</div>}
                     </div>
                     <div className="flex items-center gap-2">
-                      {item.type === 'task' && item.status !== 'completed' && (
-                        <button onClick={() => handleCompleteItem(item.id)} className="text-green-600 hover:bg-green-100 p-1 rounded" title="Concluir" aria-label={`Concluir ${item.title}`}>
-                          <CheckCircle size={16} />
-                        </button>
+                      {item.type === 'task' && (
+                        <ItemCompleteButton
+                          itemId={item.id}
+                          title={item.title ?? 'item'}
+                          isCompleted={item.status === 'completed'}
+                          onComplete={handleCompleteItem}
+                        />
                       )}
                       <button onClick={() => handleRemoveFocus(item.id)} className="text-red-500 hover:bg-red-50 p-1 rounded" title="Remover do foco" aria-label={`Remover ${item.title} do foco`}>
                         <X size={16} />
@@ -308,19 +318,26 @@ export default function HojePage() {
                   .slice(0, 10)
                   .map(task => (
                     <div key={task.id} className="flex justify-between items-center p-3 hover:bg-gray-50 border-b last:border-0">
-                      <div className="min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => openItemDetail(task.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
                         <div className="font-medium text-sm flex items-center gap-2">
-                          <span className="truncate">{task.title}</span>
+                          <span className="truncate hover:underline">{task.title}</span>
                           {task.priority === 'critical' && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded shrink-0">Crítica</span>}
                           {task.priority === 'high' && <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded shrink-0">Alta</span>}
                         </div>
                         <div className="text-xs text-gray-500 mt-1">
                           {projects?.find(p => p.id === task.projectId)?.name || 'Sem Projeto'}
                         </div>
-                      </div>
-                      <button onClick={() => handleCompleteItem(task.id)} className="text-gray-300 hover:text-green-600 p-1.5 hover:bg-green-50 rounded transition-colors shrink-0" title="Concluir" aria-label={`Concluir ${task.title}`}>
-                        <CheckCircle size={18} />
                       </button>
+                      <ItemCompleteButton
+                        itemId={task.id}
+                        title={task.title ?? 'tarefa'}
+                        isCompleted={task.status === 'completed'}
+                        onComplete={handleCompleteItem}
+                      />
                     </div>
                   ))
               )}
@@ -365,12 +382,16 @@ export default function HojePage() {
                     <li key={item.id} className="relative">
                       <span className="absolute -left-[1.35rem] top-1.5 w-2.5 h-2.5 rounded-full bg-purple-500" aria-hidden="true" />
                       <div className="text-xs font-bold text-purple-700">{format(parseISO(item.scheduledAt!), 'HH:mm')}</div>
-                      <div className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openItemDetail(item.id)}
+                        className="flex min-w-0 items-center gap-1.5 text-left text-sm font-medium text-gray-900 hover:underline"
+                      >
                         <span className="truncate">{item.title}</span>
                         {sourceLabel && (
                           <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{sourceLabel}</span>
                         )}
-                      </div>
+                      </button>
                     </li>
                   );
                 })}
@@ -389,7 +410,13 @@ export default function HojePage() {
               <ul className="space-y-1.5 text-sm">
                 {planItemsToday.slice(0, 8).map(item => (
                   <li key={item.id} className="flex items-center gap-2">
-                    <span className="truncate">{item.title}</span>
+                    <button
+                      type="button"
+                      onClick={() => openItemDetail(item.id)}
+                      className="min-w-0 truncate text-left hover:underline"
+                    >
+                      {item.title}
+                    </button>
                     <span className="ml-auto shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">
                       {item.recurrenceRuleId ? 'Recorrente' : 'Plano'}
                     </span>
@@ -414,7 +441,11 @@ export default function HojePage() {
             ) : (
               <ul className="space-y-1.5 text-sm">
                 {waitingItems.slice(0, 5).map(item => (
-                  <li key={item.id} className="truncate">{item.title}</li>
+                  <li key={item.id} className="truncate">
+                    <button type="button" onClick={() => openItemDetail(item.id)} className="hover:underline">
+                      {item.title}
+                    </button>
+                  </li>
                 ))}
               </ul>
             )}

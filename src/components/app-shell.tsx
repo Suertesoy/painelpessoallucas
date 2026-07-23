@@ -5,6 +5,7 @@ import { ReactNode } from 'react';
 import { SidebarNav } from '@/components/sidebar-nav';
 import { QuickCaptureModal } from '@/components/quick-capture-modal';
 import { GlobalSearchModal } from '@/components/global-search-modal';
+import { ItemDetailModal } from '@/components/item-detail-modal';
 import { MigrationBanner } from '@/components/migration-banner';
 
 const PUBLIC_PREFIXES = ['/login', '/auth'];
@@ -35,6 +36,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       <QuickCaptureModal />
       <GlobalSearchModal />
+      <ItemDetailModal />
     </>
   );
 }

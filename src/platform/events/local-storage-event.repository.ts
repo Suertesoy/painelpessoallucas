@@ -17,4 +17,11 @@ export class LocalStorageEventRepository extends LocalStorageAdapter<DomainEvent
   public findAll(): Promise<DomainEvent[]> {
     return Promise.resolve(this.getItems());
   }
+
+  public findMigrationCompletedAt(): Promise<string | null> {
+    const migrations = this.getItems()
+      .filter((e) => e.type === 'migration.completed')
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return Promise.resolve(migrations[0]?.createdAt ?? null);
+  }
 }

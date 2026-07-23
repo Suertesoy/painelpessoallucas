@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueries } from '@/providers/repository.provider';
 import { GlobalSearchResult } from '@/modules/global/application/global.queries';
-import { GLOBAL_SEARCH_EVENT } from '@/lib/ui-events';
+import { GLOBAL_SEARCH_EVENT, openItemDetail } from '@/lib/ui-events';
 import { Search, X, Folder, FileText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -87,14 +87,8 @@ export function GlobalSearchModal() {
       router.push(`/projetos/${result.data.id}`);
       return;
     }
-    // Item: navega para onde ele é visível
-    if (result.data.projectId) {
-      router.push(`/projetos/${result.data.projectId}`);
-    } else if (result.data.status === 'inbox') {
-      router.push('/entrada');
-    } else {
-      router.push('/ideias');
-    }
+    // Item: abre o detalhe diretamente, sem navegar para outra tela.
+    openItemDetail(result.data.id);
   };
 
   if (!isOpen) return null;

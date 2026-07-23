@@ -155,4 +155,60 @@ export class ItemCommands {
 
     return updated;
   }
+
+  /** Reabre um item concluído: volta para 'organized' (processado, não concluído). */
+  async reopenItem(id: string): Promise<Item> {
+    const existing = await this.itemRepo.findById(id);
+    if (!existing) throw new Error("Item não encontrado");
+
+    const updated: Item = {
+      ...existing,
+      status: 'organized',
+      completedAt: undefined,
+      updatedAt: new Date().toISOString()
+    };
+
+    ItemSchema.parse(updated);
+    await this.itemRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'item.updated',
+      entityId: updated.id,
+      workspaceId: updated.workspaceId,
+      source: 'manual',
+      payload: { previous: existing, new: updated },
+      createdAt: new Date().toISOString(),
+    });
+
+    return updated;
+  }
+
+  /** Desarquiva um item: volta para 'organized' (processado, não arquivado). */
+  async unarchiveItem(id: string): Promise<Item> {
+    const existing = await this.itemRepo.findById(id);
+    if (!existing) throw new Error("Item não encontrado");
+
+    const updated: Item = {
+      ...existing,
+      status: 'organized',
+      archivedAt: undefined,
+      updatedAt: new Date().toISOString()
+    };
+
+    ItemSchema.parse(updated);
+    await this.itemRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'item.updated',
+      entityId: updated.id,
+      workspaceId: updated.workspaceId,
+      source: 'manual',
+      payload: { previous: existing, new: updated },
+      createdAt: new Date().toISOString(),
+    });
+
+    return updated;
+  }
 }

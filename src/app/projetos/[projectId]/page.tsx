@@ -8,6 +8,8 @@ import { UpdateProjectDTO, ProjectStatus, ProjectAttentionLevel } from '@/module
 import { ItemCommands } from '@/modules/items/application/item.commands';
 import { dateInputToISO, isoToDateInput } from '@/lib/dates';
 import { DataErrorNotice } from '@/components/data-error-notice';
+import { ItemCompleteButton } from '@/components/item-complete-button';
+import { openItemDetail } from '@/lib/ui-events';
 import { ArrowLeft, CheckCircle, Lightbulb, FileText, Target, Archive } from 'lucide-react';
 import Link from 'next/link';
 
@@ -216,22 +218,26 @@ function Section({ title, icon, items, itemCmds, showCheck = false, customClass 
           {items.map(item => (
             <div key={item.id} className="p-3 bg-white border rounded-lg shadow-sm">
               <div className="flex gap-2 items-start">
-                {showCheck && item.status !== 'completed' && (
-                  <button onClick={() => itemCmds.completeItem(item.id)} className="text-gray-400 hover:text-green-600 shrink-0 mt-0.5" title="Concluir" aria-label={`Concluir ${item.title}`}>
-                    <CheckCircle size={16} />
-                  </button>
+                {showCheck && (
+                  <ItemCompleteButton
+                    itemId={item.id}
+                    title={item.title ?? 'item'}
+                    isCompleted={item.status === 'completed'}
+                    onComplete={(id) => itemCmds.completeItem(id)}
+                  />
                 )}
-                {showCheck && item.status === 'completed' && (
-                  <CheckCircle size={16} className="text-green-500 shrink-0 mt-0.5" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className={`text-sm font-medium ${item.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                <button
+                  type="button"
+                  onClick={() => openItemDetail(item.id)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className={`text-sm font-medium hover:underline ${item.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                     {item.title}
                   </div>
                   {item.content && (
                     <div className="text-xs text-gray-500 mt-1 line-clamp-2">{item.content}</div>
                   )}
-                </div>
+                </button>
               </div>
             </div>
           ))}

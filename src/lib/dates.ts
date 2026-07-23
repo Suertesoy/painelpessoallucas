@@ -31,3 +31,19 @@ export function isoToDateInput(iso: string | undefined): string {
   if (!iso) return '';
   return format(parseISO(iso), 'yyyy-MM-dd');
 }
+
+/**
+ * Converte o valor de um <input type="datetime-local"> (YYYY-MM-DDTHH:mm)
+ * para ISO 8601, interpretando o horário como LOCAL. Retorna undefined para
+ * valores vazios.
+ */
+export function datetimeLocalToISO(value: string): string | undefined {
+  if (!value) return undefined;
+  return new Date(value).toISOString();
+}
+
+/** Converte um ISO 8601 para o formato de <input type="datetime-local"> no fuso local. */
+export function isoToDatetimeLocalInput(iso: string | undefined): string {
+  if (!iso) return '';
+  return format(parseISO(iso), "yyyy-MM-dd'T'HH:mm");
+}

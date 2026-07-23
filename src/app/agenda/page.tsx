@@ -4,7 +4,9 @@ import React, { useState, useMemo } from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { DataErrorNotice } from '@/components/data-error-notice';
-import { Calendar, CheckCircle, Folder, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ItemCompleteButton } from '@/components/item-complete-button';
+import { openItemDetail } from '@/lib/ui-events';
+import { Calendar, Folder, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { format, addDays, subDays, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, parseISO, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 
@@ -158,20 +160,25 @@ export default function AgendaPage() {
                       <div className="text-sm font-bold text-purple-700 pt-0.5 shrink-0 w-12">
                         {format(parseISO(item.scheduledAt!), 'HH:mm')}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className={`font-medium ${item.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-                          {item.title}
-                        </div>
+                      <button
+                        type="button"
+                        onClick={() => openItemDetail(item.id)}
+                        className={`min-w-0 flex-1 text-left font-medium hover:underline ${item.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-900'}`}
+                      >
+                        {item.title}
                         {item.projectId && (
-                          <div className="text-xs text-gray-500 mt-1 truncate">
+                          <div className="text-xs font-normal text-gray-500 mt-1 truncate">
                             {projects?.find(p => p.id === item.projectId)?.name}
                           </div>
                         )}
-                      </div>
-                      {item.type === 'task' && item.status !== 'completed' && (
-                        <button onClick={() => handleComplete(item.id)} className="text-green-600 p-1 hover:bg-green-100 rounded" title="Concluir" aria-label="Concluir item">
-                          <CheckCircle size={18}/>
-                        </button>
+                      </button>
+                      {item.type === 'task' && (
+                        <ItemCompleteButton
+                          itemId={item.id}
+                          title={item.title ?? 'item'}
+                          isCompleted={item.status === 'completed'}
+                          onComplete={handleComplete}
+                        />
                       )}
                     </div>
                   ))}
@@ -200,17 +207,24 @@ export default function AgendaPage() {
                   {selectedDayItems.due.map(item => (
                     <div key={item.id} className="flex gap-3 p-3 border rounded-lg hover:bg-gray-50 group">
                       <FileText size={18} className="text-gray-400 shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-gray-900">{item.title}</div>
+                      <button
+                        type="button"
+                        onClick={() => openItemDetail(item.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <div className="font-medium text-gray-900 hover:underline">{item.title}</div>
                         <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
                           <span className="text-red-600 font-medium">Prazo Final</span>
                           {item.projectId && <span>• {projects?.find(p => p.id === item.projectId)?.name}</span>}
                         </div>
-                      </div>
+                      </button>
                       {item.type === 'task' && (
-                        <button onClick={() => handleComplete(item.id)} className="text-green-600 p-1 hover:bg-green-100 rounded" title="Concluir" aria-label="Concluir item">
-                          <CheckCircle size={18}/>
-                        </button>
+                        <ItemCompleteButton
+                          itemId={item.id}
+                          title={item.title ?? 'item'}
+                          isCompleted={item.status === 'completed'}
+                          onComplete={handleComplete}
+                        />
                       )}
                     </div>
                   ))}

@@ -59,4 +59,19 @@ export class SupabaseEventRepository implements EventRepository {
       })
     );
   }
+
+  async findMigrationCompletedAt(): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from('domain_events')
+      .select('created_at')
+      .eq('workspace_id', this.workspaceId)
+      .eq('type', 'migration.completed')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      throw new Error(`Não foi possível verificar o histórico de migração: ${error.message}`);
+    }
+    return data?.created_at ?? null;
+  }
 }

@@ -5,7 +5,8 @@ import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { ItemType, UpdateItemDTO } from '@/modules/items/domain/item.schema';
 import { DataErrorNotice } from '@/components/data-error-notice';
-import { Lightbulb, Target, BookOpen, Search, Archive, AlertTriangle } from 'lucide-react';
+import { openItemDetail } from '@/lib/ui-events';
+import { Lightbulb, Target, BookOpen, Search, Archive, AlertTriangle, Maximize2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 
@@ -200,6 +201,14 @@ export default function IdeiasPage() {
                     <span className="text-xs text-gray-500 capitalize bg-white/50 px-2 py-1 rounded">
                       {format(parseISO(item.createdAt), 'dd MMM yyyy', { locale: ptBR })}
                     </span>
+                    <button
+                      onClick={() => openItemDetail(item.id)}
+                      className="text-gray-400 hover:text-blue-600 p-1"
+                      title="Ver detalhes"
+                      aria-label={`Ver detalhes de ${item.title}`}
+                    >
+                      <Maximize2 size={16} />
+                    </button>
                     <button onClick={() => handleArchive(item.id)} className="text-gray-400 hover:text-red-600 p-1" title="Arquivar" aria-label={`Arquivar ${item.title}`}>
                       <Archive size={16} />
                     </button>

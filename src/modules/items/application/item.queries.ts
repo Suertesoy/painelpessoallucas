@@ -9,6 +9,10 @@ export class ItemQueries {
     return this.itemRepo.findAll();
   }
 
+  async getItemById(id: string): Promise<Item | null> {
+    return this.itemRepo.findById(id);
+  }
+
   async listInboxItems(): Promise<Item[]> {
     const items = await this.itemRepo.findAll();
     return items.filter(item => item.status === 'inbox');

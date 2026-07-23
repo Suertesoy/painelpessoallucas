@@ -7,7 +7,9 @@ import { Item, ItemType, ItemPriority } from '@/modules/items/domain/item.schema
 import { Project } from '@/modules/projects/domain/project.schema';
 import { dateInputToISO, isoToDateInput } from '@/lib/dates';
 import { DataErrorNotice } from '@/components/data-error-notice';
-import { Search, Archive, CheckCircle, AlertCircle } from 'lucide-react';
+import { ItemCompleteButton } from '@/components/item-complete-button';
+import { openItemDetail } from '@/lib/ui-events';
+import { Search, Archive, CheckCircle, AlertCircle, Maximize2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 
@@ -199,10 +201,21 @@ export default function EntradaPage() {
 
                   <div className="flex items-center gap-2 shrink-0">
                     {item.type === 'task' && (
-                      <button onClick={() => handleComplete(item.id)} className="p-1.5 text-green-600 hover:bg-green-50 rounded" title="Concluir" aria-label={`Concluir ${item.title}`}>
-                        <CheckCircle size={18} />
-                      </button>
+                      <ItemCompleteButton
+                        itemId={item.id}
+                        title={item.title ?? 'item'}
+                        isCompleted={item.status === 'completed'}
+                        onComplete={handleComplete}
+                      />
                     )}
+                    <button
+                      onClick={() => openItemDetail(item.id)}
+                      className="p-1.5 text-gray-500 hover:bg-gray-100 rounded"
+                      title="Ver detalhes"
+                      aria-label={`Ver detalhes de ${item.title}`}
+                    >
+                      <Maximize2 size={16} />
+                    </button>
                     <button onClick={() => handleOrganize(item.id)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded text-sm font-medium" title="Marcar como organizado e remover da Entrada">
                       Organizar
                     </button>
