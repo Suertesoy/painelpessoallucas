@@ -5,7 +5,7 @@ import { ItemRepository } from '../application/item.repository';
 import { Item, ItemSchema } from '../domain/item.schema';
 import { ChangeNotifier } from '@/platform/supabase/change-notifier';
 
-type ItemRow = {
+export type ItemRow = {
   id: string;
   workspace_id: string;
   project_id: string | null;
@@ -30,7 +30,7 @@ type ItemRow = {
   occurrence_at: string | null;
 };
 
-function rowToItem(row: ItemRow): Item {
+export function rowToItem(row: ItemRow): Item {
   return ItemSchema.parse({
     id: row.id,
     workspaceId: row.workspace_id,

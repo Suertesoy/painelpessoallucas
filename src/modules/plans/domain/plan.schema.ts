@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateTimeSchema } from '@/lib/zod-datetime';
 
 /**
  * Domínio de documentos e planos de execução (Fase 2 — Etapas 3-5).
@@ -39,8 +40,8 @@ export const SourceDocumentSchema = z.object({
   contentHash: z.string(),
   source: DocumentSourceSchema,
   processingStatus: ProcessingStatusSchema,
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
 });
 
 export type SourceDocument = z.infer<typeof SourceDocumentSchema>;
@@ -81,9 +82,9 @@ export const ExecutionPlanSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   timezone: z.string().default('America/Sao_Paulo'),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-  approvedAt: z.string().datetime().optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  approvedAt: isoDateTimeSchema.optional(),
 });
 
 export type ExecutionPlan = z.infer<typeof ExecutionPlanSchema>;
@@ -102,8 +103,8 @@ export const PlanPhaseSchema = z.object({
   durationDays: z.number().int().positive().optional(),
   milestone: z.string().optional(),
   successCriteria: z.string().optional(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
 });
 
 export type PlanPhase = z.infer<typeof PlanPhaseSchema>;
@@ -130,14 +131,14 @@ export const RecurrenceRuleSchema = z.object({
   dayOfMonth: z.number().int().min(1).max(31).optional(),
   localTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
   timezone: z.string().default('America/Sao_Paulo'),
-  startAt: z.string().datetime().optional(),
-  endAt: z.string().datetime().optional(),
+  startAt: isoDateTimeSchema.optional(),
+  endAt: isoDateTimeSchema.optional(),
   maxOccurrences: z.number().int().positive().optional(),
-  nextOccurrenceAt: z.string().datetime().optional(),
-  lastOccurrenceAt: z.string().datetime().optional(),
+  nextOccurrenceAt: isoDateTimeSchema.optional(),
+  lastOccurrenceAt: isoDateTimeSchema.optional(),
   isActive: z.boolean().default(false),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
 });
 
 export type RecurrenceRule = z.infer<typeof RecurrenceRuleSchema>;
@@ -186,8 +187,8 @@ export const PlanActionSchema = z.object({
   waitingOn: z.string().optional(),
   requiresConfirmation: z.boolean().default(false),
   position: z.number().int().min(0),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
 });
 
 export type PlanAction = z.infer<typeof PlanActionSchema>;
@@ -203,9 +204,9 @@ export const NotificationSchema = z.object({
   body: z.string().optional(),
   entityType: z.string().optional(),
   entityId: z.string().uuid().optional(),
-  readAt: z.string().datetime().optional(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
+  readAt: isoDateTimeSchema.optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
 });
 
 export type Notification = z.infer<typeof NotificationSchema>;

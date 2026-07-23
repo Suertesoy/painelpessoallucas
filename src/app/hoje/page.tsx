@@ -39,11 +39,11 @@ export default function HojePage() {
   const { data: projects, error: projectsError, refetch: refetchProjects } = useReactiveQuery(() => projectQueries.listProjects(), []);
   const { data: dailyPlan, error: dailyPlanError, refetch: refetchDailyPlan } = useReactiveQuery(() => dailyPlanQueries.getDailyPlan(today), [today]);
   const { data: allItems, error: allItemsError, refetch: refetchAllItems } = useReactiveQuery(() => itemQueries.listItems(), []);
-  const dataError = todayOverviewError ?? reviewOverviewError ?? projectsError ?? dailyPlanError ?? allItemsError;
-  const refetchAll = () => {
-    refetchTodayOverview();
-    refetchReviewOverview();
-    refetchProjects();
+
+  // Cada seção de Hoje falha de forma independente: um bloco quebrado não
+  // pode esconder ou substituir os demais (ver DataErrorNotice por seção
+  // abaixo). refetchFocus cobre Foco do Dia, que depende de duas fontes.
+  const refetchFocus = () => {
     refetchDailyPlan();
     refetchAllItems();
   };
@@ -180,10 +180,6 @@ export default function HojePage() {
         </p>
       </div>
 
-      {dataError && (
-        <DataErrorNotice isOffline={isOffline} onRetry={refetchAll} className="mb-6" />
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Coluna Principal */}
@@ -197,7 +193,9 @@ export default function HojePage() {
             </div>
 
             <div className="space-y-3">
-              {focusItems.length === 0 ? (
+              {dailyPlanError || allItemsError ? (
+                <DataErrorNotice isOffline={isOffline} onRetry={refetchFocus} />
+              ) : focusItems.length === 0 ? (
                 <div className="text-gray-500 text-sm text-center py-4 bg-gray-50 rounded-lg border border-dashed">
                   Nenhum foco definido para hoje.
                 </div>
@@ -293,7 +291,9 @@ export default function HojePage() {
           <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
             <h2 className="text-xl font-bold flex items-center gap-2 mb-4"><CheckCircle className="text-green-500" /> Próximas Ações (Tarefas)</h2>
             <div className="space-y-2 max-h-96 overflow-auto pr-2">
-              {activeTasks.length === 0 ? (
+              {allItemsError ? (
+                <DataErrorNotice isOffline={isOffline} onRetry={refetchAllItems} />
+              ) : activeTasks.length === 0 ? (
                 <p className="text-gray-500 text-sm">Nenhuma tarefa aberta.</p>
               ) : (
                 activeTasks
@@ -333,6 +333,12 @@ export default function HojePage() {
         <div className="space-y-6">
 
           {/* Capacidade + Google Calendar */}
+          {todayOverviewError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              Capacidade indisponível: a agenda de hoje não pôde ser carregada. Os compromissos do
+              Google Calendar abaixo continuam independentes desta falha.
+            </div>
+          )}
           <TodayCalendarCard
             date={today}
             scheduledItems={todayOverview?.scheduled ?? []}
@@ -347,7 +353,9 @@ export default function HojePage() {
           <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
             <h2 className="text-lg font-bold flex items-center gap-2 mb-4"><Clock className="text-purple-500" /> Agendado para Hoje</h2>
             <p className="mb-3 text-xs text-gray-400">Horário planejado ≠ prazo — prazos aparecem em Atenção.</p>
-            {todayOverview?.scheduled.length === 0 ? (
+            {todayOverviewError ? (
+              <DataErrorNotice isOffline={isOffline} onRetry={refetchTodayOverview} />
+            ) : todayOverview?.scheduled.length === 0 ? (
               <p className="text-gray-500 text-sm">Nada agendado para hoje.</p>
             ) : (
               <ol className="space-y-3 border-l-2 border-purple-200 pl-4">
@@ -373,7 +381,9 @@ export default function HojePage() {
           {/* Atividades de planos e recorrências */}
           <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
             <h2 className="text-lg font-bold flex items-center gap-2 mb-3"><CalendarCheck className="text-emerald-500" /> Dos planos ativos</h2>
-            {planItemsToday.length === 0 ? (
+            {allItemsError ? (
+              <DataErrorNotice isOffline={isOffline} onRetry={refetchAllItems} />
+            ) : planItemsToday.length === 0 ? (
               <p className="text-gray-500 text-sm">Nenhuma atividade de plano para hoje.</p>
             ) : (
               <ul className="space-y-1.5 text-sm">
@@ -397,7 +407,9 @@ export default function HojePage() {
           {/* Aguardando + próxima revisão */}
           <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
             <h2 className="text-lg font-bold flex items-center gap-2 mb-3"><Hourglass className="text-amber-500" /> Aguardando</h2>
-            {waitingItems.length === 0 ? (
+            {allItemsError ? (
+              <DataErrorNotice isOffline={isOffline} onRetry={refetchAllItems} />
+            ) : waitingItems.length === 0 ? (
               <p className="text-gray-500 text-sm">Nada aguardando terceiros.</p>
             ) : (
               <ul className="space-y-1.5 text-sm">
@@ -416,6 +428,10 @@ export default function HojePage() {
           <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
             <h2 className="text-lg font-bold flex items-center gap-2 mb-4"><AlertCircle className="text-red-500" /> Atenção Necessária</h2>
             <div className="space-y-2 text-sm">
+              {reviewOverviewError ? (
+                <DataErrorNotice isOffline={isOffline} onRetry={refetchReviewOverview} />
+              ) : (
+              <>
               {reviewOverview?.overdue.length ? (
                 <Link href="/revisao" className="block p-2 bg-red-50 text-red-800 rounded hover:bg-red-100">
                   <span className="font-bold">{reviewOverview.overdue.length}</span> item(s) com prazo estourado.
@@ -435,6 +451,8 @@ export default function HojePage() {
               {!reviewOverview?.overdue.length && !reviewOverview?.blocked.length && !reviewOverview?.oldInbox.length && (
                 <p className="text-gray-500">Tudo sob controle.</p>
               )}
+              </>
+              )}
             </div>
           </section>
 
@@ -442,7 +460,9 @@ export default function HojePage() {
           <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
             <h2 className="text-lg font-bold flex items-center gap-2 mb-4"><Layout className="text-indigo-500" /> Pulso dos Projetos</h2>
             <div className="space-y-3">
-              {activeProjects.length === 0 ? (
+              {projectsError ? (
+                <DataErrorNotice isOffline={isOffline} onRetry={refetchProjects} />
+              ) : activeProjects.length === 0 ? (
                 <p className="text-gray-500 text-sm">Nenhum projeto ativo.</p>
               ) : (
                 activeProjects.slice(0, 5).map(proj => (

@@ -5,7 +5,7 @@ import { ProjectRepository } from '../application/project.repository';
 import { Project, ProjectSchema } from '../domain/project.schema';
 import { ChangeNotifier } from '@/platform/supabase/change-notifier';
 
-type ProjectRow = {
+export type ProjectRow = {
   id: string;
   workspace_id: string;
   name: string;
@@ -20,7 +20,7 @@ type ProjectRow = {
   archived_at: string | null;
 };
 
-function rowToProject(row: ProjectRow): Project {
+export function rowToProject(row: ProjectRow): Project {
   return ProjectSchema.parse({
     id: row.id,
     workspaceId: row.workspace_id,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateTimeSchema } from '@/lib/zod-datetime';
 
 export const ProjectStatusSchema = z.enum(['active', 'paused', 'completed', 'archived']);
 export const ProjectAttentionLevelSchema = z.enum(['normal', 'attention', 'critical']);
@@ -12,10 +13,10 @@ export const ProjectSchema = z.object({
   status: ProjectStatusSchema,
   attentionLevel: ProjectAttentionLevelSchema,
   nextMilestone: z.string().optional(),
-  dueAt: z.string().datetime().optional(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-  archivedAt: z.string().datetime().optional(),
+  dueAt: isoDateTimeSchema.optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  archivedAt: isoDateTimeSchema.optional(),
 });
 
 export type Project = z.infer<typeof ProjectSchema>;
@@ -29,7 +30,7 @@ export const CreateProjectSchema = z.object({
   status: ProjectStatusSchema.optional().default('active'),
   attentionLevel: ProjectAttentionLevelSchema.optional().default('normal'),
   nextMilestone: z.string().optional(),
-  dueAt: z.string().datetime().optional(),
+  dueAt: isoDateTimeSchema.optional(),
 });
 export type CreateProjectDTO = z.input<typeof CreateProjectSchema>;
 

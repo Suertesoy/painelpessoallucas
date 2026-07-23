@@ -5,6 +5,23 @@ import { DailyPlanRepository } from '../application/daily-plan.repository';
 import { DailyPlan, DailyPlanSchema } from '../domain/daily-plan.schema';
 import { ChangeNotifier } from '@/platform/supabase/change-notifier';
 
+export type DailyPlanRow = {
+  workspace_id: string;
+  date: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export function rowToDailyPlan(row: DailyPlanRow, focusItemIds: string[]): DailyPlan {
+  return DailyPlanSchema.parse({
+    workspaceId: row.workspace_id,
+    date: row.date,
+    focusItemIds,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+}
+
 /**
  * Persiste o plano diário em duas tabelas normalizadas:
  * daily_plans (workspace + data) e daily_plan_items (itens de foco, com posição).
@@ -78,13 +95,7 @@ export class SupabaseDailyPlanRepository implements DailyPlanRepository {
       .sort((a: { position: number }, b: { position: number }) => a.position - b.position)
       .map((r: { item_id: string }) => r.item_id);
 
-    return DailyPlanSchema.parse({
-      workspaceId: data.workspace_id,
-      date: data.date,
-      focusItemIds,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    });
+    return rowToDailyPlan(data, focusItemIds);
   }
 
   subscribe(listener: () => void): () => void {

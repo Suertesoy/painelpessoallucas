@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateTimeSchema } from '@/lib/zod-datetime';
 
 export const ItemTypeSchema = z.enum(['task', 'idea', 'insight', 'decision', 'reminder', 'reference', 'note']);
 export const ItemStatusSchema = z.enum(['inbox', 'organized', 'planned', 'in_progress', 'blocked', 'completed', 'archived']);
@@ -14,21 +15,21 @@ export const ItemSchema = z.object({
   status: ItemStatusSchema,
   priority: ItemPrioritySchema,
   projectId: z.string().uuid().optional(),
-  dueAt: z.string().datetime().optional(),
-  scheduledAt: z.string().datetime().optional(),
+  dueAt: isoDateTimeSchema.optional(),
+  scheduledAt: isoDateTimeSchema.optional(),
   estimatedMinutes: z.number().int().positive().optional(),
   nextAction: z.string().optional(),
   source: ItemSourceSchema,
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-  completedAt: z.string().datetime().optional(),
-  archivedAt: z.string().datetime().optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  completedAt: isoDateTimeSchema.optional(),
+  archivedAt: isoDateTimeSchema.optional(),
   // Proveniência (Fase 2): ocorrências materializadas por planos/recorrências.
   executionPlanId: z.string().uuid().optional(),
   planPhaseId: z.string().uuid().optional(),
   planActionId: z.string().uuid().optional(),
   recurrenceRuleId: z.string().uuid().optional(),
-  occurrenceAt: z.string().datetime().optional(),
+  occurrenceAt: isoDateTimeSchema.optional(),
 });
 
 export type Item = z.infer<typeof ItemSchema>;
@@ -43,8 +44,8 @@ export const CreateItemSchema = z.object({
   type: ItemTypeSchema.optional().default('note'),
   priority: ItemPrioritySchema.optional().default('normal'),
   projectId: z.string().uuid().optional(),
-  dueAt: z.string().datetime().optional(),
-  scheduledAt: z.string().datetime().optional(),
+  dueAt: isoDateTimeSchema.optional(),
+  scheduledAt: isoDateTimeSchema.optional(),
   estimatedMinutes: z.number().int().positive().optional(),
   nextAction: z.string().optional(),
   source: ItemSourceSchema.optional().default('manual'),
