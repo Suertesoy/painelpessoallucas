@@ -41,6 +41,9 @@ const PROJECTS: Project[] = [
 const getItemById = vi.fn();
 const listProjects = vi.fn();
 const findMigrationCompletedAt = vi.fn();
+const findByEntityId = vi.fn();
+const findLatestTriageRun = vi.fn();
+const findCalendarEventLink = vi.fn();
 const updateItem = vi.fn();
 const completeItem = vi.fn();
 const archiveItem = vi.fn();
@@ -54,7 +57,8 @@ vi.mock('@/providers/repository.provider', () => ({
     itemRepository: fakeRepo,
     projectRepository: fakeRepo,
     dailyPlanRepository: fakeRepo,
-    eventRepository: { findMigrationCompletedAt },
+    eventRepository: { findMigrationCompletedAt, findByEntityId },
+    audioProvenanceRepository: { findLatestTriageRun, findCalendarEventLink },
   }),
   useQueries: () => ({
     item: { getItemById },
@@ -78,6 +82,11 @@ async function openModalWith(item: Item, migrationCompletedAt: string | null = n
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Padrões de proveniência de áudio (sem histórico/triagem/evento) — testes
+  // específicos de captura por áudio sobrescrevem antes de chamar openModalWith.
+  findByEntityId.mockResolvedValue([]);
+  findLatestTriageRun.mockResolvedValue(null);
+  findCalendarEventLink.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -236,5 +245,140 @@ describe('ItemDetailModal', () => {
     const panel = dialog.firstElementChild as HTMLElement;
     expect(panel.className).toContain('h-dvh');
     expect(panel.className).toContain('sm:rounded-lg');
+  });
+});
+
+const AUDIO_ITEM: Item = {
+  id: 'item-audio-1',
+  workspaceId: 'ws-1',
+  title: 'Ligar para o cliente amanhã',
+  content: 'Preciso ligar para o cliente amanhã de manhã.',
+  type: 'note',
+  status: 'inbox',
+  priority: 'normal',
+  source: 'audio_capture',
+  audioDurationSeconds: 42,
+  createdAt: '2026-07-24T09:00:00.000Z',
+  updatedAt: '2026-07-24T09:00:00.000Z',
+};
+
+describe('ItemDetailModal — proveniência de captura por áudio (Etapa 7)', () => {
+  it('mostra a origem "Captura por áudio" e a duração da gravação', async () => {
+    findByEntityId.mockResolvedValue([]);
+    await openModalWith(AUDIO_ITEM);
+
+    await waitFor(() => expect(screen.getAllByText('Captura por áudio')).toHaveLength(2));
+    expect(findLatestTriageRun).toHaveBeenCalledWith('item-audio-1');
+    expect(findCalendarEventLink).toHaveBeenCalledWith('item-audio-1');
+    await waitFor(() => expect(screen.getByText(/0:42/)).toBeTruthy());
+  });
+
+  it('mostra a transcrição original e, quando o conteúdo foi editado, também a versão atual', async () => {
+    findByEntityId.mockResolvedValue([
+      {
+        id: 'ev-1',
+        type: 'item.created',
+        entityId: 'item-audio-1',
+        workspaceId: 'ws-1',
+        source: 'audio_capture',
+        payload: { content: 'transcrição original bruta' },
+        createdAt: '2026-07-24T09:00:00.000Z',
+      },
+    ]);
+    const edited: Item = { ...AUDIO_ITEM, content: 'Preciso ligar para o cliente amanhã de manhã.' };
+    await openModalWith(edited);
+
+    await waitFor(() => expect(screen.getByText('transcrição original bruta')).toBeTruthy());
+    expect(screen.getByText('Transcrição editada (conteúdo atual)')).toBeTruthy();
+    // O texto também aparece na textarea "Descrição" (mesmo conteúdo, editável) —
+    // aqui só confirmamos que o parágrafo somente-leitura da proveniência existe.
+    expect(screen.getByText('Preciso ligar para o cliente amanhã de manhã.', { selector: 'p' })).toBeTruthy();
+  });
+
+  it('não mostra "transcrição editada" quando o conteúdo nunca mudou', async () => {
+    findByEntityId.mockResolvedValue([
+      {
+        id: 'ev-1',
+        type: 'item.created',
+        entityId: 'item-audio-1',
+        workspaceId: 'ws-1',
+        source: 'audio_capture',
+        payload: { content: AUDIO_ITEM.content },
+        createdAt: '2026-07-24T09:00:00.000Z',
+      },
+    ]);
+    await openModalWith(AUDIO_ITEM);
+
+    await waitFor(() => expect(screen.getByText(AUDIO_ITEM.content!, { selector: 'p' })).toBeTruthy());
+    expect(screen.queryByText('Transcrição editada (conteúdo atual)')).toBeNull();
+  });
+
+  it('mostra o resultado da triagem por IA: modelo, confiança e quais ações foram aprovadas/rejeitadas', async () => {
+    findByEntityId.mockResolvedValue([]);
+    findLatestTriageRun.mockResolvedValue({
+      id: 'run-1',
+      model: 'gpt-4.1-mini',
+      status: 'completed',
+      createdAt: '2026-07-24T09:00:05.000Z',
+      completedAt: '2026-07-24T09:00:07.000Z',
+      errorMessage: null,
+      proposal: {
+        intent: 'task',
+        suggestedTitle: 'Ligar para o cliente',
+        summary: 'Lembrete de ligação.',
+        projectCandidates: [],
+        proposedActions: [
+          {
+            actionType: 'create_item',
+            title: 'Preparar pauta da ligação',
+            description: null,
+            itemType: 'task',
+            priority: 'normal',
+            projectId: null,
+            nextAction: null,
+            dueAt: null,
+            scheduledAt: null,
+            estimatedMinutes: null,
+            confidence: 0.8,
+          },
+        ],
+        calendarProposal: null,
+        missingInformation: [],
+        overallConfidence: 0.85,
+      },
+      actionsOutcome: [{ index: 0, status: 'done' }],
+      calendarOutcome: null,
+    });
+
+    await openModalWith(AUDIO_ITEM);
+
+    await waitFor(() => expect(screen.getByText(/gpt-4.1-mini/)).toBeTruthy());
+    expect(screen.getByText(/85%/)).toBeTruthy();
+    expect(screen.getByText('Preparar pauta da ligação')).toBeTruthy();
+    expect(screen.getByText('Aprovada e aplicada')).toBeTruthy();
+  });
+
+  it('mostra o link para o evento do Google Calendar quando existe vínculo', async () => {
+    findByEntityId.mockResolvedValue([]);
+    findCalendarEventLink.mockResolvedValue({
+      googleCalendarId: 'cal-1',
+      googleEventId: 'evt-1',
+      syncStatus: 'synced',
+    });
+
+    await openModalWith(AUDIO_ITEM);
+
+    await waitFor(() => expect(screen.getByText(/Ver evento no Google Calendar/)).toBeTruthy());
+    const link = screen.getByText(/Ver evento no Google Calendar/).closest('a');
+    expect(link?.getAttribute('href')).toContain('calendar.google.com/calendar/event?eid=');
+  });
+
+  it('uma falha ao carregar a proveniência de áudio não impede editar/ver o item', async () => {
+    findByEntityId.mockRejectedValue(new Error('falha de rede'));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await openModalWith(AUDIO_ITEM);
+
+    expect(screen.getByLabelText('Título')).toHaveProperty('value', AUDIO_ITEM.title);
+    consoleSpy.mockRestore();
   });
 });

@@ -4,13 +4,15 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
-import { X, CheckCircle, RotateCcw, Archive, ArchiveRestore, Loader2 } from 'lucide-react';
+import { X, CheckCircle, RotateCcw, Archive, ArchiveRestore, Loader2, Mic, ExternalLink } from 'lucide-react';
 import { useCommands, useQueries, useRepositories } from '@/providers/repository.provider';
 import { ITEM_DETAIL_EVENT } from '@/lib/ui-events';
 import { datetimeLocalToISO, isoToDatetimeLocalInput } from '@/lib/dates';
 import { resolveItemOrigin } from '@/lib/item-origin';
+import { formatRecordingDuration } from '@/lib/audio-recording';
 import type { Item, ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import type { Project } from '@/modules/projects/domain/project.schema';
+import type { AudioTriageRunSummary, CalendarEventLinkSummary } from '@/platform/ai/audio-provenance.repository';
 
 const TYPE_LABEL: Record<ItemType, string> = {
   note: 'Nota livre',
@@ -52,12 +54,15 @@ function formatDateTime(iso: string): string {
 export function ItemDetailModal() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
-  const { eventRepository } = useRepositories();
+  const { eventRepository, audioProvenanceRepository } = useRepositories();
 
   const [itemId, setItemId] = useState<string | null>(null);
   const [item, setItem] = useState<Item | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [migrationCompletedAt, setMigrationCompletedAt] = useState<string | null>(null);
+  const [originalTranscript, setOriginalTranscript] = useState<string | null>(null);
+  const [triageRun, setTriageRun] = useState<AudioTriageRunSummary | null>(null);
+  const [calendarLink, setCalendarLink] = useState<CalendarEventLinkSummary | null>(null);
   // Estado "carregado para" (em vez de um booleano isLoading setado no efeito):
   // carregando é derivado comparando o item aberto com o último id resolvido.
   const [loadedItemId, setLoadedItemId] = useState<string | null>(null);
@@ -110,6 +115,9 @@ export function ItemDetailModal() {
     setSaveError(null);
     setActionError(null);
     setJustSaved(false);
+    setOriginalTranscript(null);
+    setTriageRun(null);
+    setCalendarLink(null);
     if (previousFocusRef.current) previousFocusRef.current.focus();
   }, []);
 
@@ -154,6 +162,27 @@ export function ItemDetailModal() {
         setMigrationCompletedAt(migAt);
         setLoadError(null);
         setLoadedItemId(itemId);
+
+        // Proveniência de áudio é informação complementar de auditoria — uma
+        // falha aqui nunca deve impedir a exibição/edição do item.
+        if (loadedItem.source === 'audio_capture') {
+          Promise.all([
+            eventRepository.findByEntityId(itemId),
+            audioProvenanceRepository.findLatestTriageRun(itemId),
+            audioProvenanceRepository.findCalendarEventLink(itemId),
+          ])
+            .then(([events, run, link]) => {
+              if (cancelled) return;
+              const createdEvent = events.find((ev) => ev.type === 'item.created');
+              const createdPayload = createdEvent?.payload as { content?: string } | undefined;
+              setOriginalTranscript(createdPayload?.content ?? null);
+              setTriageRun(run);
+              setCalendarLink(link);
+            })
+            .catch((e: unknown) => {
+              console.error('Falha ao carregar proveniência da captura por áudio', e);
+            });
+        }
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -504,6 +533,18 @@ export function ItemDetailModal() {
                 </div>
               )}
 
+              {/* Proveniência de captura por áudio */}
+              {item.source === 'audio_capture' && (
+                <AudioProvenancePanel
+                  createdAt={item.createdAt}
+                  durationSeconds={item.audioDurationSeconds}
+                  originalTranscript={originalTranscript}
+                  currentContent={item.content}
+                  triageRun={triageRun}
+                  calendarLink={calendarLink}
+                />
+              )}
+
               {/* Metadados */}
               <div className="border-t pt-3 text-xs text-gray-500">
                 <p>Criado em {formatDateTime(item.createdAt)}</p>
@@ -537,5 +578,145 @@ function ActionButton({
     >
       {icon} {label}
     </button>
+  );
+}
+
+const TRIAGE_STATUS_LABEL: Record<AudioTriageRunSummary['status'], string> = {
+  queued: 'na fila',
+  running: 'em execução',
+  completed: 'concluída',
+  failed: 'falhou',
+};
+
+/**
+ * Link direto para o evento no Google Calendar. Formato eid=base64("<eventId> <calendarId>")
+ * não é uma API pública documentada, mas é o mesmo padrão que o próprio Google
+ * gera em "Copiar link" — mantido best-effort (a tela nunca depende dele).
+ */
+function googleCalendarEventUrl(calendarId: string, eventId: string): string {
+  const base64 = btoa(`${eventId} ${calendarId}`);
+  return `https://calendar.google.com/calendar/event?eid=${encodeURIComponent(base64)}`;
+}
+
+function AudioProvenancePanel({
+  createdAt,
+  durationSeconds,
+  originalTranscript,
+  currentContent,
+  triageRun,
+  calendarLink,
+}: {
+  createdAt: string;
+  durationSeconds?: number;
+  originalTranscript: string | null;
+  currentContent?: string;
+  triageRun: AudioTriageRunSummary | null;
+  calendarLink: CalendarEventLinkSummary | null;
+}) {
+  const wasEdited =
+    originalTranscript !== null && currentContent !== undefined && currentContent !== originalTranscript;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+      <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
+        <Mic size={12} /> Captura por áudio
+      </h3>
+
+      <p className="text-xs text-gray-600">
+        Gravado em {formatDateTime(createdAt)}
+        {durationSeconds ? ` · ${formatRecordingDuration(durationSeconds)}` : ''}
+      </p>
+
+      {originalTranscript && (
+        <div>
+          <p className="text-[11px] font-medium text-gray-500">Transcrição original</p>
+          <p className="mt-0.5 whitespace-pre-wrap rounded-md border bg-white p-2 text-xs text-gray-700">
+            {originalTranscript}
+          </p>
+        </div>
+      )}
+
+      {wasEdited && (
+        <div>
+          <p className="text-[11px] font-medium text-gray-500">Transcrição editada (conteúdo atual)</p>
+          <p className="mt-0.5 whitespace-pre-wrap rounded-md border bg-white p-2 text-xs text-gray-700">
+            {currentContent}
+          </p>
+        </div>
+      )}
+
+      {triageRun && (
+        <div className="space-y-2 border-t border-blue-100 pt-2">
+          <p className="text-[11px] font-medium text-gray-500">
+            Análise por IA — {TRIAGE_STATUS_LABEL[triageRun.status]}
+            {triageRun.model ? ` · modelo ${triageRun.model}` : ''}
+          </p>
+          {triageRun.proposal ? (
+            <>
+              <p className="text-xs text-gray-700">
+                Confiança geral: {Math.round(triageRun.proposal.overallConfidence * 100)}%.{' '}
+                {triageRun.proposal.summary}
+              </p>
+              {triageRun.proposal.proposedActions.length > 0 && (
+                <ul className="space-y-1">
+                  {triageRun.proposal.proposedActions.map((action, i) => {
+                    const outcome = triageRun.actionsOutcome.find((o) => o.index === i);
+                    return (
+                      <li
+                        key={i}
+                        className="flex items-center justify-between gap-2 rounded border bg-white px-2 py-1 text-xs text-gray-700"
+                      >
+                        <span>{action.title}</span>
+                        <span
+                          className={
+                            outcome?.status === 'done'
+                              ? 'text-green-700'
+                              : outcome?.status === 'error'
+                                ? 'text-red-600'
+                                : 'text-gray-400'
+                          }
+                        >
+                          {outcome?.status === 'done'
+                            ? 'Aprovada e aplicada'
+                            : outcome?.status === 'error'
+                              ? 'Aprovada — falhou ao aplicar'
+                              : 'Não aprovada'}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {triageRun.proposal.calendarProposal && (
+                <p className="text-xs text-gray-700">
+                  Evento sugerido: {triageRun.proposal.calendarProposal.title} —{' '}
+                  {triageRun.calendarOutcome === 'done'
+                    ? 'aprovado e criado'
+                    : triageRun.calendarOutcome === 'error'
+                      ? 'aprovado — falhou ao criar'
+                      : 'não aprovado'}
+                </p>
+              )}
+            </>
+          ) : (
+            triageRun.errorMessage && <p className="text-xs text-red-600">{triageRun.errorMessage}</p>
+          )}
+        </div>
+      )}
+
+      {calendarLink && (
+        <div className="border-t border-blue-100 pt-2 text-xs">
+          <a
+            href={googleCalendarEventUrl(calendarLink.googleCalendarId, calendarLink.googleEventId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+          >
+            <ExternalLink size={12} /> Ver evento no Google Calendar
+          </a>
+          <span className="ml-2 text-gray-400">({calendarLink.syncStatus})</span>
+        </div>
+      )}
+    </div>
   );
 }
