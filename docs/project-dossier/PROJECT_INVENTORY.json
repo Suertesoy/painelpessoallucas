@@ -1,0 +1,1028 @@
+{
+  "project": {
+    "name": "Painel Pessoal Lucas",
+    "description": "Central operacional pessoal para captura, organização e execução de tarefas, ideias, insights, decisões e projetos. Princípio central: capturar primeiro, organizar depois.",
+    "productionUrl": "https://painelpessoallucas.vercel.app",
+    "repository": "https://github.com/Suertesoy/painelpessoallucas",
+    "vercelProject": "painelpessoallucas",
+    "branch": "main",
+    "headCommit": "137fc0109f37f3e6d34c04b748dfb94bed8812c0",
+    "originMainCommit": "137fc0109f37f3e6d34c04b748dfb94bed8812c0",
+    "auditDate": "2026-07-24",
+    "auditType": "read-only, no code changes, no deploy, no db writes",
+    "phaseLabel": "Fase 2 (persistência remota, IA, automações) em produção; captura por áudio (rotulada como Fase 3 no ROADMAP) já implementada e integrada"
+  },
+  "stack": {
+    "framework": "Next.js 16.2.10 (App Router, Turbopack)",
+    "react": "19.2.4",
+    "reactDom": "19.2.4",
+    "typescript": "5.9.3 (strict, via ^5 no package.json)",
+    "styling": "Tailwind CSS 4.3.3 (sem tailwind.config; @import \"tailwindcss\" em globals.css)",
+    "validation": "Zod 4.4.3",
+    "testRunner": "Vitest 4.1.10",
+    "linter": "ESLint 9.39.5 (eslint-config-next 16.2.10)",
+    "database": "Supabase Postgres (RLS por workspace)",
+    "supabaseJs": "@supabase/supabase-js 2.110.7",
+    "supabaseSsr": "@supabase/ssr 0.12.3",
+    "aiSdk": "openai 6.47.0",
+    "dateLib": "date-fns 4.4.0",
+    "icons": "lucide-react 1.24.0",
+    "nodeVersion": "v24.16.0 (ambiente de auditoria)",
+    "npmVersion": "11.13.0 (ambiente de auditoria)",
+    "hosting": "Vercel (crons via vercel.json)",
+    "packageManager": "npm (package-lock.json presente)"
+  },
+  "repositoryState": {
+    "branch": "main",
+    "headCommit": "137fc0109f37f3e6d34c04b748dfb94bed8812c0",
+    "originMainCommit": "137fc0109f37f3e6d34c04b748dfb94bed8812c0",
+    "status": "Clean (untracked docs/project-dossier)",
+    "validations": {
+      "lint": {
+        "command": "npm run lint",
+        "result": "PASS",
+        "detail": "ESLint: No issues found",
+        "confirmedBy": "execução"
+      },
+      "typecheck": {
+        "command": "npm run typecheck",
+        "result": "PASS",
+        "detail": "tsc --noEmit sem saída/erros",
+        "confirmedBy": "execução"
+      },
+      "test": {
+        "command": "npm run test",
+        "result": "PASS",
+        "detail": "31 arquivos de teste, 216 testes, todos passando, ~10.7s",
+        "confirmedBy": "execução"
+      },
+      "build": {
+        "command": "npm run build",
+        "result": "PASS",
+        "detail": "Build de produção com Turbopack concluído; 32 rotas geradas (17 estáticas, 15 dinâmicas) + proxy/middleware",
+        "confirmedBy": "execução"
+      }
+    }
+  },
+  "routes": [
+    {
+      "path": "/",
+      "file": "src/app/page.tsx",
+      "type": "server-redirect",
+      "auth": "protegida (proxy)",
+      "purpose": "Redireciona para /hoje"
+    },
+    {
+      "path": "/login",
+      "file": "src/app/login/page.tsx",
+      "type": "client",
+      "auth": "pública",
+      "purpose": "Login único via Google OAuth (Supabase Auth), escopo openid email profile"
+    },
+    {
+      "path": "/auth/callback",
+      "file": "src/app/auth/callback/route.ts",
+      "type": "route-handler-GET",
+      "auth": "pública",
+      "purpose": "Troca code por sessão Supabase (exchangeCodeForSession)"
+    },
+    {
+      "path": "/hoje",
+      "file": "src/app/hoje/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Cockpit do dia: foco (máx 3), próximas ações, capacidade+Calendar, agendado, atividades de plano, aguardando, atenção necessária, pulso dos projetos"
+    },
+    {
+      "path": "/entrada",
+      "file": "src/app/entrada/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Caixa de entrada universal: processar capturas (tipo, projeto, próxima ação, agendamento)"
+    },
+    {
+      "path": "/projetos",
+      "file": "src/app/projetos/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Lista de projetos com filtro por status e criação"
+    },
+    {
+      "path": "/projetos/[projectId]",
+      "file": "src/app/projetos/[projectId]/page.tsx",
+      "type": "client-dynamic",
+      "auth": "protegida",
+      "purpose": "Detalhe/edição de projeto + itens agrupados por tipo"
+    },
+    {
+      "path": "/ideias",
+      "file": "src/app/ideias/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Base de conhecimento: ideias, insights, decisões, referências, notas"
+    },
+    {
+      "path": "/agenda",
+      "file": "src/app/agenda/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Semana navegável separando agendamentos de prazos"
+    },
+    {
+      "path": "/planos",
+      "file": "src/app/planos/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Lista de planos importados e documentos sem plano"
+    },
+    {
+      "path": "/planos/novo",
+      "file": "src/app/planos/novo/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Importar documento (.md/.txt/colado) para virar plano"
+    },
+    {
+      "path": "/planos/processar/[documentId]",
+      "file": "src/app/planos/processar/[documentId]/page.tsx",
+      "type": "client-dynamic",
+      "auth": "protegida",
+      "purpose": "Dispara POST /api/planos/processar e aguarda estruturação por IA"
+    },
+    {
+      "path": "/planos/[planId]",
+      "file": "src/app/planos/[planId]/page.tsx",
+      "type": "client-dynamic",
+      "auth": "protegida",
+      "purpose": "Detalhe do plano: fases, ações, recorrências, ciclo de vida (aprovar/ativar/pausar/retomar)"
+    },
+    {
+      "path": "/planos/[planId]/revisar",
+      "file": "src/app/planos/[planId]/revisar/page.tsx",
+      "type": "client-dynamic",
+      "auth": "protegida",
+      "purpose": "Revisão/edição da proposta de IA antes de aprovar (fato/hipótese/decisão/pergunta)"
+    },
+    {
+      "path": "/revisao",
+      "file": "src/app/revisao/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Higiene do sistema: prazos estourados, bloqueados, inbox antiga, sem projeto, projetos sem marco"
+    },
+    {
+      "path": "/configuracoes",
+      "file": "src/app/configuracoes/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Conta, integrações Google, preferências de digest, diagnósticos temporários"
+    },
+    {
+      "path": "/migracao",
+      "file": "src/app/migracao/page.tsx",
+      "type": "client",
+      "auth": "protegida",
+      "purpose": "Assistente de migração localStorage (Fase 1) -> Supabase"
+    },
+    {
+      "path": "/api/health",
+      "file": "src/app/api/health/route.ts",
+      "type": "route-handler-GET",
+      "auth": "pública",
+      "purpose": "Healthcheck simples { status: 'ok' }"
+    },
+    {
+      "path": "/api/cron/automation-tick",
+      "file": "src/app/api/cron/automation-tick/route.ts",
+      "type": "route-handler-GET/POST",
+      "auth": "CRON_SECRET (Bearer)",
+      "purpose": "Job horário: recorrências, reminders, calendar sync, digests, alertas"
+    },
+    {
+      "path": "/api/debug/sync-status",
+      "file": "src/app/api/debug/sync-status/route.ts",
+      "type": "route-handler-GET",
+      "auth": "protegida (sessão)",
+      "purpose": "Diagnóstico temporário de sessão servidor vs navegador (marcado para remoção no código)"
+    },
+    {
+      "path": "/api/ai/triage-capture",
+      "file": "src/app/api/ai/triage-capture/route.ts",
+      "type": "route-handler-POST",
+      "auth": "protegida (sessão)",
+      "purpose": "Triagem por IA de uma captura de áudio já salva; retorna proposta, nunca aplica ação"
+    },
+    {
+      "path": "/api/audio/transcribe",
+      "file": "src/app/api/audio/transcribe/route.ts",
+      "type": "route-handler-POST",
+      "auth": "protegida (sessão)",
+      "purpose": "Transcreve áudio via OpenAI (Whisper); nunca persiste o áudio"
+    },
+    {
+      "path": "/api/audio/confirm-calendar-event",
+      "file": "src/app/api/audio/confirm-calendar-event/route.ts",
+      "type": "route-handler-POST",
+      "auth": "protegida (sessão)",
+      "purpose": "Cria/atualiza evento no Google Calendar a partir da revisão da triagem de áudio"
+    },
+    {
+      "path": "/api/integrations/calendar/sync-item",
+      "file": "src/app/api/integrations/calendar/sync-item/route.ts",
+      "type": "route-handler-POST",
+      "auth": "protegida (sessão)",
+      "purpose": "Define modo de sync de calendar por item e sincroniza; sem chamador de UI identificado"
+    },
+    {
+      "path": "/api/integrations/calendar/sync-plan",
+      "file": "src/app/api/integrations/calendar/sync-plan/route.ts",
+      "type": "route-handler-POST",
+      "auth": "protegida (sessão)",
+      "purpose": "Define escopo de sync de calendar por plano; sem chamador de UI identificado"
+    },
+    {
+      "path": "/api/integrations/calendar/today",
+      "file": "src/app/api/integrations/calendar/today/route.ts",
+      "type": "route-handler-GET",
+      "auth": "protegida (sessão)",
+      "purpose": "Busy (freebusy) + eventos do calendário 'Painel Lucas' para a tela Hoje"
+    },
+    {
+      "path": "/api/integrations/gmail/send-digest",
+      "file": "src/app/api/integrations/gmail/send-digest/route.ts",
+      "type": "route-handler-POST",
+      "auth": "protegida (sessão)",
+      "purpose": "Envio manual de teste de resumo diário/semanal"
+    },
+    {
+      "path": "/api/integrations/google/callback",
+      "file": "src/app/api/integrations/google/callback/route.ts",
+      "type": "route-handler-GET",
+      "auth": "protegida (sessão) + OAuth",
+      "purpose": "Callback OAuth Google: troca code, grava tokens criptografados"
+    },
+    {
+      "path": "/api/integrations/google/connect",
+      "file": "src/app/api/integrations/google/connect/route.ts",
+      "type": "route-handler-GET",
+      "auth": "protegida (sessão)",
+      "purpose": "Inicia fluxo OAuth Google por serviço (calendar|gmail)"
+    },
+    {
+      "path": "/api/integrations/google/disconnect",
+      "file": "src/app/api/integrations/google/disconnect/route.ts",
+      "type": "route-handler-POST",
+      "auth": "protegida (sessão)",
+      "purpose": "Revoga/remove tokens e desconecta serviço"
+    },
+    {
+      "path": "/api/integrations/google/status",
+      "file": "src/app/api/integrations/google/status/route.ts",
+      "type": "route-handler-GET",
+      "auth": "protegida (sessão)",
+      "purpose": "Status da conexão Google, opcionalmente verificando renovação real do token"
+    },
+    {
+      "path": "/api/planos/processar",
+      "file": "src/app/api/planos/processar/route.ts",
+      "type": "route-handler-POST",
+      "auth": "protegida (sessão)",
+      "purpose": "Estrutura documento em plano via IA (Responses API + Zod); grava draft"
+    },
+    {
+      "path": "/api/settings/digest",
+      "file": "src/app/api/settings/digest/route.ts",
+      "type": "route-handler-GET/PUT",
+      "auth": "protegida (sessão)",
+      "purpose": "CRUD de workspace_settings (preferências de digest)"
+    }
+  ],
+  "screens": [
+    "Hoje (/hoje)",
+    "Caixa de Entrada (/entrada)",
+    "Projetos (/projetos)",
+    "Detalhe de Projeto (/projetos/[projectId])",
+    "Ideias e Insights (/ideias)",
+    "Agenda (/agenda)",
+    "Planos (/planos)",
+    "Novo Plano (/planos/novo)",
+    "Processamento de Plano (/planos/processar/[documentId])",
+    "Detalhe de Plano (/planos/[planId])",
+    "Revisão de Plano / Proposta IA (/planos/[planId]/revisar)",
+    "Revisão do Sistema (/revisao)",
+    "Configurações (/configuracoes)",
+    "Migração (/migracao)",
+    "Login (/login)",
+    "Busca Global (modal, Ctrl/Cmd+K)",
+    "Captura Rápida — Texto e Áudio (modal, Ctrl/Cmd+Shift+Espaço)",
+    "Revisão da Triagem de Áudio (dentro do modal de Captura Rápida)",
+    "Detalhe/Edição de Item (modal global)"
+  ],
+  "components": [
+    {
+      "name": "AppShell",
+      "file": "src/components/app-shell.tsx",
+      "role": "Casca da aplicação: sidebar + banner de migração + 3 modais globais"
+    },
+    {
+      "name": "SidebarNav",
+      "file": "src/components/sidebar-nav.tsx",
+      "role": "Navegação (sidebar desktop, barra+drawer mobile, FAB de captura)"
+    },
+    {
+      "name": "QuickCaptureModal",
+      "file": "src/components/quick-capture-modal.tsx",
+      "role": "Captura rápida por texto e áudio (2 abas)"
+    },
+    {
+      "name": "AudioRecorder",
+      "file": "src/components/audio-recorder.tsx",
+      "role": "Gravação de áudio no navegador (MediaRecorder)"
+    },
+    {
+      "name": "AudioCaptureReview",
+      "file": "src/components/audio-capture-review.tsx",
+      "role": "Revisão/aprovação por ação da proposta de triagem de IA"
+    },
+    {
+      "name": "ItemDetailModal",
+      "file": "src/components/item-detail-modal.tsx",
+      "role": "Detalhe/edição completa de item + proveniência (inclui áudio)"
+    },
+    {
+      "name": "GlobalSearchModal",
+      "file": "src/components/global-search-modal.tsx",
+      "role": "Busca global (itens + projetos), Ctrl/Cmd+K"
+    },
+    {
+      "name": "ItemCompleteButton",
+      "file": "src/components/item-complete-button.tsx",
+      "role": "Botão reutilizável de concluir tarefa (44x44px)"
+    },
+    {
+      "name": "DataErrorNotice",
+      "file": "src/components/data-error-notice.tsx",
+      "role": "Aviso padrão de erro/offline de query reativa"
+    },
+    {
+      "name": "MigrationBanner",
+      "file": "src/components/migration-banner.tsx",
+      "role": "Aviso de dados locais não migrados"
+    },
+    {
+      "name": "TodayCalendarCard",
+      "file": "src/components/today-calendar-card.tsx",
+      "role": "Capacidade do dia + compromissos do Google Calendar em /hoje"
+    },
+    {
+      "name": "GoogleIntegrationCard",
+      "file": "src/components/google-integration-card.tsx",
+      "role": "Conectar/desconectar/verificar Calendar ou Gmail"
+    },
+    {
+      "name": "DigestSettingsCard",
+      "file": "src/components/digest-settings-card.tsx",
+      "role": "Preferências e teste de envio de resumo por e-mail"
+    },
+    {
+      "name": "SyncDiagnosticsCard",
+      "file": "src/components/sync-diagnostics-card.tsx",
+      "role": "TEMPORÁRIO — diagnóstico de sessão servidor vs navegador"
+    },
+    {
+      "name": "DataFlowDiagnosticsCard",
+      "file": "src/components/data-flow-diagnostics-card.tsx",
+      "role": "TEMPORÁRIO — diagnóstico de fluxo de dados (projetos/hoje)"
+    }
+  ],
+  "modules": [
+    {
+      "name": "items",
+      "layers": [
+        "domain",
+        "application",
+        "infrastructure"
+      ],
+      "status": "completo; localStorage legado (só testes), Supabase em produção"
+    },
+    {
+      "name": "projects",
+      "layers": [
+        "domain",
+        "application",
+        "infrastructure"
+      ],
+      "status": "completo; localStorage legado (só testes), Supabase em produção"
+    },
+    {
+      "name": "planning",
+      "layers": [
+        "domain",
+        "application",
+        "infrastructure"
+      ],
+      "status": "completo (foco diário, máx 3); localStorage legado, Supabase em produção"
+    },
+    {
+      "name": "plans",
+      "layers": [
+        "domain",
+        "application",
+        "infrastructure"
+      ],
+      "status": "completo; somente Supabase (nunca teve localStorage)"
+    },
+    {
+      "name": "global",
+      "layers": [
+        "application"
+      ],
+      "status": "busca global — composição de items+projects, sem domain/infra próprios"
+    },
+    {
+      "name": "migration",
+      "layers": [
+        "utilitário único"
+      ],
+      "status": "não segue domain/application/infrastructure; assistente local->nuvem"
+    },
+    {
+      "name": "review",
+      "layers": [
+        "application (vazio)",
+        "ui (vazio)"
+      ],
+      "status": "scaffold vazio — funcionalidade real vive em items/item.queries.ts (getReviewOverview)"
+    }
+  ],
+  "entities": [
+    {
+      "name": "Item",
+      "schemaFile": "src/modules/items/domain/item.schema.ts",
+      "table": "items",
+      "hasZodSchema": true
+    },
+    {
+      "name": "Project",
+      "schemaFile": "src/modules/projects/domain/project.schema.ts",
+      "table": "projects",
+      "hasZodSchema": true
+    },
+    {
+      "name": "DailyPlan",
+      "schemaFile": "src/modules/planning/domain/daily-plan.schema.ts",
+      "table": "daily_plans + daily_plan_items",
+      "hasZodSchema": true
+    },
+    {
+      "name": "DomainEvent",
+      "schemaFile": "src/platform/events/event.schema.ts",
+      "table": "domain_events",
+      "hasZodSchema": true
+    },
+    {
+      "name": "SourceDocument",
+      "schemaFile": "src/modules/plans/domain/plan.schema.ts",
+      "table": "source_documents",
+      "hasZodSchema": true
+    },
+    {
+      "name": "ExecutionPlan",
+      "schemaFile": "src/modules/plans/domain/plan.schema.ts",
+      "table": "execution_plans",
+      "hasZodSchema": true
+    },
+    {
+      "name": "PlanPhase",
+      "schemaFile": "src/modules/plans/domain/plan.schema.ts",
+      "table": "plan_phases",
+      "hasZodSchema": true
+    },
+    {
+      "name": "PlanAction",
+      "schemaFile": "src/modules/plans/domain/plan.schema.ts",
+      "table": "plan_actions",
+      "hasZodSchema": true
+    },
+    {
+      "name": "RecurrenceRule",
+      "schemaFile": "src/modules/plans/domain/plan.schema.ts",
+      "table": "recurrence_rules",
+      "hasZodSchema": true
+    },
+    {
+      "name": "Notification",
+      "schemaFile": "src/modules/plans/domain/plan.schema.ts",
+      "table": "notifications",
+      "hasZodSchema": true
+    },
+    {
+      "name": "Reminder",
+      "schemaFile": null,
+      "table": "reminders",
+      "hasZodSchema": false,
+      "note": "sem schema Zod dedicado; lido/escrito snake_case direto pelo cron"
+    },
+    {
+      "name": "PlanProposal (AI)",
+      "schemaFile": "src/modules/plans/domain/plan-proposal.schema.ts",
+      "table": "não persistida (JSON em ai_runs.response_metadata)",
+      "hasZodSchema": true
+    },
+    {
+      "name": "AudioTriageProposal (AI)",
+      "schemaFile": "src/platform/ai/audio-triage.schema.ts",
+      "table": "não persistida (JSON em ai_runs.response_metadata)",
+      "hasZodSchema": true
+    },
+    {
+      "name": "Workspace",
+      "schemaFile": null,
+      "table": "workspaces",
+      "hasZodSchema": false
+    },
+    {
+      "name": "WorkspaceMember",
+      "schemaFile": null,
+      "table": "workspace_members",
+      "hasZodSchema": false
+    },
+    {
+      "name": "WorkspaceSettings",
+      "schemaFile": null,
+      "table": "workspace_settings",
+      "hasZodSchema": false,
+      "note": "validado por Zod inline snake_case só dentro de src/app/api/settings/digest/route.ts"
+    },
+    {
+      "name": "IntegrationAccount",
+      "schemaFile": null,
+      "table": "integration_accounts",
+      "hasZodSchema": false
+    },
+    {
+      "name": "IntegrationToken",
+      "schemaFile": null,
+      "table": "integration_tokens",
+      "hasZodSchema": false,
+      "note": "sem policy de cliente; somente service_role"
+    },
+    {
+      "name": "CalendarEventLink",
+      "schemaFile": null,
+      "table": "calendar_event_links",
+      "hasZodSchema": false
+    },
+    {
+      "name": "AiRun",
+      "schemaFile": null,
+      "table": "ai_runs",
+      "hasZodSchema": false
+    },
+    {
+      "name": "AutomationRun",
+      "schemaFile": null,
+      "table": "automation_runs",
+      "hasZodSchema": false
+    }
+  ],
+  "tables": [
+    "profiles",
+    "workspaces",
+    "workspace_members",
+    "projects",
+    "items",
+    "daily_plans",
+    "daily_plan_items",
+    "item_relations",
+    "domain_events",
+    "source_documents",
+    "execution_plans",
+    "plan_phases",
+    "recurrence_rules",
+    "plan_actions",
+    "reminders",
+    "notifications",
+    "ai_runs",
+    "integration_accounts",
+    "integration_tokens",
+    "calendar_event_links",
+    "workspace_settings",
+    "automation_runs"
+  ],
+  "databaseFunctions": [
+    {
+      "name": "set_updated_at",
+      "type": "trigger function",
+      "securityDefiner": false
+    },
+    {
+      "name": "is_workspace_member",
+      "type": "RLS helper (stable sql)",
+      "securityDefiner": true,
+      "reason": "evitar recursão de RLS em workspace_members"
+    },
+    {
+      "name": "handle_new_user",
+      "type": "trigger on auth.users insert",
+      "securityDefiner": true,
+      "reason": "bootstrap de profile+workspace+membership"
+    },
+    {
+      "name": "ensure_personal_workspace",
+      "type": "RPC chamável pelo cliente",
+      "securityDefiner": true,
+      "reason": "fallback idempotente para contas sem workspace"
+    }
+  ],
+  "commands": [
+    "ItemCommands: createItem, updateItem, scheduleItem, completeItem, archiveItem, reopenItem, unarchiveItem",
+    "ProjectCommands: createProject, updateProject, archiveProject",
+    "DailyPlanCommands: setDailyFocus, removeDailyFocusItem",
+    "PlanCommands: createSourceDocument, updatePlan, savePhases, saveActions, saveRecurrenceRules, deletePhase, deleteAction, approvePlan, activatePlan, setPlanStatus"
+  ],
+  "queries": [
+    "ItemQueries: listItems, getItemById, listInboxItems, searchItems, listScheduledItems, getTodayOverview, getReviewOverview",
+    "ProjectQueries: listProjects, getProjectById, searchProjects",
+    "DailyPlanQueries: getDailyPlan",
+    "GlobalQueries: globalSearch",
+    "PlanQueries: listDocuments, getDocumentById, listPlans, listPlansByProject, getPlanDetail, getPlanProposal"
+  ],
+  "domainEvents": [
+    "item.created",
+    "item.updated",
+    "item.scheduled",
+    "item.completed",
+    "item.archived",
+    "project.created",
+    "project.updated",
+    "project.archived",
+    "daily_plan.focus_updated",
+    "source_document.created",
+    "execution_plan.draft_created",
+    "execution_plan.approved",
+    "execution_plan.activated",
+    "execution_plan.status_changed",
+    "migration.completed",
+    "digest.daily_sent",
+    "digest.weekly_sent",
+    "digest.critical_sent",
+    "digest.automation_failure_sent"
+  ],
+  "integrations": [
+    {
+      "name": "Google Calendar",
+      "status": "implementado e usado",
+      "scopes": [
+        "calendar.app.created",
+        "calendar.freebusy"
+      ],
+      "notes": "Só calendário criado pela app + freebusy sem títulos da agenda principal; sem convites automáticos"
+    },
+    {
+      "name": "Gmail",
+      "status": "implementado e usado",
+      "scopes": [
+        "gmail.send"
+      ],
+      "notes": "Somente envio; nenhuma leitura de caixa de entrada; opt-in explícito"
+    },
+    {
+      "name": "OpenAI (Responses API + structured outputs)",
+      "status": "implementado e usado",
+      "notes": "3 operações: estruturação de plano, transcrição de áudio, triagem de captura por áudio"
+    },
+    {
+      "name": "MCP",
+      "status": "somente contrato (mcp.registry.ts), nunca implementado"
+    },
+    {
+      "name": "Webhooks genéricos (integration.adapter.ts)",
+      "status": "somente contrato, nunca implementado"
+    },
+    {
+      "name": "AIProvider genérico (ai.provider.ts)",
+      "status": "somente contrato de demonstração, não usado pelas 3 operações reais"
+    }
+  ],
+  "aiOperations": [
+    {
+      "operation": "plan_import",
+      "route": "POST /api/planos/processar",
+      "model": "OPENAI_MODEL, default gpt-4.1-mini",
+      "api": "Responses API + zodTextFormat",
+      "audited": "ai_runs",
+      "autoApply": "grava draft não-ativo direto no banco; ativação exige aprovação humana na tela de revisão"
+    },
+    {
+      "operation": "audio_transcription",
+      "route": "POST /api/audio/transcribe",
+      "model": "OPENAI_TRANSCRIBE_MODEL, default whisper-1",
+      "api": "Audio Transcriptions API",
+      "audited": "não grava em ai_runs (lacuna de auditoria)",
+      "autoApply": "não aplica nada; retorna só o texto"
+    },
+    {
+      "operation": "audio_capture_triage",
+      "route": "POST /api/ai/triage-capture",
+      "model": "OPENAI_MODEL, default gpt-4.1-mini",
+      "api": "Responses API + zodTextFormat",
+      "audited": "ai_runs (item_id)",
+      "autoApply": "nunca — só propõe; aplicação exige clique explícito por ação em AudioCaptureReview"
+    }
+  ],
+  "automations": [
+    {
+      "name": "automation-tick",
+      "route": "/api/cron/automation-tick",
+      "schedule": "0 * * * * (Vercel cron, vercel.json)",
+      "auth": "CRON_SECRET Bearer",
+      "idempotency": "unique(workspace_id, automation_type, idempotency_key) em automation_runs",
+      "status": "implementado, mas não homologado (sem acesso a logs de produção nesta auditoria)"
+    }
+  ],
+  "environmentVariableNames": [
+    "NEXT_PUBLIC_APP_URL",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_SECRET_KEY",
+    "OPENAI_API_KEY",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REDIRECT_URI",
+    "GOOGLE_TOKEN_ENCRYPTION_KEY",
+    "CRON_SECRET",
+    "OPENAI_MODEL (opcional, não documentada em .env.example)",
+    "OPENAI_TRANSCRIBE_MODEL (opcional, não documentada em .env.example)"
+  ],
+  "userFlows": [
+    "Capturar tarefa/ideia por texto (QuickCaptureModal aba Texto)",
+    "Capturar por áudio -> transcrever -> salvar na Entrada -> analisar com IA (opcional) -> revisar propostas -> aprovar ações/evento",
+    "Processar item na Caixa de Entrada (organizar, agendar, arquivar)",
+    "Definir foco do dia (máx. 3) em /hoje",
+    "Criar/editar/arquivar projeto",
+    "Importar documento -> processar com IA -> revisar proposta -> aprovar plano -> ativar plano -> recorrências materializam tarefas",
+    "Revisão semanal do sistema (/revisao)",
+    "Conectar/desconectar Google Calendar e Gmail em Configurações",
+    "Migrar dados locais (Fase 1) para a nuvem em /migracao",
+    "Busca global (Ctrl/Cmd+K)"
+  ],
+  "designTokens": {
+    "cssVariables": {
+      "--background": "#f9fafb",
+      "--foreground": "#171717"
+    },
+    "tailwindConfigFile": "não existe (Tailwind 4 sem @theme customizado; usa paleta padrão)",
+    "font": "Inter (next/font/google)",
+    "darkMode": "não implementado (comentário no código reserva para evolução futura)",
+    "commonCardPattern": "bg-white rounded-xl shadow-sm border p-4 md:p-6 (repetido manualmente em dezenas de arquivos, não extraído em componente)",
+    "breakpointCentral": "md: (mobile vs desktop)"
+  },
+  "copyInventory": [
+    {
+      "category": "Navegação",
+      "itemsCount": 15,
+      "summary": "Títulos da barra lateral, botões de busca, captura, logout e tooltips (pt-BR)"
+    },
+    {
+      "category": "Captura por Áudio e Gravação",
+      "itemsCount": 22,
+      "summary": "Avisos de privacidade, estados da máquina do MediaRecorder, botões e erros"
+    },
+    {
+      "category": "Revisão da Triagem por IA",
+      "itemsCount": 20,
+      "summary": "Badges de confiança, ações propostas, avisos de informações faltantes e evento de calendário"
+    },
+    {
+      "category": "Detalhe do Item",
+      "itemsCount": 35,
+      "summary": "Campos editáveis, labels de tipo/status/prioridade, botões de ação e painel de proveniência"
+    },
+    {
+      "category": "Hoje (Dashboard)",
+      "itemsCount": 42,
+      "summary": "Títulos de seções, aviso de sobrecarga de capacidade, estados vazios e atalhos"
+    },
+    {
+      "category": "Caixa de Entrada",
+      "itemsCount": 18,
+      "summary": "Placeholders, opções de filtro, confirmações e estado de caixa vazia"
+    },
+    {
+      "category": "Projetos (Lista e Detalhe)",
+      "itemsCount": 28,
+      "summary": "Formulários de criação, status, níveis de atenção, marcos e confirmações"
+    },
+    {
+      "category": "Ideias e Insights",
+      "itemsCount": 12,
+      "summary": "Filtros, badges de decisões e mensagens de estado vazio"
+    },
+    {
+      "category": "Agenda",
+      "itemsCount": 14,
+      "summary": "Controles de navegação de semana, colunas de agendamentos e prazos"
+    },
+    {
+      "category": "Planos (Lista, Novo, Processar, Detalhe, Revisar)",
+      "itemsCount": 65,
+      "summary": "Formulários de importação, badges da IA (fatos, hipóteses, decisões, perguntas), status e revisões"
+    },
+    {
+      "category": "Revisão do Sistema",
+      "itemsCount": 16,
+      "summary": "Cards estatísticos, seções de pendências e botão de sistema em ordem"
+    },
+    {
+      "category": "Configurações",
+      "itemsCount": 24,
+      "summary": "Cards de integrações Google, preferências de digest, botões de teste e diagnósticos"
+    },
+    {
+      "category": "Migração",
+      "itemsCount": 15,
+      "summary": "Wizard de migração Fase 1 -> Fase 2, prévias, backup e confirmação em 2 etapas"
+    },
+    {
+      "category": "Login",
+      "itemsCount": 6,
+      "summary": "Botão Entrar com Google, nota de privacidade e tratamento de erro de callback"
+    }
+  ],
+  "tests": [
+    {
+      "suite": "domínio/commands/lifecycle",
+      "filesCount": 5,
+      "description": "Validação de regras de domínio, lifecycle de itens, queries e motor de recorrência"
+    },
+    {
+      "suite": "repositories Supabase/mappers",
+      "filesCount": 3,
+      "description": "Mappers rowToItem/rowToProject/rowToAudioProvenance sem chamadas de rede reais"
+    },
+    {
+      "suite": "queries/diagnóstico",
+      "filesCount": 3,
+      "description": "Diagnósticos de fluxo de dados, sync de browser e rota sync-status com mocks"
+    },
+    {
+      "suite": "datas",
+      "filesCount": 1,
+      "description": "Round-trip de fuso horário America/Sao_Paulo e utilitários date-fns"
+    },
+    {
+      "suite": "componentes RTL",
+      "filesCount": 9,
+      "description": "Testes de componentes React (DataErrorNotice, ItemCompleteButton, ItemDetailModal, AudioRecorder, AudioCaptureReview, etc.)"
+    },
+    {
+      "suite": "IA plano + áudio",
+      "filesCount": 6,
+      "description": "Parsing Zod de propostas de plano e áudio, prompts e rotas API com fábrica mockada"
+    },
+    {
+      "suite": "automação / google / digest / migração",
+      "filesCount": 4,
+      "description": "Runner idempotente, criptografia AES-256-GCM, templates de e-mail e migrador local"
+    }
+  ],
+  "knownIssues": [
+    "AGENTS.md desatualizado: cita WORKSPACE_ID em constants.ts, que não existe mais (renomeado para LEGACY_LOCAL_WORKSPACE_ID, não usado)",
+    "3 emissões de evento de domínio gravam direto no Supabase, sem passar por EventRepository (execution_plan.draft_created, migration.completed, digest.*_sent)",
+    "items.calendar_sync e execution_plans.calendar_sync_scope existem no banco mas não têm campo correspondente no ItemSchema/ExecutionPlanSchema (fora do ciclo de validação Zod)",
+    "Rota /api/audio/transcribe não grava em ai_runs (lacuna de auditoria da chamada real a whisper-1)",
+    "Rotas /api/integrations/calendar/sync-item e sync-plan sem chamador de UI identificado no código atual",
+    "6 entidades (Workspace, WorkspaceMember, WorkspaceSettings, IntegrationAccount, IntegrationToken, CalendarEventLink, AiRun, AutomationRun) sem schema Zod dedicado",
+    "Duplicação estrutural entre openai-plan-structurer.ts e openai-audio-triage-structurer.ts (mesmo padrão, dois arquivos quase idênticos)",
+    "estimateCostUsd/PRICES_PER_MTOKEN vivem em openai-plan-structurer.ts mas são importados por uma rota de áudio (acoplamento cruzado)",
+    "Nenhum componente de modal compartilhado (3 modais reimplementam overlay/foco/Escape individualmente)",
+    "3 valores de max-w concorrentes para telas de listagem (max-w-4xl/5xl/6xl) sem critério aparente",
+    "Área de toque pequena (<44px) disseminada em botões só-ícone, exceto ItemCompleteButton (já corrigido)",
+    "Terminologia inconsistente: 'Prazo' vs 'Data Limite' vs 'Due Date' para o mesmo conceito em telas diferentes",
+    "Texto técnico (categorias de erro em snake_case, status HTTP cru, fragmento de UUID) exposto ao usuário final em pelo menos 5 pontos"
+  ],
+  "technicalDebt": [
+    {
+      "code": "LEGACY_CONST",
+      "file": "src/lib/constants.ts",
+      "description": "LEGACY_LOCAL_WORKSPACE_ID exportado mas não utilizado no código de produção."
+    },
+    {
+      "code": "EMPTY_DIRS",
+      "paths": [
+        "src/types/",
+        "src/platform/outbox/",
+        "src/platform/workflows/",
+        "src/modules/review/application/",
+        "src/modules/review/ui/"
+      ],
+      "description": "Diretórios de scaffolding vazios."
+    },
+    {
+      "code": "DEAD_LOCAL_REPOS",
+      "files": [
+        "LocalStorageItemRepository",
+        "LocalStorageProjectRepository",
+        "LocalStorageDailyPlanRepository",
+        "LocalStorageEventRepository",
+        "LocalStorageAdapter"
+      ],
+      "description": "Implementações localStorage mantidas apenas para testes unitários e migração inicial; inativas no runtime de produção."
+    },
+    {
+      "code": "EVENT_BYPASS",
+      "files": [
+        "app/api/planos/processar/route.ts",
+        "modules/migration/local-data-migration.ts",
+        "platform/integrations/digest-dispatch.ts"
+      ],
+      "description": "Inserção direta na tabela domain_events via cliente Supabase, ignorando a abstração EventRepository."
+    },
+    {
+      "code": "UNSCHEMATIZED_INFRA_ENTITIES",
+      "tables": [
+        "workspace_settings",
+        "integration_accounts",
+        "integration_tokens",
+        "calendar_event_links",
+        "ai_runs",
+        "automation_runs",
+        "reminders"
+      ],
+      "description": "Entidades de infraestrutura sem schemas Zod formais de domínio."
+    },
+    {
+      "code": "OPENAI_STRUCTURER_DUPLICATION",
+      "files": [
+        "src/platform/ai/openai-plan-structurer.ts",
+        "src/platform/ai/openai-audio-triage-structurer.ts"
+      ],
+      "description": "Código de inicialização OpenAI, Zod structured output e fábrica injetável duplicado entre os dois estruturadores."
+    },
+    {
+      "code": "UI_DESIGN_SYSTEM_INCONSISTENCIES",
+      "description": "Variabilidade de border-radius (rounded-xl vs rounded-lg), tamanhos de badges (text-xs vs text-[10px]), larguras máximas de container (max-w-4xl vs 5xl vs 6xl) e tratamento de erros (DataErrorNotice vs ad-hoc role=alert)."
+    },
+    {
+      "code": "UNCONNECTED_CONTRACTS",
+      "files": [
+        "src/platform/ai/ai.provider.ts",
+        "src/platform/mcp/mcp.registry.ts",
+        "src/platform/integrations/integration.adapter.ts"
+      ],
+      "description": "Interfaces/contratos abstratos de fases futuras não conectados a implementações ativas."
+    },
+    {
+      "code": "MISSING_ENV_DOCS",
+      "file": ".env.example",
+      "description": "Variáveis OPENAI_MODEL e OPENAI_TRANSCRIBE_MODEL lidas via process.env mas ausentes em .env.example."
+    }
+  ],
+  "temporaryDiagnostics": [
+    {
+      "component": "src/components/sync-diagnostics-card.tsx",
+      "route": "src/app/api/debug/sync-status/route.ts",
+      "reason": "investigar bug de sincronização mobile; marcado 'TEMPORÁRIO — remover' no próprio código"
+    },
+    {
+      "component": "src/components/data-flow-diagnostics-card.tsx",
+      "reason": "mesmo motivo; marcado 'TEMPORÁRIO — remover junto com sync-diagnostics-card.tsx'"
+    }
+  ],
+  "documentation": [
+    "README.md",
+    "AGENTS.md (parcialmente desatualizado)",
+    "CLAUDE.md (referencia AGENTS.md)",
+    "docs/ARCHITECTURE.md (fonte mais atualizada e precisa)",
+    "docs/ROADMAP.md",
+    "docs/AUDIT.md (2026-07-16, histórico)",
+    "docs/PRODUCT_DIRECTION.md",
+    "docs/RELATORIO-FASE-2.md (2026-07-17, pré-áudio)",
+    "docs/events.md",
+    "docs/integrations.md",
+    "docs/mcp.md"
+  ],
+  "screenshots": [
+    {
+      "filename": "login-desktop-1440x1000.png",
+      "path": "docs/project-dossier/screenshots/login-desktop-1440x1000.png",
+      "viewport": "1440x1000",
+      "description": "Captura pública da tela de login em resolução desktop"
+    },
+    {
+      "filename": "login-mobile-390x844.png",
+      "path": "docs/project-dossier/screenshots/login-mobile-390x844.png",
+      "viewport": "390x844",
+      "description": "Captura pública da tela de login em resolução mobile"
+    }
+  ],
+  "openQuestions": [
+    "O cron de produção (/api/cron/automation-tick) já executou de fato na Vercel? Nenhum log foi consultado nesta auditoria.",
+    "Homologação em produção dos itens 15/20 do RELATORIO-FASE-2.md (login em 2 dispositivos, RLS ao vivo, OpenAI/Calendar/Gmail reais) foi concluída?",
+    "As rotas sync-item/sync-plan são vestígio de UI removida ou aguardam uma tela futura?",
+    "Qual a causa raiz do bug de sincronização mobile que motivou os componentes de diagnóstico temporários — já foi identificada?",
+    "Existe intenção de dark mode a curto prazo (reservado em globals.css) ou é apenas aspiracional?",
+    "AGENTS.md será atualizado para refletir workspaceId via sessão em vez de constants.ts?"
+  ]
+}
