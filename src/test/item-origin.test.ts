@@ -64,6 +64,13 @@ describe('resolveItemOrigin', () => {
     expect(resolveItemOrigin(baseItem({ source: 'ai' }), null).kind).toBe('ai');
   });
 
+  it('classifica captura por áudio pelo source, mesmo anterior à migração', () => {
+    const item = baseItem({ source: 'audio_capture', createdAt: '2026-07-01T00:00:00.000Z' });
+    const origin = resolveItemOrigin(item, '2026-07-22T20:18:23.602Z');
+    expect(origin.kind).toBe('audio_capture');
+    expect(origin.label).toBe('Captura por áudio');
+  });
+
   it('inclui link para o projeto quando o item tem projectId', () => {
     const item = baseItem({ projectId: 'proj-1' });
     const origin = resolveItemOrigin(item, null);

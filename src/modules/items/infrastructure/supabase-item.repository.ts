@@ -28,6 +28,7 @@ export type ItemRow = {
   plan_action_id: string | null;
   recurrence_rule_id: string | null;
   occurrence_at: string | null;
+  audio_duration_seconds: number | null;
 };
 
 export function rowToItem(row: ItemRow): Item {
@@ -54,6 +55,7 @@ export function rowToItem(row: ItemRow): Item {
     planActionId: row.plan_action_id ?? undefined,
     recurrenceRuleId: row.recurrence_rule_id ?? undefined,
     occurrenceAt: row.occurrence_at ?? undefined,
+    audioDurationSeconds: row.audio_duration_seconds ?? undefined,
   });
 }
 
@@ -82,6 +84,7 @@ function itemToRow(item: Item): Omit<ItemRow, 'created_at' | 'updated_at'> & {
     plan_action_id: item.planActionId ?? null,
     recurrence_rule_id: item.recurrenceRuleId ?? null,
     occurrence_at: item.occurrenceAt ?? null,
+    audio_duration_seconds: item.audioDurationSeconds ?? null,
   };
 }
 

@@ -74,4 +74,29 @@ export class SupabaseEventRepository implements EventRepository {
     }
     return data?.created_at ?? null;
   }
+
+  async findByEntityId(entityId: string): Promise<DomainEvent[]> {
+    const { data, error } = await this.supabase
+      .from('domain_events')
+      .select('*')
+      .eq('workspace_id', this.workspaceId)
+      .eq('entity_id', entityId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) {
+      throw new Error(`Não foi possível carregar o histórico do item: ${error.message}`);
+    }
+    return (data ?? []).map((row) =>
+      DomainEventSchema.parse({
+        id: row.id,
+        type: row.type,
+        entityId: row.entity_id,
+        workspaceId: row.workspace_id,
+        source: row.source,
+        payload: row.payload ?? undefined,
+        createdAt: row.created_at,
+        processedAt: row.processed_at ?? undefined,
+      })
+    );
+  }
 }

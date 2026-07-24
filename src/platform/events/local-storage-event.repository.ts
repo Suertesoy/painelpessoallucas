@@ -24,4 +24,11 @@ export class LocalStorageEventRepository extends LocalStorageAdapter<DomainEvent
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return Promise.resolve(migrations[0]?.createdAt ?? null);
   }
+
+  public findByEntityId(entityId: string): Promise<DomainEvent[]> {
+    const events = this.getItems()
+      .filter((e) => e.entityId === entityId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return Promise.resolve(events);
+  }
 }

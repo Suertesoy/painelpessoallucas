@@ -18,6 +18,7 @@ export type ItemOriginKind =
   | 'automation'
   | 'ai'
   | 'mcp'
+  | 'audio_capture'
   | 'migrated'
   | 'manual'
   | 'unknown';
@@ -52,6 +53,8 @@ export function resolveItemOrigin(item: Item, migrationCompletedAt: string | nul
       return { kind: 'ai', label: 'Gerado por IA', projectHref };
     case 'mcp':
       return { kind: 'mcp', label: 'Criado via MCP', projectHref };
+    case 'audio_capture':
+      return { kind: 'audio_capture', label: 'Captura por áudio', projectHref };
   }
 
   if (migrationCompletedAt && item.createdAt < migrationCompletedAt) {

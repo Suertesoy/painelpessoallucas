@@ -4,7 +4,7 @@ import { isoDateTimeSchema } from '@/lib/zod-datetime';
 export const ItemTypeSchema = z.enum(['task', 'idea', 'insight', 'decision', 'reminder', 'reference', 'note']);
 export const ItemStatusSchema = z.enum(['inbox', 'organized', 'planned', 'in_progress', 'blocked', 'completed', 'archived']);
 export const ItemPrioritySchema = z.enum(['low', 'normal', 'high', 'critical']);
-export const ItemSourceSchema = z.enum(['quick_capture', 'manual', 'import', 'ai', 'integration', 'mcp', 'automation']);
+export const ItemSourceSchema = z.enum(['quick_capture', 'manual', 'import', 'ai', 'integration', 'mcp', 'automation', 'audio_capture']);
 
 export const ItemSchema = z.object({
   id: z.string().uuid(),
@@ -30,6 +30,8 @@ export const ItemSchema = z.object({
   planActionId: z.string().uuid().optional(),
   recurrenceRuleId: z.string().uuid().optional(),
   occurrenceAt: isoDateTimeSchema.optional(),
+  // Proveniência (Fase 3): duração da gravação, só presente em source=audio_capture.
+  audioDurationSeconds: z.number().int().positive().optional(),
 });
 
 export type Item = z.infer<typeof ItemSchema>;
@@ -49,6 +51,7 @@ export const CreateItemSchema = z.object({
   estimatedMinutes: z.number().int().positive().optional(),
   nextAction: z.string().optional(),
   source: ItemSourceSchema.optional().default('manual'),
+  audioDurationSeconds: z.number().int().positive().optional(),
 }).refine(data => data.title || data.content, {
   message: "O item deve ter um título ou conteúdo",
   path: ["title"]

@@ -23,6 +23,7 @@ export class ItemCommands {
       estimatedMinutes: dto.estimatedMinutes,
       nextAction: dto.nextAction,
       source: dto.source || 'manual',
+      audioDurationSeconds: dto.audioDurationSeconds,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
