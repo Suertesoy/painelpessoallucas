@@ -191,4 +191,69 @@ describe('Cron /api/cron/automation-tick — autorização', () => {
     expect(json.ok).toBe(true);
     vi.doUnmock('@/platform/supabase/admin-client');
   });
+
+  it('uma falha ao resolver a conta do Calendar em um workspace não impede o processamento dos demais (P0-3)', async () => {
+    // getCalendarAccount/getDigestSettings rodam fora de runIdempotentJob — uma
+    // exceção não tratada aqui abortaria o tick inteiro sem esse isolamento.
+    vi.resetModules();
+    const runsMock = makeRunsMock();
+    const calendarCalls: string[] = [];
+
+    const automationRunsTable = runsMock.admin as unknown as { from: (table: string) => unknown };
+    vi.doMock('@/platform/supabase/admin-client', () => ({
+      getSupabaseAdminClient: () => ({
+        from: (table: string) => {
+          if (table === 'automation_runs') return automationRunsTable.from('automation_runs');
+          if (table === 'workspaces') {
+            return { select: () => Promise.resolve({ data: [{ id: 'ws-1' }, { id: 'ws-2' }], error: null }) };
+          }
+          if (table === 'reminders') {
+            const chain: Record<string, unknown> = {};
+            for (const m of ['select', 'eq', 'lte']) chain[m] = () => chain;
+            chain.limit = () => Promise.resolve({ data: [], error: null });
+            return chain;
+          }
+          throw new Error(`tabela inesperada no teste de isolamento: ${table}`);
+        },
+      }),
+    }));
+    vi.doMock('@/modules/plans/application/recurrence-materializer', () => ({
+      materializeDueRules: async () => [],
+    }));
+    vi.doMock('@/platform/integrations/calendar-sync', () => ({
+      getCalendarAccount: vi.fn(async (_admin: unknown, workspaceId: string) => {
+        calendarCalls.push(workspaceId);
+        if (workspaceId === 'ws-1') throw new Error('falha de rede ao resolver conta do Calendar');
+        return null;
+      }),
+      syncPendingCalendarLinks: vi.fn(),
+    }));
+    vi.doMock('@/platform/integrations/digest-dispatch', () => ({
+      getDigestSettings: async () => null,
+      sendDigest: vi.fn(),
+    }));
+
+    const { GET } = await import('@/app/api/cron/automation-tick/route');
+    const res = await GET(
+      new Request('https://exemplo.dev/api/cron/automation-tick', {
+        headers: { authorization: 'Bearer segredo-de-teste' },
+      })
+    );
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    // ws-1 lançou, mas ws-2 foi processado mesmo assim — prova de que o tick
+    // inteiro não foi abortado pela exceção de um único workspace.
+    expect(calendarCalls).toEqual(['ws-1', 'ws-2']);
+    expect(
+      (json.summary.failures as { workspaceId: string; type: string }[]).some(
+        (f) => f.workspaceId === 'ws-1' && f.type === 'workspace_tick'
+      )
+    ).toBe(true);
+
+    vi.doUnmock('@/platform/supabase/admin-client');
+    vi.doUnmock('@/modules/plans/application/recurrence-materializer');
+    vi.doUnmock('@/platform/integrations/calendar-sync');
+    vi.doUnmock('@/platform/integrations/digest-dispatch');
+  });
 });

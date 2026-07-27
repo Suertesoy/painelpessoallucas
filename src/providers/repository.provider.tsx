@@ -7,11 +7,13 @@ import { ProjectRepository } from '@/modules/projects/application/project.reposi
 import { DailyPlanRepository } from '@/modules/planning/application/daily-plan.repository';
 import { EventRepository } from '@/platform/events/event.repository';
 import { AudioProvenanceRepository } from '@/platform/ai/audio-provenance.repository';
+import { AutomationHealthRepository } from '@/platform/automation/automation-health.repository';
 import { SupabaseItemRepository } from '@/modules/items/infrastructure/supabase-item.repository';
 import { SupabaseProjectRepository } from '@/modules/projects/infrastructure/supabase-project.repository';
 import { SupabaseDailyPlanRepository } from '@/modules/planning/infrastructure/supabase-daily-plan.repository';
 import { SupabaseEventRepository } from '@/platform/events/supabase-event.repository';
 import { SupabaseAudioProvenanceRepository } from '@/platform/ai/supabase-audio-provenance.repository';
+import { SupabaseAutomationHealthRepository } from '@/platform/automation/supabase-automation-health.repository';
 import { ChangeNotifier } from '@/platform/supabase/change-notifier';
 import { getSupabaseBrowserClient } from '@/platform/supabase/browser-client';
 import { ItemCommands } from '@/modules/items/application/item.commands';
@@ -40,6 +42,7 @@ interface RepositoryContextType {
   dailyPlanRepository: DailyPlanRepository;
   eventRepository: EventRepository;
   audioProvenanceRepository: AudioProvenanceRepository;
+  automationHealthRepository: AutomationHealthRepository;
   itemCommands: ItemCommands;
   projectCommands: ProjectCommands;
   dailyPlanCommands: DailyPlanCommands;
@@ -77,6 +80,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     const dailyPlanRepo = new SupabaseDailyPlanRepository(supabase, workspaceId, notifier);
     const eventRepo = new SupabaseEventRepository(supabase, workspaceId);
     const audioProvenanceRepo = new SupabaseAudioProvenanceRepository(supabase, workspaceId);
+    const automationHealthRepo = new SupabaseAutomationHealthRepository(supabase, workspaceId);
 
     const itemQueries = new ItemQueries(itemRepo);
     const projectQueries = new ProjectQueries(projectRepo);
@@ -89,6 +93,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       dailyPlanRepository: dailyPlanRepo,
       eventRepository: eventRepo,
       audioProvenanceRepository: audioProvenanceRepo,
+      automationHealthRepository: automationHealthRepo,
       itemCommands: new ItemCommands(itemRepo, eventRepo),
       projectCommands: new ProjectCommands(projectRepo, eventRepo),
       dailyPlanCommands: new DailyPlanCommands(dailyPlanRepo, eventRepo),

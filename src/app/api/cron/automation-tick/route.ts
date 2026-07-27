@@ -48,6 +48,8 @@ function spLocalParts(now: Date): { date: string; hour: number; minute: number; 
   };
 }
 
+type Failure = { workspaceId: string; type: string; error: string };
+
 async function handleTick(request: Request): Promise<NextResponse> {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
@@ -59,184 +61,206 @@ async function handleTick(request: Request): Promise<NextResponse> {
   const hourKey = `${local.date}T${String(local.hour).padStart(2, '0')}`;
 
   const summary: Record<string, unknown> = {};
-  const failures: { workspaceId: string; type: string; error: string }[] = [];
+  const failures: Failure[] = [];
 
   const { data: workspaces } = await admin.from('workspaces').select('id');
 
   for (const ws of workspaces ?? []) {
     const workspaceId: string = ws.id;
-
-    // 1. Recorrências vencidas -------------------------------------------------
-    const recurrence = await runIdempotentJob(
-      admin,
-      workspaceId,
-      'materialize_recurrences',
-      hourKey,
-      now.toISOString(),
-      null,
-      async () => {
-        const results = await materializeDueRules(admin, now);
-        return { rules: results.length, created: results.reduce((s, r) => s + r.created, 0) };
-      }
-    );
-    if (recurrence.status === 'failed') {
-      failures.push({ workspaceId, type: 'materialize_recurrences', error: recurrence.error ?? '' });
-    }
-
-    // 2. Reminders vencidos → notificações ------------------------------------
-    const reminders = await runIdempotentJob(
-      admin,
-      workspaceId,
-      'reminders_to_notifications',
-      hourKey,
-      now.toISOString(),
-      null,
-      async () => {
-        const { data: due } = await admin
-          .from('reminders')
-          .select('id, message, item_id, plan_action_id')
-          .eq('workspace_id', workspaceId)
-          .eq('status', 'pending')
-          .lte('remind_at', now.toISOString())
-          .limit(50);
-        for (const reminder of due ?? []) {
-          await admin.from('notifications').insert({
-            workspace_id: workspaceId,
-            type: 'reminder',
-            title: 'Lembrete',
-            body: reminder.message,
-            entity_type: reminder.item_id ? 'item' : 'plan_action',
-            entity_id: reminder.item_id ?? reminder.plan_action_id,
-          });
-          await admin.from('reminders').update({ status: 'sent' }).eq('id', reminder.id);
-        }
-        return { notified: (due ?? []).length };
-      }
-    );
-    if (reminders.status === 'failed') {
-      failures.push({ workspaceId, type: 'reminders', error: reminders.error ?? '' });
-    }
-
-    // 3. Calendar: vínculos pendentes -----------------------------------------
-    const calendarAccount = await getCalendarAccount(admin, workspaceId);
-    if (calendarAccount) {
-      const calendar = await runIdempotentJob(
-        admin,
-        workspaceId,
-        'calendar_sync_pending',
-        hourKey,
-        now.toISOString(),
-        null,
-        () => syncPendingCalendarLinks(admin, admin, workspaceId)
-      );
-      if (calendar.status === 'failed') {
-        failures.push({ workspaceId, type: 'calendar_sync', error: calendar.error ?? '' });
-      }
-    }
-
-    // 4/5. Resumos e alertas ----------------------------------------------------
-    const settings = await getDigestSettings(admin, workspaceId);
-    if (settings) {
-      const minutesNow = local.hour * 60 + local.minute;
-      const timeToMinutes = (t: string) => {
-        const [h, m] = t.split(':').map(Number);
-        return h * 60 + m;
-      };
-
-      if (settings.daily_digest_enabled && minutesNow >= timeToMinutes(settings.daily_digest_time)) {
-        const daily = await runIdempotentJob(
-          admin,
-          workspaceId,
-          'daily_digest',
-          local.date,
-          now.toISOString(),
-          null,
-          () => sendDigest(admin, admin, workspaceId, 'daily', local.date)
-        );
-        if (daily.status === 'failed') {
-          failures.push({ workspaceId, type: 'daily_digest', error: daily.error ?? '' });
-        }
-      }
-
-      if (
-        settings.weekly_digest_enabled &&
-        local.dow === settings.weekly_digest_day &&
-        minutesNow >= timeToMinutes(settings.weekly_digest_time)
-      ) {
-        const weekly = await runIdempotentJob(
-          admin,
-          workspaceId,
-          'weekly_digest',
-          local.date,
-          now.toISOString(),
-          null,
-          () => sendDigest(admin, admin, workspaceId, 'weekly', local.date)
-        );
-        if (weekly.status === 'failed') {
-          failures.push({ workspaceId, type: 'weekly_digest', error: weekly.error ?? '' });
-        }
-      }
-
-      if (settings.critical_alerts_enabled) {
-        await runIdempotentJob(
-          admin,
-          workspaceId,
-          'critical_alerts',
-          local.date,
-          now.toISOString(),
-          null,
-          async () => {
-            const in24h = new Date(now.getTime() + 24 * 3600_000).toISOString();
-            const { data: critical } = await admin
-              .from('items')
-              .select('title, content, type, status, priority, due_at, scheduled_at')
-              .eq('workspace_id', workspaceId)
-              .eq('priority', 'critical')
-              .is('deleted_at', null)
-              .not('status', 'in', '(completed,archived)')
-              .not('due_at', 'is', null)
-              .lte('due_at', in24h);
-            if (!critical || critical.length === 0) {
-              return { alerts: 0 };
-            }
-            return sendDigest(admin, admin, workspaceId, 'critical', local.date, {
-              criticalItems: critical,
-            });
-          }
-        );
-      }
-
-      // 6. Falhas persistentes → alerta (uma vez por dia por tipo).
-      const { data: exhausted } = await admin
-        .from('automation_runs')
-        .select('automation_type, error_message')
-        .eq('workspace_id', workspaceId)
-        .eq('status', 'failed')
-        .gte('attempt', MAX_ATTEMPTS)
-        .gte('created_at', `${local.date}T00:00:00Z`);
-      if (settings.critical_alerts_enabled && exhausted && exhausted.length > 0) {
-        await runIdempotentJob(
-          admin,
-          workspaceId,
-          'automation_failure_alert',
-          local.date,
-          now.toISOString(),
-          { count: exhausted.length },
-          () =>
-            sendDigest(admin, admin, workspaceId, 'automation_failure', local.date, {
-              failures: exhausted.map((f) => ({
-                type: f.automation_type,
-                error: f.error_message ?? 'erro',
-              })),
-            })
-        );
-      }
+    try {
+      await runWorkspaceTick(admin, workspaceId, hourKey, local, now, failures);
+    } catch (e) {
+      // getCalendarAccount/getDigestSettings (chamadas fora de runIdempotentJob)
+      // podem lançar em falhas transitórias de rede/DB. Sem este catch, uma
+      // exceção aqui abortaria o tick inteiro e os workspaces seguintes nunca
+      // seriam processados — nada ficaria registrado explicando por quê.
+      const message = e instanceof Error ? e.message : 'erro desconhecido';
+      failures.push({ workspaceId, type: 'workspace_tick', error: message });
+      console.error(`Falha ao processar automações do workspace ${workspaceId}`, message);
     }
   }
 
   summary.workspaces = (workspaces ?? []).length;
   summary.failures = failures;
   return NextResponse.json({ ok: true, at: now.toISOString(), local, summary });
+}
+
+/** Executa todos os passos de um workspace. Uma exceção não capturada aqui é
+ * tratada pelo chamador (handleTick) para não interromper os demais workspaces. */
+async function runWorkspaceTick(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  workspaceId: string,
+  hourKey: string,
+  local: ReturnType<typeof spLocalParts>,
+  now: Date,
+  failures: Failure[]
+): Promise<void> {
+  // 1. Recorrências vencidas ---------------------------------------------------
+  const recurrence = await runIdempotentJob(
+    admin,
+    workspaceId,
+    'materialize_recurrences',
+    hourKey,
+    now.toISOString(),
+    null,
+    async () => {
+      const results = await materializeDueRules(admin, now);
+      return { rules: results.length, created: results.reduce((s, r) => s + r.created, 0) };
+    }
+  );
+  if (recurrence.status === 'failed') {
+    failures.push({ workspaceId, type: 'materialize_recurrences', error: recurrence.error ?? '' });
+  }
+
+  // 2. Reminders vencidos → notificações ----------------------------------------
+  const reminders = await runIdempotentJob(
+    admin,
+    workspaceId,
+    'reminders_to_notifications',
+    hourKey,
+    now.toISOString(),
+    null,
+    async () => {
+      const { data: due } = await admin
+        .from('reminders')
+        .select('id, message, item_id, plan_action_id')
+        .eq('workspace_id', workspaceId)
+        .eq('status', 'pending')
+        .lte('remind_at', now.toISOString())
+        .limit(50);
+      for (const reminder of due ?? []) {
+        await admin.from('notifications').insert({
+          workspace_id: workspaceId,
+          type: 'reminder',
+          title: 'Lembrete',
+          body: reminder.message,
+          entity_type: reminder.item_id ? 'item' : 'plan_action',
+          entity_id: reminder.item_id ?? reminder.plan_action_id,
+        });
+        await admin.from('reminders').update({ status: 'sent' }).eq('id', reminder.id);
+      }
+      return { notified: (due ?? []).length };
+    }
+  );
+  if (reminders.status === 'failed') {
+    failures.push({ workspaceId, type: 'reminders', error: reminders.error ?? '' });
+  }
+
+  // 3. Calendar: vínculos pendentes ----------------------------------------------
+  const calendarAccount = await getCalendarAccount(admin, workspaceId);
+  if (calendarAccount) {
+    const calendar = await runIdempotentJob(
+      admin,
+      workspaceId,
+      'calendar_sync_pending',
+      hourKey,
+      now.toISOString(),
+      null,
+      () => syncPendingCalendarLinks(admin, admin, workspaceId)
+    );
+    if (calendar.status === 'failed') {
+      failures.push({ workspaceId, type: 'calendar_sync', error: calendar.error ?? '' });
+    }
+  }
+
+  // 4/5. Resumos e alertas --------------------------------------------------------
+  const settings = await getDigestSettings(admin, workspaceId);
+  if (!settings) return;
+
+  const minutesNow = local.hour * 60 + local.minute;
+  const timeToMinutes = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+
+  if (settings.daily_digest_enabled && minutesNow >= timeToMinutes(settings.daily_digest_time)) {
+    const daily = await runIdempotentJob(
+      admin,
+      workspaceId,
+      'daily_digest',
+      local.date,
+      now.toISOString(),
+      null,
+      () => sendDigest(admin, admin, workspaceId, 'daily', local.date)
+    );
+    if (daily.status === 'failed') {
+      failures.push({ workspaceId, type: 'daily_digest', error: daily.error ?? '' });
+    }
+  }
+
+  if (
+    settings.weekly_digest_enabled &&
+    local.dow === settings.weekly_digest_day &&
+    minutesNow >= timeToMinutes(settings.weekly_digest_time)
+  ) {
+    const weekly = await runIdempotentJob(
+      admin,
+      workspaceId,
+      'weekly_digest',
+      local.date,
+      now.toISOString(),
+      null,
+      () => sendDigest(admin, admin, workspaceId, 'weekly', local.date)
+    );
+    if (weekly.status === 'failed') {
+      failures.push({ workspaceId, type: 'weekly_digest', error: weekly.error ?? '' });
+    }
+  }
+
+  if (settings.critical_alerts_enabled) {
+    await runIdempotentJob(
+      admin,
+      workspaceId,
+      'critical_alerts',
+      local.date,
+      now.toISOString(),
+      null,
+      async () => {
+        const in24h = new Date(now.getTime() + 24 * 3600_000).toISOString();
+        const { data: critical } = await admin
+          .from('items')
+          .select('title, content, type, status, priority, due_at, scheduled_at')
+          .eq('workspace_id', workspaceId)
+          .eq('priority', 'critical')
+          .is('deleted_at', null)
+          .not('status', 'in', '(completed,archived)')
+          .not('due_at', 'is', null)
+          .lte('due_at', in24h);
+        if (!critical || critical.length === 0) {
+          return { alerts: 0 };
+        }
+        return sendDigest(admin, admin, workspaceId, 'critical', local.date, {
+          criticalItems: critical,
+        });
+      }
+    );
+  }
+
+  // 6. Falhas persistentes → alerta (uma vez por dia por tipo).
+  const { data: exhausted } = await admin
+    .from('automation_runs')
+    .select('automation_type, error_message')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'failed')
+    .gte('attempt', MAX_ATTEMPTS)
+    .gte('created_at', `${local.date}T00:00:00Z`);
+  if (settings.critical_alerts_enabled && exhausted && exhausted.length > 0) {
+    await runIdempotentJob(
+      admin,
+      workspaceId,
+      'automation_failure_alert',
+      local.date,
+      now.toISOString(),
+      { count: exhausted.length },
+      () =>
+        sendDigest(admin, admin, workspaceId, 'automation_failure', local.date, {
+          failures: exhausted.map((f) => ({
+            type: f.automation_type,
+            error: f.error_message ?? 'erro',
+          })),
+        })
+    );
+  }
 }
 
 export async function GET(request: Request) {

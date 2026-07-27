@@ -6,6 +6,7 @@ import { CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/providers/auth.provider';
 import { GoogleIntegrationCard } from '@/components/google-integration-card';
 import { DigestSettingsCard } from '@/components/digest-settings-card';
+import { AutomationHealthCard } from '@/components/automation-health-card';
 import { SyncDiagnosticsCard } from '@/components/sync-diagnostics-card';
 import { DataFlowDiagnosticsCard } from '@/components/data-flow-diagnostics-card';
 
@@ -38,7 +39,7 @@ function ConfiguracoesContent() {
         </p>
       </section>
 
-      <section className="mt-6">
+      <section id="integracoes" className="mt-6 scroll-mt-6">
         <h2 className="text-lg font-semibold">Integrações</h2>
         <p className="mt-1 text-sm text-gray-500">
           Conexões separadas do login, com os menores escopos possíveis. Você pode
@@ -49,6 +50,10 @@ function ConfiguracoesContent() {
           <GoogleIntegrationCard service="gmail" />
           <DigestSettingsCard />
         </div>
+      </section>
+
+      <section className="mt-6">
+        <AutomationHealthCard />
       </section>
 
       <section className="mt-6">
