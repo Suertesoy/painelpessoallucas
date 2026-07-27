@@ -4,15 +4,34 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
-import { X, CheckCircle, RotateCcw, Archive, ArchiveRestore, Loader2, Mic, ExternalLink } from 'lucide-react';
+import { X, CheckCircle, RotateCcw, Archive, ArchiveRestore, Loader2, Mic, ExternalLink, Sparkles, AlertCircle } from 'lucide-react';
 import { useCommands, useQueries, useRepositories } from '@/providers/repository.provider';
 import { ITEM_DETAIL_EVENT } from '@/lib/ui-events';
 import { datetimeLocalToISO, isoToDatetimeLocalInput } from '@/lib/dates';
 import { resolveItemOrigin } from '@/lib/item-origin';
 import { formatRecordingDuration } from '@/lib/audio-recording';
+import { AudioCaptureReview } from '@/components/audio-capture-review';
 import type { Item, ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import type { Project } from '@/modules/projects/domain/project.schema';
 import type { AudioTriageRunSummary, CalendarEventLinkSummary } from '@/platform/ai/audio-provenance.repository';
+import type { AudioTriageProposal } from '@/platform/ai/audio-triage.schema';
+import type { DomainEvent } from '@/platform/events/event.schema';
+
+/**
+ * Uma análise fica desatualizada quando a transcrição (item.content) muda
+ * depois que a última triagem por IA foi concluída — usamos o histórico de
+ * eventos (item.updated) para detectar isso na interface. A validação que
+ * realmente importa (bloquear a confirmação) é feita no servidor
+ * (checkTriageFreshness); isto aqui é só um aviso antecipado ao usuário.
+ */
+function computeTriageStale(events: DomainEvent[], triageRun: AudioTriageRunSummary | null): boolean {
+  if (!triageRun || triageRun.status !== 'completed' || !triageRun.completedAt) return false;
+  return events.some((ev) => {
+    if (ev.type !== 'item.updated' || ev.createdAt <= triageRun.completedAt!) return false;
+    const payload = ev.payload as { previous?: { content?: string }; new?: { content?: string } } | undefined;
+    return payload?.previous?.content !== payload?.new?.content;
+  });
+}
 
 const TYPE_LABEL: Record<ItemType, string> = {
   note: 'Nota livre',
@@ -63,6 +82,11 @@ export function ItemDetailModal() {
   const [originalTranscript, setOriginalTranscript] = useState<string | null>(null);
   const [triageRun, setTriageRun] = useState<AudioTriageRunSummary | null>(null);
   const [calendarLink, setCalendarLink] = useState<CalendarEventLinkSummary | null>(null);
+  const [isTriageStale, setIsTriageStale] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [triageProposal, setTriageProposal] = useState<AudioTriageProposal | null>(null);
+  const [triageAiRunId, setTriageAiRunId] = useState<string | null>(null);
   // Estado "carregado para" (em vez de um booleano isLoading setado no efeito):
   // carregando é derivado comparando o item aberto com o último id resolvido.
   const [loadedItemId, setLoadedItemId] = useState<string | null>(null);
@@ -118,8 +142,33 @@ export function ItemDetailModal() {
     setOriginalTranscript(null);
     setTriageRun(null);
     setCalendarLink(null);
+    setIsTriageStale(false);
+    setAnalyzeError(null);
+    setTriageProposal(null);
+    setTriageAiRunId(null);
     if (previousFocusRef.current) previousFocusRef.current.focus();
   }, []);
+
+  // Recarrega proveniência (histórico + última triagem + vínculo de
+  // calendário) após aplicar uma ação ou rodar uma nova análise — mantém o
+  // painel somente-leitura sempre refletindo o estado mais recente.
+  const refreshAudioProvenance = useCallback(
+    async (id: string) => {
+      try {
+        const [events, run, link] = await Promise.all([
+          eventRepository.findByEntityId(id),
+          audioProvenanceRepository.findLatestTriageRun(id),
+          audioProvenanceRepository.findCalendarEventLink(id),
+        ]);
+        setTriageRun(run);
+        setCalendarLink(link);
+        setIsTriageStale(computeTriageStale(events, run));
+      } catch (e) {
+        console.error('Falha ao atualizar a proveniência da captura por áudio', e);
+      }
+    },
+    [eventRepository, audioProvenanceRepository]
+  );
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -178,6 +227,7 @@ export function ItemDetailModal() {
               setOriginalTranscript(createdPayload?.content ?? null);
               setTriageRun(run);
               setCalendarLink(link);
+              setIsTriageStale(computeTriageStale(events, run));
             })
             .catch((e: unknown) => {
               console.error('Falha ao carregar proveniência da captura por áudio', e);
@@ -205,6 +255,7 @@ export function ItemDetailModal() {
     }
     setIsSaving(true);
     setSaveError(null);
+    const contentChanged = item?.source === 'audio_capture' && content.trim() !== (item.content ?? '');
     try {
       const updated = await itemCmds.updateItem(itemId, {
         title: title.trim() || undefined,
@@ -220,11 +271,53 @@ export function ItemDetailModal() {
       setItem(updated);
       seedForm(updated);
       setJustSaved(true);
+      // A transcrição analisada mudou: a proposta em ai_runs não corresponde
+      // mais ao texto atual. O servidor sempre revalida antes de confirmar
+      // (checkTriageFreshness) — isto só antecipa o aviso na interface.
+      if (contentChanged && triageRun?.status === 'completed') {
+        setIsTriageStale(true);
+      }
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Não foi possível salvar as alterações.');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Analisa (ou reanalisa) a captura por áudio com IA a partir do detalhe do
+  // item — caminho previsto para quando a captura foi salva com "Salvar sem
+  // analisar" ou quando a análise ficou desatualizada por uma edição
+  // posterior. A proposta retornada é sempre uma revisão nova e transitória
+  // (nunca reaplica automaticamente ações de uma análise anterior).
+  const handleAnalyzeWithAI = async () => {
+    if (!itemId) return;
+    setIsAnalyzing(true);
+    setAnalyzeError(null);
+    try {
+      const res = await fetch('/api/ai/triage-capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId, idempotencyKey: itemId }),
+      });
+      if (!res.ok) {
+        setAnalyzeError('A captura foi salva, mas a análise não foi concluída. Tente novamente.');
+        return;
+      }
+      const body = await res.json().catch(() => ({}));
+      setTriageProposal(body.proposal as AudioTriageProposal);
+      setTriageAiRunId(body.aiRunId as string);
+      setIsTriageStale(false);
+    } catch {
+      setAnalyzeError('A captura foi salva, mas a análise não foi concluída. Tente novamente.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const closeTriageReview = () => {
+    setTriageProposal(null);
+    setTriageAiRunId(null);
+    if (itemId) void refreshAudioProvenance(itemId);
   };
 
   const runAction = async (fn: () => Promise<Item>) => {
@@ -542,6 +635,54 @@ export function ItemDetailModal() {
                   currentContent={item.content}
                   triageRun={triageRun}
                   calendarLink={calendarLink}
+                />
+              )}
+
+              {/* Analisar com IA a partir do detalhe: caminho previsto para
+                  quem clicou "Salvar sem analisar" na captura, e reanálise
+                  obrigatória quando a transcrição foi editada depois da
+                  última análise. */}
+              {item.source === 'audio_capture' && !triageProposal && (
+                <div className="space-y-2">
+                  {isTriageStale && (
+                    <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+                      A transcrição mudou depois desta análise. Analise novamente antes de confirmar as ações.
+                    </p>
+                  )}
+                  {analyzeError && (
+                    <p role="alert" className="flex items-center gap-1 rounded-md bg-red-50 p-2 text-xs text-red-700">
+                      <AlertCircle size={12} /> {analyzeError}
+                    </p>
+                  )}
+                  {(!triageRun || isTriageStale || triageRun.status === 'failed') && (
+                    <button
+                      type="button"
+                      onClick={handleAnalyzeWithAI}
+                      disabled={isAnalyzing}
+                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isAnalyzing ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" /> Analisando com IA…
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={14} /> {triageRun ? 'Analisar novamente' : 'Analisar com IA'}
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {item.source === 'audio_capture' && triageProposal && triageAiRunId && (
+                <AudioCaptureReview
+                  itemId={item.id}
+                  aiRunId={triageAiRunId}
+                  proposal={triageProposal}
+                  availableProjects={projects.map((p) => ({ id: p.id, name: p.name }))}
+                  onClose={closeTriageReview}
+                  onApplied={() => void refreshAudioProvenance(item.id)}
                 />
               )}
 

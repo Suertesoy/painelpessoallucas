@@ -5,6 +5,7 @@ import { getSupabaseAdminClient } from '@/platform/supabase/admin-client';
 import { getCalendarAccount } from '@/platform/integrations/calendar-sync';
 import { getValidAccessToken, GoogleTokenRevokedError } from '@/platform/integrations/google-client';
 import { ensureAppCalendar, upsertItemEvent } from '@/platform/integrations/google-calendar';
+import { checkTriageFreshness, STALE_ANALYSIS_MESSAGE } from '@/platform/ai/triage-freshness';
 
 /**
  * POST /api/audio/confirm-calendar-event
@@ -23,6 +24,7 @@ import { ensureAppCalendar, upsertItemEvent } from '@/platform/integrations/goog
 
 const BodySchema = z.object({
   itemId: z.string().uuid(),
+  aiRunId: z.string().uuid(),
   title: z.string().min(1),
   description: z.string().optional(),
   startAt: z.string().datetime({ offset: true }),
@@ -30,7 +32,12 @@ const BodySchema = z.object({
   location: z.string().optional(),
 });
 
-type ErrorCategory = 'unauthenticated' | 'invalid_request' | 'calendar_not_connected' | 'calendar_error';
+type ErrorCategory =
+  | 'unauthenticated'
+  | 'invalid_request'
+  | 'calendar_not_connected'
+  | 'calendar_error'
+  | 'stale_analysis';
 
 function errorResponse(status: number, errorCategory: ErrorCategory, message: string) {
   return NextResponse.json({ error: message, errorCategory }, { status });
@@ -52,12 +59,26 @@ export async function POST(request: Request) {
   // Captura sob RLS: só encontra se pertencer ao workspace do usuário.
   const { data: item, error: itemError } = await session.supabase
     .from('items')
-    .select('id')
+    .select('id, content, title')
     .eq('id', body.itemId)
     .is('deleted_at', null)
     .maybeSingle();
   if (itemError || !item) {
     return errorResponse(404, 'invalid_request', 'Captura não encontrada.');
+  }
+
+  const currentContent = (item.content as string | null) ?? (item.title as string | null) ?? '';
+  const freshness = await checkTriageFreshness(session.supabase, {
+    aiRunId: body.aiRunId,
+    itemId: body.itemId,
+    workspaceId: session.workspaceId,
+    currentContent,
+  });
+  if (!freshness.fresh) {
+    if (freshness.reason === 'stale') {
+      return errorResponse(409, 'stale_analysis', STALE_ANALYSIS_MESSAGE);
+    }
+    return errorResponse(404, 'invalid_request', 'Análise não encontrada. Analise novamente antes de confirmar.');
   }
 
   const account = await getCalendarAccount(session.supabase, session.workspaceId);

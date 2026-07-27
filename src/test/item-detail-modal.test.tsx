@@ -69,6 +69,16 @@ vi.mock('@/providers/repository.provider', () => ({
   }),
 }));
 
+// AudioCaptureReview já é testado isoladamente (audio-capture-review.test.tsx)
+// — aqui só precisamos saber que o ItemDetailModal a abre com os dados certos.
+vi.mock('@/components/audio-capture-review', () => ({
+  AudioCaptureReview: (props: { itemId: string; aiRunId: string }) => (
+    <div data-testid="review-stub">
+      revisão para item {props.itemId} / run {props.aiRunId}
+    </div>
+  ),
+}));
+
 async function openModalWith(item: Item, migrationCompletedAt: string | null = null) {
   getItemById.mockResolvedValue(item);
   listProjects.mockResolvedValue(PROJECTS);
@@ -79,6 +89,8 @@ async function openModalWith(item: Item, migrationCompletedAt: string | null = n
 
   await waitFor(() => expect(screen.getByLabelText('Título')).toBeTruthy());
 }
+
+const originalFetch = global.fetch;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -91,6 +103,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  global.fetch = originalFetch;
 });
 
 describe('ItemDetailModal', () => {
@@ -380,5 +393,132 @@ describe('ItemDetailModal — proveniência de captura por áudio (Etapa 7)', ()
 
     expect(screen.getByLabelText('Título')).toHaveProperty('value', AUDIO_ITEM.title);
     consoleSpy.mockRestore();
+  });
+});
+
+/**
+ * "Salvar sem analisar" deixa a captura pronta para ser analisada depois —
+ * o detalhe do item precisa oferecer isso. E, se a transcrição for editada
+ * depois de uma análise já concluída, a proposta anterior fica desatualizada
+ * e precisa de reanálise antes de qualquer confirmação (P0-2, seção 6).
+ */
+describe('ItemDetailModal — analisar com IA a partir do detalhe', () => {
+  const COMPLETED_RUN = {
+    id: 'run-old',
+    model: 'gpt-4.1-mini',
+    status: 'completed' as const,
+    createdAt: '2026-07-24T09:00:05.000Z',
+    completedAt: '2026-07-24T09:00:07.000Z',
+    errorMessage: null,
+    proposal: null,
+    actionsOutcome: [],
+    calendarOutcome: null,
+  };
+
+  const STALE_MESSAGE = 'A transcrição mudou depois desta análise. Analise novamente antes de confirmar as ações.';
+
+  function mockTriageFetch(ok: boolean, aiRunId = 'run-new') {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok,
+      json: async () => (ok ? { aiRunId, proposal: { proposedActions: [] }, model: 'gpt-4.1-mini' } : { error: 'falhou' }),
+    });
+  }
+
+  it('sem análise prévia, mostra "Analisar com IA"; ao clicar, chama a rota de triagem e abre a revisão', async () => {
+    mockTriageFetch(true, 'run-1');
+    await openModalWith(AUDIO_ITEM);
+
+    const btn = await screen.findByRole('button', { name: /Analisar com IA/ });
+    expect(btn.className).toContain('min-h-[44px]');
+    fireEvent.click(btn);
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/ai/triage-capture', expect.any(Object)));
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse(init.body)).toMatchObject({ itemId: AUDIO_ITEM.id });
+
+    await waitFor(() => expect(screen.getByTestId('review-stub')).toBeTruthy());
+    expect(screen.getByText(new RegExp(`revisão para item ${AUDIO_ITEM.id} / run run-1`))).toBeTruthy();
+  });
+
+  it('falha ao analisar mostra a mensagem padrão e mantém a captura salva', async () => {
+    mockTriageFetch(false);
+    await openModalWith(AUDIO_ITEM);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Analisar com IA/ }));
+
+    await waitFor(() =>
+      expect(screen.getByText('A captura foi salva, mas a análise não foi concluída. Tente novamente.')).toBeTruthy()
+    );
+    expect(screen.queryByTestId('review-stub')).toBeNull();
+    expect(screen.getByLabelText('Título')).toHaveProperty('value', AUDIO_ITEM.title);
+  });
+
+  it('editar a descrição depois de uma análise concluída marca a análise como desatualizada', async () => {
+    findLatestTriageRun.mockResolvedValue(COMPLETED_RUN);
+    updateItem.mockResolvedValue({ ...AUDIO_ITEM, content: 'conteúdo corrigido depois da análise' });
+    await openModalWith(AUDIO_ITEM);
+    // Espera a proveniência (findLatestTriageRun) já ter carregado antes de
+    // editar — só assim handleSave consegue ver o triageRun 'completed'.
+    await waitFor(() => expect(screen.getByText(/gpt-4.1-mini/)).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText('Descrição'), { target: { value: 'conteúdo corrigido depois da análise' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }));
+
+    await waitFor(() => expect(screen.getByText(STALE_MESSAGE)).toBeTruthy());
+    expect(screen.getByRole('button', { name: /Analisar novamente/ })).toBeTruthy();
+  });
+
+  it('reabrir um item com edição registrada após a análise já mostra a análise como desatualizada', async () => {
+    findLatestTriageRun.mockResolvedValue(COMPLETED_RUN);
+    findByEntityId.mockResolvedValue([
+      {
+        id: 'ev-created',
+        type: 'item.created',
+        entityId: AUDIO_ITEM.id,
+        workspaceId: 'ws-1',
+        source: 'audio_capture',
+        payload: { content: 'transcrição original' },
+        createdAt: '2026-07-24T09:00:00.000Z',
+      },
+      {
+        id: 'ev-updated',
+        type: 'item.updated',
+        entityId: AUDIO_ITEM.id,
+        workspaceId: 'ws-1',
+        source: 'manual',
+        // Depois de completedAt (09:00:07) e content realmente mudou.
+        payload: { previous: { content: 'transcrição original' }, new: { content: AUDIO_ITEM.content } },
+        createdAt: '2026-07-24T09:05:00.000Z',
+      },
+    ]);
+
+    await openModalWith(AUDIO_ITEM);
+
+    await waitFor(() => expect(screen.getByText(STALE_MESSAGE)).toBeTruthy());
+  });
+
+  it('com a análise desatualizada, "Analisar novamente" gera uma revisão baseada no texto atual', async () => {
+    findLatestTriageRun.mockResolvedValue(COMPLETED_RUN);
+    findByEntityId.mockResolvedValue([
+      {
+        id: 'ev-updated',
+        type: 'item.updated',
+        entityId: AUDIO_ITEM.id,
+        workspaceId: 'ws-1',
+        source: 'manual',
+        payload: { previous: { content: 'transcrição original' }, new: { content: AUDIO_ITEM.content } },
+        createdAt: '2026-07-24T09:05:00.000Z',
+      },
+    ]);
+    mockTriageFetch(true, 'run-2');
+    await openModalWith(AUDIO_ITEM);
+
+    await waitFor(() => expect(screen.getByText(STALE_MESSAGE)).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /Analisar novamente/ }));
+
+    await waitFor(() => expect(screen.getByTestId('review-stub')).toBeTruthy());
+    expect(screen.getByText(new RegExp(`run run-2`))).toBeTruthy();
+    // A revisão nova substitui o aviso — a área de "Analisar novamente" não é mais exibida.
+    expect(screen.queryByText(STALE_MESSAGE)).toBeNull();
   });
 });

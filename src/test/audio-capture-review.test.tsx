@@ -5,20 +5,23 @@ import { AudioCaptureReview } from '@/components/audio-capture-review';
 import type { AudioTriageProposal } from '@/platform/ai/audio-triage.schema';
 
 /**
- * Cobre a Etapa 4/5: revisão e aprovação individual de cada ação proposta
- * pela IA. Nenhuma ação é executada sem clique explícito; uma única
- * gravação pode gerar múltiplas ações (reunião + tarefa), cada uma aprovada
- * separadamente (exemplo do enunciado: "Marcar reunião com a Priscila e
- * preparar a nova proposta").
+ * Cobre a revisão e aprovação individual de cada ação proposta pela IA.
+ * Nenhuma ação é executada sem clique explícito; uma única gravação pode
+ * gerar múltiplas ações (reunião + tarefa), cada uma aprovada separadamente
+ * (exemplo do enunciado: "Marcar reunião com a Priscila e preparar a nova
+ * proposta").
+ *
+ * A confirmação de uma ação (create_item/update_capture) passa por
+ * /api/ai/confirm-triage-action — uma rota de servidor, não itemCmds direto
+ * — porque só no servidor é possível garantir que a proposta ainda
+ * corresponde ao texto atual da captura (ver checkTriageFreshness). O evento
+ * de calendário segue o mesmo princípio em /api/audio/confirm-calendar-event.
  */
 
-const createItem = vi.fn();
-const updateItem = vi.fn();
 const recordActionOutcome = vi.fn();
 const recordCalendarOutcome = vi.fn();
 
 vi.mock('@/providers/repository.provider', () => ({
-  useCommands: () => ({ item: { createItem, updateItem } }),
   useRepositories: () => ({
     audioProvenanceRepository: { recordActionOutcome, recordCalendarOutcome },
   }),
@@ -70,12 +73,14 @@ afterEach(() => {
 });
 
 describe('AudioCaptureReview', () => {
-  it('cada ação proposta exige aprovação individual antes de ser aplicada', async () => {
-    createItem.mockResolvedValue({ id: 'novo-item' });
+  it('cada ação proposta exige aprovação individual antes de ser aplicada — via rota de servidor', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'created', itemId: 'novo-item' }),
+    });
     render(
       <AudioCaptureReview
         itemId="item-1"
-        workspaceId="ws-1"
         aiRunId="run-1"
         proposal={MULTI_ACTION_PROPOSAL}
         availableProjects={[]}
@@ -90,16 +95,55 @@ describe('AudioCaptureReview', () => {
     expect(confirmBtn).toHaveProperty('disabled', false);
 
     fireEvent.click(confirmBtn);
-    await waitFor(() => expect(createItem).toHaveBeenCalledTimes(1));
-    expect(createItem.mock.calls[0][0]).toMatchObject({ source: 'ai', title: 'Preparar a nova proposta' });
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith('/api/ai/confirm-triage-action', expect.any(Object))
+    );
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const sentBody = JSON.parse(init.body);
+    expect(sentBody).toMatchObject({
+      itemId: 'item-1',
+      aiRunId: 'run-1',
+      actionType: 'create_item',
+      action: expect.objectContaining({ title: 'Preparar a nova proposta' }),
+    });
     await waitFor(() => expect(recordActionOutcome).toHaveBeenCalledWith('run-1', 0, 'done'));
+    await waitFor(() => expect(screen.getByText('Aplicado')).toBeTruthy());
+  });
+
+  it('o servidor rejeitando por proposta desatualizada bloqueia a confirmação e mostra o aviso', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({
+        error: 'A transcrição mudou depois desta análise. Analise novamente antes de confirmar as ações.',
+        errorCategory: 'stale_analysis',
+      }),
+    });
+    render(
+      <AudioCaptureReview
+        itemId="item-1"
+        aiRunId="run-1"
+        proposal={MULTI_ACTION_PROPOSAL}
+        availableProjects={[]}
+        onClose={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText(/Aprovar ação: Preparar a nova proposta/));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar ações selecionadas' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('A transcrição mudou depois desta análise. Analise novamente antes de confirmar as ações.')
+      ).toBeTruthy()
+    );
+    expect(recordActionOutcome).toHaveBeenCalledWith('run-1', 0, 'error');
+    expect(screen.queryByText('Aplicado')).toBeNull();
   });
 
   it('nunca cria o evento de calendário sozinha: exige data/hora preenchidas e clique explícito', async () => {
     render(
       <AudioCaptureReview
         itemId="item-1"
-        workspaceId="ws-1"
         aiRunId="run-1"
         proposal={MULTI_ACTION_PROPOSAL}
         availableProjects={[]}
@@ -120,7 +164,7 @@ describe('AudioCaptureReview', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('cria o evento só após clique explícito e registra o resultado em auditoria', async () => {
+  it('cria o evento só após clique explícito, envia o aiRunId e registra o resultado em auditoria', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ status: 'created', googleEventId: 'evt-1', googleCalendarId: 'cal-1' }),
@@ -128,7 +172,6 @@ describe('AudioCaptureReview', () => {
     render(
       <AudioCaptureReview
         itemId="item-1"
-        workspaceId="ws-1"
         aiRunId="run-1"
         proposal={MULTI_ACTION_PROPOSAL}
         availableProjects={[]}
@@ -143,6 +186,7 @@ describe('AudioCaptureReview', () => {
     const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const sentBody = JSON.parse(init.body);
     expect(sentBody.itemId).toBe('item-1');
+    expect(sentBody.aiRunId).toBe('run-1');
     expect(sentBody).not.toHaveProperty('attendees');
 
     await waitFor(() => expect(screen.getByText(/Evento criado no calendário/)).toBeTruthy());
@@ -153,7 +197,6 @@ describe('AudioCaptureReview', () => {
     render(
       <AudioCaptureReview
         itemId="item-1"
-        workspaceId="ws-1"
         aiRunId="run-1"
         proposal={MULTI_ACTION_PROPOSAL}
         availableProjects={[]}
@@ -166,10 +209,10 @@ describe('AudioCaptureReview', () => {
 
   it('"Manter só como captura / Fechar" fecha sem aplicar nenhuma ação pendente', () => {
     const onClose = vi.fn();
+    global.fetch = vi.fn();
     render(
       <AudioCaptureReview
         itemId="item-1"
-        workspaceId="ws-1"
         aiRunId="run-1"
         proposal={MULTI_ACTION_PROPOSAL}
         availableProjects={[]}
@@ -178,6 +221,6 @@ describe('AudioCaptureReview', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /Manter só como captura/ }));
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(createItem).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,15 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { sha256Hex } from '@/lib/text-hash';
 
 /**
  * POST /api/audio/confirm-calendar-event — sem chamadas reais ao Google.
  * Reaproveita a integração existente (mockada aqui) e nunca cria o evento
  * sem confirmação explícita (só é chamada quando o usuário clica "Criar
  * evento"). Cobre: Calendar desconectado, falha ao criar (captura/tarefa
- * intactas, calendar_event_links nunca escrito) e sucesso.
+ * intactas, calendar_event_links nunca escrito), sucesso, e — a regra nova —
+ * rejeição quando a transcrição analisada (ai_runs.input_hash) não
+ * corresponde mais ao conteúdo atual da captura (proposta desatualizada).
  */
 
 vi.mock('@/platform/supabase/session', () => ({ getSessionContext: vi.fn() }));
@@ -21,17 +24,35 @@ vi.mock('@/platform/integrations/google-calendar', () => ({
   upsertItemEvent: vi.fn(),
 }));
 
-/** Fake do `session.supabase` cuja única consulta nesta rota é buscar o item por id. */
-function fakeSupabaseWithItem(data: unknown, error: unknown = null) {
-  const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'is']) chain[m] = () => chain;
-  chain.maybeSingle = async () => ({ data, error });
-  return { from: () => chain };
+const ITEM_ID = '11111111-1111-4111-8111-111111111111';
+const AI_RUN_ID = '99999999-9999-4999-8999-999999999999';
+
+/** Fake do `session.supabase`: 'items' (busca por id) e 'ai_runs' (checkTriageFreshness). */
+function fakeSupabase(opts: { item: Record<string, unknown> | null; aiRun?: Record<string, unknown> | null }) {
+  return {
+    from: (table: string) => {
+      const chain: Record<string, unknown> = {};
+      for (const m of ['select', 'eq', 'is']) chain[m] = () => chain;
+      if (table === 'items') {
+        chain.maybeSingle = async () => ({ data: opts.item, error: null });
+      } else if (table === 'ai_runs') {
+        chain.maybeSingle = async () => ({ data: opts.aiRun ?? null, error: null });
+      } else {
+        throw new Error(`tabela inesperada no mock: ${table}`);
+      }
+      return chain;
+    },
+  };
+}
+
+async function freshAiRun(content: string) {
+  return { id: AI_RUN_ID, item_id: ITEM_ID, status: 'completed', input_hash: await sha256Hex(content) };
 }
 
 function baseBody(overrides: Record<string, unknown> = {}) {
   return {
-    itemId: '11111111-1111-4111-8111-111111111111',
+    itemId: ITEM_ID,
+    aiRunId: AI_RUN_ID,
     title: 'Reunião com a Priscila',
     startAt: '2026-07-25T10:00:00-03:00',
     endAt: '2026-07-25T11:00:00-03:00',
@@ -65,7 +86,7 @@ describe('POST /api/audio/confirm-calendar-event', () => {
   it('rejeita corpo com data/horário incompletos', async () => {
     const { getSessionContext } = await import('@/platform/supabase/session');
     vi.mocked(getSessionContext).mockResolvedValue({
-      supabase: fakeSupabaseWithItem({ id: 'item-1' }) as never,
+      supabase: fakeSupabase({ item: { id: 'item-1' } }) as never,
       user: { id: 'u1' } as never,
       workspaceId: 'ws-1',
     });
@@ -78,7 +99,7 @@ describe('POST /api/audio/confirm-calendar-event', () => {
   it('captura não encontrada sob RLS (404)', async () => {
     const { getSessionContext } = await import('@/platform/supabase/session');
     vi.mocked(getSessionContext).mockResolvedValue({
-      supabase: fakeSupabaseWithItem(null) as never,
+      supabase: fakeSupabase({ item: null }) as never,
       user: { id: 'u1' } as never,
       workspaceId: 'ws-1',
     });
@@ -88,12 +109,37 @@ describe('POST /api/audio/confirm-calendar-event', () => {
     expect(res.status).toBe(404);
   });
 
+  it('proposta desatualizada: transcrição mudou depois da análise — 409, nenhuma chamada ao Google', async () => {
+    const { getSessionContext } = await import('@/platform/supabase/session');
+    const { getValidAccessToken } = await import('@/platform/integrations/google-client');
+    vi.mocked(getSessionContext).mockResolvedValue({
+      supabase: fakeSupabase({
+        item: { id: ITEM_ID, content: 'texto editado depois da análise', title: null },
+        aiRun: await freshAiRun('texto ORIGINAL analisado'),
+      }) as never,
+      user: { id: 'u1' } as never,
+      workspaceId: 'ws-1',
+    });
+
+    const { POST } = await import('@/app/api/audio/confirm-calendar-event/route');
+    const res = await POST(jsonRequest(baseBody()));
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.errorCategory).toBe('stale_analysis');
+    expect(body.error).toContain('Analise novamente');
+    expect(getValidAccessToken).not.toHaveBeenCalled();
+  });
+
   it('Calendar desconectado: 409, nenhuma chamada ao Google, item nunca tocado', async () => {
     const { getSessionContext } = await import('@/platform/supabase/session');
     const { getCalendarAccount } = await import('@/platform/integrations/calendar-sync');
     const { getValidAccessToken } = await import('@/platform/integrations/google-client');
     vi.mocked(getSessionContext).mockResolvedValue({
-      supabase: fakeSupabaseWithItem({ id: 'item-1' }) as never,
+      supabase: fakeSupabase({
+        item: { id: ITEM_ID, content: 'transcrição atual', title: null },
+        aiRun: await freshAiRun('transcrição atual'),
+      }) as never,
       user: { id: 'u1' } as never,
       workspaceId: 'ws-1',
     });
@@ -116,7 +162,10 @@ describe('POST /api/audio/confirm-calendar-event', () => {
     const { ensureAppCalendar, upsertItemEvent } = await import('@/platform/integrations/google-calendar');
 
     vi.mocked(getSessionContext).mockResolvedValue({
-      supabase: fakeSupabaseWithItem({ id: 'item-1' }) as never,
+      supabase: fakeSupabase({
+        item: { id: ITEM_ID, content: 'transcrição atual', title: null },
+        aiRun: await freshAiRun('transcrição atual'),
+      }) as never,
       user: { id: 'u1' } as never,
       workspaceId: 'ws-1',
     });
@@ -144,7 +193,10 @@ describe('POST /api/audio/confirm-calendar-event', () => {
     const { getValidAccessToken, GoogleTokenRevokedError } = await import('@/platform/integrations/google-client');
 
     vi.mocked(getSessionContext).mockResolvedValue({
-      supabase: fakeSupabaseWithItem({ id: 'item-1' }) as never,
+      supabase: fakeSupabase({
+        item: { id: ITEM_ID, content: 'transcrição atual', title: null },
+        aiRun: await freshAiRun('transcrição atual'),
+      }) as never,
       user: { id: 'u1' } as never,
       workspaceId: 'ws-1',
     });
@@ -167,7 +219,10 @@ describe('POST /api/audio/confirm-calendar-event', () => {
     const { ensureAppCalendar, upsertItemEvent } = await import('@/platform/integrations/google-calendar');
 
     vi.mocked(getSessionContext).mockResolvedValue({
-      supabase: fakeSupabaseWithItem({ id: 'item-1' }) as never,
+      supabase: fakeSupabase({
+        item: { id: ITEM_ID, content: 'transcrição atual', title: null },
+        aiRun: await freshAiRun('transcrição atual'),
+      }) as never,
       user: { id: 'u1' } as never,
       workspaceId: 'ws-1',
     });
@@ -192,7 +247,7 @@ describe('POST /api/audio/confirm-calendar-event', () => {
     expect(res.status).toBe(200);
     expect(body.googleEventId).toBe('event-1');
     expect(upsertedLinks).toHaveLength(1);
-    expect((upsertedLinks[0] as Record<string, unknown>).item_id).toBe(baseBody().itemId);
+    expect((upsertedLinks[0] as Record<string, unknown>).item_id).toBe(ITEM_ID);
     // Participantes/convites nunca são enviados nesta versão.
     expect(vi.mocked(upsertItemEvent).mock.calls[0][2]).not.toHaveProperty('attendees');
   });

@@ -36,9 +36,15 @@ export function QuickCaptureModal() {
 
   // --- Fluxo de captura por áudio -------------------------------------------
   const [audioPhase, setAudioPhase] = useState<AudioPhase>('idle');
+  // "transcript" é o campo editável (Revisar transcrição); "originalTranscript"
+  // é a última versão já persistida no item — usada só para saber se há edição
+  // pendente antes de decidir se precisa chamar updateItem.
   const [transcript, setTranscript] = useState('');
+  const [originalTranscript, setOriginalTranscript] = useState('');
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [persistError, setPersistError] = useState<string | null>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [isSavingWithoutAnalysis, setIsSavingWithoutAnalysis] = useState(false);
   const pendingAudioRef = useRef<{ blob: Blob; seconds: number } | null>(null);
   const [hasPendingAudio, setHasPendingAudio] = useState(false);
   const [savedItemId, setSavedItemId] = useState<string | null>(null);
@@ -54,8 +60,11 @@ export function QuickCaptureModal() {
   const resetAudioFlow = () => {
     setAudioPhase('idle');
     setTranscript('');
+    setOriginalTranscript('');
     setAudioError(null);
+    setPersistError(null);
     setAnalyzeError(null);
+    setIsSavingWithoutAnalysis(false);
     pendingAudioRef.current = null;
     setHasPendingAudio(false);
     setSavedItemId(null);
@@ -176,6 +185,7 @@ export function QuickCaptureModal() {
       }
       const transcribedText: string = body.transcript;
       setTranscript(transcribedText);
+      setOriginalTranscript(transcribedText);
 
       const item = await itemCmds.createItem(
         {
@@ -206,27 +216,67 @@ export function QuickCaptureModal() {
     }
   };
 
+  // Só persiste se o texto do campo divergir do que já está salvo no item —
+  // evita uma escrita desnecessária quando o usuário não edita nada. Em caso
+  // de falha, o texto digitado permanece no campo para nova tentativa (nunca
+  // é descartado) e quem chamou decide não prosseguir (nem triagem, nem
+  // fechar o modal).
+  const persistTranscriptEditIfNeeded = async (): Promise<boolean> => {
+    if (!savedItemId) return false;
+    const trimmed = transcript.trim();
+    if (trimmed === originalTranscript.trim()) return true;
+    try {
+      await itemCmds.updateItem(savedItemId, {
+        content: trimmed,
+        title: trimmed.slice(0, 60) + (trimmed.length > 60 ? '…' : ''),
+      });
+      setOriginalTranscript(trimmed);
+      return true;
+    } catch {
+      setPersistError('Não foi possível salvar a correção. Seu texto continua aqui. Tente novamente.');
+      return false;
+    }
+  };
+
   const handleAnalyzeWithAI = async () => {
-    if (!savedItemId) return;
+    if (!savedItemId || !transcript.trim()) return;
     setAudioPhase('analyzing');
     setAnalyzeError(null);
+    setPersistError(null);
+
+    const persisted = await persistTranscriptEditIfNeeded();
+    if (!persisted) {
+      setAudioPhase('saved');
+      return;
+    }
+
     try {
       const res = await fetch('/api/ai/triage-capture', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemId: savedItemId, idempotencyKey: savedItemId }),
       });
-      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body.error ?? 'Não foi possível analisar a captura.');
+        setAnalyzeError('A captura foi salva, mas a análise não foi concluída. Tente novamente.');
+        setAudioPhase('saved');
+        return;
       }
+      const body = await res.json().catch(() => ({}));
       setTriageProposal(body.proposal as AudioTriageProposal);
       setTriageAiRunId(body.aiRunId as string);
       setAudioPhase('reviewing');
-    } catch (err) {
-      setAnalyzeError(err instanceof Error ? err.message : 'Erro ao analisar com IA.');
+    } catch {
+      setAnalyzeError('A captura foi salva, mas a análise não foi concluída. Tente novamente.');
       setAudioPhase('saved');
     }
+  };
+
+  const handleSaveWithoutAnalysis = async () => {
+    setPersistError(null);
+    setIsSavingWithoutAnalysis(true);
+    const persisted = await persistTranscriptEditIfNeeded();
+    setIsSavingWithoutAnalysis(false);
+    if (persisted) closeModal();
   };
 
   if (!isOpen) return null;
@@ -408,27 +458,46 @@ export function QuickCaptureModal() {
                 <div className="rounded-md bg-green-50 p-3 text-sm text-green-800" role="status">
                   Captura salva na Caixa de Entrada ({savedDurationSeconds}s de áudio).
                 </div>
-                <div className="rounded-md border bg-gray-50 p-3 text-sm text-gray-700 whitespace-pre-wrap">
-                  {transcript}
+                <div>
+                  <label htmlFor="qc-transcript" className="mb-1 block text-xs font-medium text-gray-600">
+                    Revisar transcrição
+                  </label>
+                  <textarea
+                    id="qc-transcript"
+                    value={transcript}
+                    onChange={(e) => setTranscript(e.target.value)}
+                    disabled={audioPhase === 'analyzing' || isSavingWithoutAnalysis}
+                    rows={5}
+                    className="w-full resize-none rounded-md border bg-white p-3 text-base leading-relaxed text-gray-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Corrija nomes, datas ou horários, se necessário.</p>
                 </div>
+                {persistError && (
+                  <p role="alert" className="flex items-center gap-2 text-xs text-red-600">
+                    <AlertCircle size={12} /> {persistError}
+                  </p>
+                )}
                 {analyzeError && (
                   <p role="alert" className="flex items-center gap-2 text-xs text-red-600">
                     <AlertCircle size={12} /> {analyzeError}
                   </p>
                 )}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap">
                   <button
                     type="button"
-                    onClick={closeModal}
-                    className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    onClick={handleSaveWithoutAnalysis}
+                    disabled={audioPhase === 'analyzing' || isSavingWithoutAnalysis}
+                    className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Concluir sem IA
+                    {isSavingWithoutAnalysis && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+                    Salvar sem analisar
                   </button>
                   <button
                     type="button"
                     onClick={handleAnalyzeWithAI}
-                    disabled={audioPhase === 'analyzing'}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={audioPhase === 'analyzing' || isSavingWithoutAnalysis || !transcript.trim()}
+                    aria-describedby="qc-analyze-hint"
+                    className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {audioPhase === 'analyzing' ? (
                       <>
@@ -440,6 +509,9 @@ export function QuickCaptureModal() {
                       </>
                     )}
                   </button>
+                  <span id="qc-analyze-hint" className="sr-only">
+                    Abre uma etapa de revisão das ações propostas antes de aplicar qualquer uma delas.
+                  </span>
                 </div>
               </div>
             )}
@@ -447,7 +519,6 @@ export function QuickCaptureModal() {
             {audioPhase === 'reviewing' && triageProposal && savedItemId && triageAiRunId && (
               <AudioCaptureReview
                 itemId={savedItemId}
-                workspaceId={workspaceId}
                 aiRunId={triageAiRunId}
                 proposal={triageProposal}
                 availableProjects={projects.map((p) => ({ id: p.id, name: p.name }))}

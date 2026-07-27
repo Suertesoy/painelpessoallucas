@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { AlertCircle, Calendar, Check, Loader2, X } from 'lucide-react';
-import { useCommands, useRepositories } from '@/providers/repository.provider';
+import { useRepositories } from '@/providers/repository.provider';
 import { datetimeLocalToISO, isoToDatetimeLocalInput } from '@/lib/dates';
 import type { ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import type { AudioTriageProposal, ProposedAction } from '@/platform/ai/audio-triage.schema';
@@ -68,7 +68,6 @@ interface AvailableProject {
  */
 export function AudioCaptureReview({
   itemId,
-  workspaceId,
   aiRunId,
   proposal,
   availableProjects,
@@ -76,15 +75,18 @@ export function AudioCaptureReview({
   onApplied,
 }: {
   itemId: string;
-  workspaceId: string;
-  /** ai_runs.id da execução de triagem que gerou esta proposta — usado só para registrar, em auditoria, quais ações foram aprovadas/rejeitadas. */
+  /**
+   * ai_runs.id da execução de triagem que gerou esta proposta. Usado tanto
+   * para registrar em auditoria quais ações foram aprovadas/rejeitadas
+   * quanto para o servidor validar, a cada confirmação, que a proposta
+   * ainda corresponde ao texto atual da captura (ver checkTriageFreshness).
+   */
   aiRunId: string;
   proposal: AudioTriageProposal;
   availableProjects: AvailableProject[];
   onClose: () => void;
   onApplied?: () => void;
 }) {
-  const { item: itemCmds } = useCommands();
   const { audioProvenanceRepository } = useRepositories();
 
   const [drafts, setDrafts] = useState<ActionDraft[]>(() => proposal.proposedActions.map(draftFromAction));
@@ -125,34 +127,32 @@ export function AudioCaptureReview({
     const action = proposal.proposedActions[index];
     updateDraft(index, { status: 'saving', error: null });
     try {
-      if (action.actionType === 'update_capture') {
-        await itemCmds.updateItem(itemId, {
-          title: draft.title.trim() || undefined,
-          content: draft.description.trim() || undefined,
-          type: draft.itemType,
-          priority: draft.priority,
-          projectId: draft.projectId || undefined,
-          nextAction: draft.nextAction.trim() || undefined,
-          dueAt: datetimeLocalToISO(draft.dueAt),
-          scheduledAt: datetimeLocalToISO(draft.scheduledAt),
-          estimatedMinutes: draft.estimatedMinutes ? Number(draft.estimatedMinutes) : undefined,
-        });
-      } else if (action.actionType === 'create_item') {
-        await itemCmds.createItem(
-          {
+      // Rota de servidor (não itemCmds direto): garante que uma proposta
+      // desatualizada — transcrição editada depois desta análise — nunca é
+      // confirmada, mesmo que o cliente tente. Ver checkTriageFreshness.
+      const res = await fetch('/api/ai/confirm-triage-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          itemId,
+          aiRunId,
+          actionType: action.actionType,
+          action: {
             title: draft.title.trim() || undefined,
-            content: draft.description.trim() || undefined,
-            type: draft.itemType,
+            description: draft.description.trim() || undefined,
+            itemType: draft.itemType,
             priority: draft.priority,
             projectId: draft.projectId || undefined,
             nextAction: draft.nextAction.trim() || undefined,
             dueAt: datetimeLocalToISO(draft.dueAt),
             scheduledAt: datetimeLocalToISO(draft.scheduledAt),
             estimatedMinutes: draft.estimatedMinutes ? Number(draft.estimatedMinutes) : undefined,
-            source: 'ai',
           },
-          workspaceId
-        );
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error ?? 'Não foi possível aplicar esta ação.');
       }
       updateDraft(index, { status: 'done' });
       void audioProvenanceRepository.recordActionOutcome(aiRunId, index, 'done');
@@ -188,6 +188,7 @@ export function AudioCaptureReview({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itemId,
+          aiRunId,
           title: calendarTitle.trim(),
           description: calendarDescription.trim() || undefined,
           startAt: startIso,

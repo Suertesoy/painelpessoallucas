@@ -10,6 +10,7 @@ import { OpenAIAudioTriageStructurer, getTriageModel } from '@/platform/ai/opena
 import { checkRateLimit } from '@/platform/ai/rate-limit';
 import { estimateCostUsd } from '@/platform/ai/openai-plan-structurer';
 import type { AudioTriageProposal } from '@/platform/ai/audio-triage.schema';
+import { sha256Hex } from '@/lib/text-hash';
 
 /**
  * POST /api/ai/triage-capture  { itemId, idempotencyKey? }
@@ -215,12 +216,4 @@ export async function POST(request: Request) {
     .eq('id', aiRun.id);
 
   return NextResponse.json({ aiRunId: aiRun.id, proposal, model: usage.model });
-}
-
-async function sha256Hex(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
