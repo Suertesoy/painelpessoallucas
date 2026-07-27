@@ -1,0 +1,1699 @@
+{
+  "meta": {
+    "auditDate": "2026-07-24",
+    "auditType": "estratégica, somente leitura, sem alteração de código, banco, integrações ou deploy",
+    "referenceCommit": "137fc0109f37f3e6d34c04b748dfb94bed8812c0",
+    "sourceDossier": "docs/project-dossier/",
+    "outputFolder": "docs/project-dossier/strategic-audit/",
+    "evidenceLegend": {
+      "DOSSIÊ": "Confirmado por afirmação explícita no dossiê factual",
+      "CÓDIGO": "Confirmado pela descrição de código no dossiê (arquivo, função ou schema nomeado)",
+      "EXECUÇÃO": "Confirmado por execução descrita (lint, typecheck, test, build)",
+      "PRODUÇÃO": "Confirmado por comportamento em produção descrito",
+      "INFERÊNCIA": "Dedução a partir do material, com raciocínio explicitado",
+      "HIPÓTESE": "Suposição que exige validação antes de virar decisão"
+    },
+    "counts": {
+      "P0": 3,
+      "P1": 6,
+      "P2": 12,
+      "P3": 7,
+      "total": 28
+    },
+    "revision": {
+      "date": "2026-07-24",
+      "pass": 2,
+      "changes": [
+        "Correção de escopo do produto pelo Lucas: rotinas que já funcionam sem o painel (almoço, academia, pausas, deslocamentos) NÃO devem ser modeladas como tarefas, recorrências, hábitos ou lembretes. A recomendação anterior de cadastrá-las como blocos recorrentes foi retirada.",
+        "Verificação no código-fonte: as cinco hipóteses em aberto foram resolvidas. Duas afirmações da primeira passagem estavam erradas e foram corrigidas.",
+        "P1-3 mudou de 'Capacidade real do dia' para 'Capacidade habitual configurável'. Esforço caiu de médio para baixo. A decisão de produto sobre o escopo do Google Calendar deixou de ser necessária.",
+        "P1-1 teve escopo reduzido: estimatedMinutes já existe em todas as camadas."
+      ],
+      "correctedClaims": [
+        {
+          "first_pass": "Não existe campo de duração estimada em items",
+          "verified": "estimatedMinutes existe no ItemSchema, no banco (core_schema.sql), no repositório, no ItemDetailModal, em capacity.ts e em calendar-sync.ts"
+        },
+        {
+          "first_pass": "O ChangeNotifier provavelmente não sincroniza entre dispositivos",
+          "verified": "Já revalida ao ganhar foco de janela e ao voltar de visibilidade — a hipótese 3 de P0-1 está refutada"
+        },
+        {
+          "first_pass": "Existe campo dedicado de transcrição editada vs original",
+          "verified": "Não há campo dedicado; o original é reconstruído do payload do evento item.created em domain_events. P0-2 não precisa de mudança de dados"
+        }
+      ]
+    },
+    "consistencyReview": {
+      "date": "2026-07-25",
+      "scope": "Revisão de consistência entre a auditoria estratégica e o dossiê factual final (docs/project-dossier/), sem refazer a análise",
+      "changes": [
+        "Contagens conferidas contra o dossiê final: 32 rotas (17 páginas + 15 route handlers), 15 componentes, 22 tabelas, 7 módulos de domínio, 3 operações de IA, 216 testes em 31 arquivos — já consistentes; uma única menção pontual de '16 rotas' corrigida para '17 páginas' em MASTER_STRATEGIC_AUDIT.md",
+        "P0-1 reclassificado de 'diagnosticar bug do zero' para 'homologar correções já aplicadas', refletindo que o projeto já recebeu correções de sincronização/sessão/workspace/timestamps e que a hipótese de ausência de sincronização entre dispositivos já estava refutada",
+        "Fase 0 reordenada: transcrição, homologação do cron, card de saúde, revalidação mobile, remoção de diagnósticos, captura de screenshots internas (novo item 6)",
+        "Fase 1 tornada estritamente incremental: Zona Depois movida para a Fase 2; adicionados sessão única ativa e o portão de uso de ~1 semana antes de reorganizar o resto de Hoje",
+        "Reforçada a classificação de evidência visual: nenhuma tela interna foi observada, só as duas capturas de /login — recomendações visuais continuam válidas como inferência, não como validação visual"
+      ]
+    }
+  },
+  "productVision": {
+    "current": "Sistema de captura e organização de objetos (itens, projetos, planos) sob o princípio 'capturar primeiro, organizar depois'.",
+    "target": "Sistema de decisão sobre o tempo: um sistema operacional pessoal que responde diariamente o que fazer agora, quanto tempo há, o que será afetado por uma troca e o que está sendo esquecido.",
+    "gap": "O domínio modela trabalho mas não modela tempo. Não existem duração estimada, sessão de trabalho nem atividade atual em nenhuma das 22 tabelas, 4 grupos de comandos ou 19 eventos de domínio.",
+    "proposedValueProposition": "Capturar sem pensar. Decidir com contexto. Executar sem perder o fio.",
+    "questionsAnswered": 3,
+    "questionsPartial": 1,
+    "questionsImpossible": 5,
+    "singleMostImportantDecision": "Introduzir duração, sessão de trabalho e atividade atual no domínio, e reconstruir a tela Hoje em torno de 'agora'. Não construir IA diretiva antes disso."
+  },
+  "experiencePrinciples": [
+    "Interface calma: no máximo neutro + 1 acento + 1 alerta. Nove famílias de cor semântica simultâneas é o oposto de calma.",
+    "Hierarquia por peso, não por contenção: nem tudo precisa de borda e sombra. Um elemento elevado por tela.",
+    "Complexidade progressiva: a captura pede um campo, não cinco. Organizar vem depois — é o princípio declarado do produto.",
+    "Resposta imediata: toda ação produz retorno visual em menos de 100ms, exceto ações com efeito externo irreversível.",
+    "Movimento com função: mostrar origem, confirmar ação, preservar contexto. Nada decorativo. Nada acima de 300ms.",
+    "Erros compreensíveis: nenhuma categoria técnica chega à interface. Todo erro diz o que houve, se algo foi perdido e o que fazer.",
+    "Um termo por conceito: glossário aplicado sem exceção. Prazo, Agendado, Compromisso, Aguardando, Estimativa, Tempo trabalhado, Sessão.",
+    "A IA propõe, o humano confirma. Sem exceção, inclusive para ações consideradas seguras.",
+    "Determinístico antes de probabilístico: se a resposta é calculável, é regra — não LLM.",
+    "O mobile tem fluxos diferentes, não apenas layout diferente. Os usos reais são de 5 a 30 segundos."
+  ],
+  "currentStrengths": [
+    {
+      "title": "Arquitetura correta para a evolução necessária",
+      "evidence": [
+        "[CÓDIGO] Commands validando Zod, persistindo e emitindo DomainEvent auditável (Diagrama 3)"
+      ],
+      "note": "É exatamente a fundação de que work_sessions precisa. Estender, não reescrever."
+    },
+    {
+      "title": "Guardrails de IA bem calibrados",
+      "evidence": [
+        "[CÓDIGO] Triagem nunca aplica ação; aprovação por ação individual (Diagrama 8)",
+        "[CÓDIGO] Proteção anti-injeção explícita em plan-structurer.ts e audio-triage-structurer.ts",
+        "[CÓDIGO] Structured outputs com Zod e safeParse",
+        "[DOSSIÊ] Copy: 'Confirmação humana necessária: nenhuma ação é aplicada automaticamente.'"
+      ],
+      "note": "Já implementa as proibições da seção 8 do briefing. Toda nova operação deve herdar este padrão."
+    },
+    {
+      "title": "Postura de privacidade séria e coerente",
+      "evidence": [
+        "[DOSSIÊ] Tokens OAuth em AES-256-GCM; integration_tokens sem policy para authenticated",
+        "[DOSSIÊ] Calendar em freebusy (sem títulos); Gmail em gmail.send (sem leitura)",
+        "[DOSSIÊ] Áudio descartado após transcrição"
+      ]
+    },
+    {
+      "title": "Motor de recorrências determinístico e subaproveitado",
+      "evidence": [
+        "[CÓDIGO] recurrence-engine.ts testado, fuso America/Sao_Paulo, materialização idempotente via constraint única"
+      ],
+      "note": "Infraestrutura de qualidade para rotinas de vida, hoje só alcançável via importação de documento."
+    },
+    {
+      "title": "Trava de 3 focos diários validada no domínio",
+      "evidence": [
+        "[CÓDIGO] daily-plan.commands.ts com validação Zod, não apenas na UI"
+      ],
+      "note": "Boa restrição de produto. Manter; ganha ordem e duração, não desaparece."
+    },
+    {
+      "title": "Vocabulário de confiança da IA na revisão de planos",
+      "evidence": [
+        "[DOSSIÊ] Badges: Fato informado, Hipótese da IA, Sugestão da IA, Decisão aprovada, Pergunta aberta"
+      ],
+      "note": "Melhor exemplo de IA transparente do produto. Deve ser generalizado para todas as operações de IA."
+    },
+    {
+      "title": "Qualidade de base verificada",
+      "evidence": [
+        "[EXECUÇÃO] lint PASS, typecheck PASS, 216 testes PASS em 31 arquivos, build PASS com 32 rotas"
+      ]
+    },
+    {
+      "title": "Sensibilidade de design demonstrada na tela de login",
+      "evidence": [
+        "[IMAGEM] login-desktop-1440x1000.png e login-mobile-390x844.png: hierarquia clara, nota de privacidade honesta e específica"
+      ],
+      "note": "O problema nas telas internas não é falta de gosto — é falta de sistema."
+    }
+  ],
+  "criticalProblems": [
+    {
+      "id": "CP-1",
+      "title": "O domínio não modela tempo",
+      "evidence": [
+        "[DOSSIÊ] Nenhuma das 22 tabelas contém sessão, duração ou registro de tempo",
+        "[DOSSIÊ] Nenhum dos 4 grupos de Commands contém iniciar, pausar ou encerrar",
+        "[DOSSIÊ] Nenhum dos 19 eventos de domínio é temporal",
+        "[CÓDIGO] capacity.ts calcula sobre intervalos do Calendar, não sobre estimativas de trabalho"
+      ],
+      "impact": "5 das 9 perguntas diárias do briefing são indecidíveis. Bloqueia capacidade real, interrupção, retomada, estimativa aprendida e recomendação fundamentada.",
+      "classification": "INFERÊNCIA de alta confiança"
+    },
+    {
+      "id": "CP-2",
+      "title": "Sincronização mobile ainda não homologada",
+      "evidence": [
+        "[DOSSIÊ] sync-diagnostics-card.tsx e data-flow-diagnostics-card.tsx marcados TEMPORÁRIO no código",
+        "[DOSSIÊ] Rota /api/debug/sync-status de suporte ao diagnóstico",
+        "[DOSSIÊ] Questão aberta: 'Qual a causa raiz do bug de sincronização mobile — já foi identificada?'",
+        "[CÓDIGO — verificado] ChangeNotifier já revalida ao ganhar foco de janela — a hipótese de ausência de sincronização entre dispositivos está refutada"
+      ],
+      "impact": "Bloqueia a CONFIRMAÇÃO de todo o caso de uso mobile do briefing enquanto não homologado — não há evidência de que o problema original persista, mas também não há confirmação de que foi encerrado. Ver P0-1 para o roteiro de homologação.",
+      "classification": "DOSSIÊ"
+    },
+    {
+      "id": "CP-3",
+      "title": "Automações nunca homologadas em produção",
+      "evidence": [
+        "[DOSSIÊ] 'implementado, mas não homologado (sem acesso a logs de produção)'",
+        "[DOSSIÊ] Questão aberta sobre se o cron já executou de fato na Vercel",
+        "[INFERÊNCIA] Nenhuma tela ou card exibe o estado de automation_runs"
+      ],
+      "impact": "Recorrências, lembretes, sync de calendar e digests podem estar falhando silenciosamente. É a fundação das notificações propostas.",
+      "classification": "DOSSIÊ"
+    },
+    {
+      "id": "CP-4",
+      "title": "Transcrição não corrigível antes da análise de IA",
+      "evidence": [
+        "[CÓDIGO] Diagrama 6: item salvo na Inbox logo após a transcrição, sem passo de revisão",
+        "[CÓDIGO] Diagrama 7: triage-capture busca a captura original e envia ao LLM",
+        "[DOSSIÊ] ItemDetailModal já exibe 'transcrição original vs. editada' — o campo existe, mas não no momento certo"
+      ],
+      "impact": "Erros de transcrição em nomes, datas e horários geram propostas erradas com confiança, ensinando Lucas a desconfiar de todas as propostas.",
+      "classification": "DOSSIÊ + declarado por Lucas como problema confirmado"
+    },
+    {
+      "id": "CP-5",
+      "title": "Tela Hoje é relatório, não cockpit",
+      "evidence": [
+        "[DOSSIÊ] 8 seções empilhadas com padrão de card idêntico",
+        "[DOSSIÊ] Aviso de capacidade aparece após tentar adicionar, como erro de validação",
+        "[INFERÊNCIA] Seções 6, 7 e 8 duplicam /revisao e /projetos"
+      ],
+      "impact": "A tela mais importante exige varredura de 8 blocos a cada consulta e não responde 'o que faço agora'.",
+      "classification": "DOSSIÊ + INFERÊNCIA"
+    },
+    {
+      "id": "CP-6",
+      "title": "Capacidade medida não é capacidade real",
+      "evidence": [
+        "[DOSSIÊ] Escopo calendar.freebusy retorna blocos ocupados sem títulos",
+        "[CÓDIGO] capacity.ts distingue apenas ocupado e livre",
+        "Briefing §3: 'O painel não deve considerar automaticamente todo o período entre 8h30 e 18h como capacidade disponível'"
+      ],
+      "impact": "Toda recomendação sobre 'cabe no dia?' está errada, geralmente otimista. O sistema não distingue almoço de reunião de academia.",
+      "classification": "CÓDIGO + INFERÊNCIA",
+      "requiresProductDecision": true
+    },
+    {
+      "id": "CP-7",
+      "title": "Uma única dimensão de agrupamento para um escopo de vida com 15 áreas",
+      "evidence": [
+        "[CÓDIGO] project_id é o único agrupador em items",
+        "[CÓDIGO] /revisao alerta sobre 'itens sem projeto'"
+      ],
+      "impact": "Ou Lucas cria projetos falsos que poluem a lista, ou convive com alerta permanente. Ambas empurram a vida pessoal para ferramentas paralelas.",
+      "classification": "CÓDIGO + INFERÊNCIA"
+    },
+    {
+      "id": "CP-8",
+      "title": "Nenhuma camada observa o estado e diz algo",
+      "evidence": [
+        "[DOSSIÊ] As 3 operações de IA são reativas e por objeto",
+        "[DOSSIÊ] Tabela notifications existe com schema Zod, sem nenhum consumidor em UI",
+        "[CÓDIGO] Único canal de comunicação ativa é o digest por e-mail"
+      ],
+      "impact": "As dificuldades declaradas por Lucas são de percepção, não de registro. Um sistema que só responde quando perguntado não resolve nenhuma.",
+      "classification": "DOSSIÊ"
+    },
+    {
+      "id": "CP-9",
+      "title": "Mobile é responsivo, não repensado",
+      "evidence": [
+        "[DOSSIÊ] Breakpoint md: como fronteira única; fluxos idênticos ao desktop",
+        "[INFERÊNCIA] Captura por voz exige 6 interações antes da transcrição começar",
+        "[INFERÊNCIA de alta confiança] Nenhuma menção a PWA, manifest, service worker ou push em nenhum dos 10 documentos do dossiê"
+      ],
+      "impact": "Os casos de uso mobile são de 5 a 30 segundos em condições ruins. Sem PWA, notificações no iPhone são impossíveis.",
+      "classification": "DOSSIÊ + INFERÊNCIA"
+    },
+    {
+      "id": "CP-10",
+      "title": "Excesso de cor semântica e peso visual uniforme",
+      "evidence": [
+        "[DOSSIÊ] 9 famílias de cor com papel semântico, 5 na mesma faixa de alerta",
+        "[DOSSIÊ] red carrega erro, urgência e 'Decisão' simultaneamente",
+        "[DOSSIÊ] Padrão de card repetido manualmente em dezenas de arquivos, não extraído"
+      ],
+      "impact": "Quando tudo é colorido, nada é urgente. Hierarquia apenas por posição força varredura completa.",
+      "classification": "DOSSIÊ"
+    }
+  ],
+  "recommendations": [
+    {
+      "id": "P0-1",
+      "title": "Homologar a sincronização mobile já corrigida",
+      "priority": "P0",
+      "category": "confiabilidade / mobile",
+      "problem": "Dois componentes de diagnóstico e uma rota de apoio seguem marcados como TEMPORÁRIO no código, o que indica que a homologação final ainda não foi feita — não necessariamente que exista um bug ativo e não diagnosticado.",
+      "evidence": [
+        "[DOSSIÊ] Dois componentes marcados TEMPORÁRIO no código, criados para investigar sincronização mobile",
+        "[DOSSIÊ] Rota /api/debug/sync-status de suporte, ainda presente",
+        "[CÓDIGO — verificado] O ChangeNotifier já revalida ao ganhar foco de janela e ao voltar de visibilidade — a hipótese de ausência de sincronização entre dispositivos está REFUTADA",
+        "[INFERÊNCIA] O projeto já recebeu correções de sincronização, sessão, workspace e parsing de timestamps do Supabase, visíveis no histórico de commits, anteriores à criação dos diagnósticos temporários",
+        "Não há, nesta auditoria, log de produção nem teste real em dois dispositivos que confirme que o fluxo já está correto"
+      ],
+      "userImpact": "Todo o caso de uso mobile do briefing pressupõe que o que entra no celular chegue ao desktop. Sem confiança nisso, Lucas mantém captura paralela em outra ferramenta e o painel perde a função de ponto único.",
+      "recommendation": "Roteiro de homologação, nesta ordem: (1) homologar os fluxos principais no computador e no celular; (2) confirmar revalidação ao retornar à aba; (3) confirmar criação e edição nos dois dispositivos, nos dois sentidos; (4) confirmar captura por texto e por áudio no celular; (5) verificar, com os diagnósticos existentes, se ainda existe algum caso não sincronizado; (6) só então remover os dois cards e a rota de debug. Se, e somente se, o passo 5 revelar um caso real e reproduzível, escalar para diagnóstico de causa raiz (cookie de sessão em Safari iOS, workspace não resolvido a tempo) e só então considerar mudanças em cookies, autenticação, RLS ou Supabase Realtime — nenhuma dessas é recomendação padrão desta etapa.",
+      "expectedBenefit": "Confirmar (em vez de presumir) a confiabilidade do canal mobile, pré-requisito de P1-6 e de toda a estratégia mobile.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [
+        "acesso a dispositivo iOS e Android reais"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Item capturado no celular (texto ou áudio) aparece no desktop ao focar a janela, sem recarregar manualmente",
+        "O mesmo no sentido inverso",
+        "Após uma hora em segundo plano no iOS, voltar ao painel mantém a sessão ou redireciona ao login sem estado inconsistente",
+        "Nenhum caso reproduzível de não sincronização encontrado nos passos 1-4 do roteiro de homologação",
+        "Nenhum texto em snake_case aparece em /configuracoes",
+        "Os três arquivos de diagnóstico foram removidos, depois de 1-4 confirmados"
+      ],
+      "regressionRisks": [
+        "Remover os diagnósticos antes de concluir a homologação elimina a capacidade de investigar qualquer caso residual — só remover depois",
+        "Se uma hipótese condicional exigir alterar atributos de cookie, isso pode invalidar sessões existentes — aceitável, exige novo login, mas deve ser comunicado como mudança deliberada"
+      ],
+      "ifNothingIsDone": "Os diagnósticos temporários seguem expostos ao usuário final indefinidamente, e não há confirmação formal de que o canal mobile é confiável — mesmo que já esteja corrigido.",
+      "phase": "Fase 0 — imediata",
+      "revisionNote": "Terceira passagem (25/07/2026): item reclassificado de 'diagnosticar bug do zero' para 'homologar correções já aplicadas'. Hipótese 3 permanece refutada (revisão anterior). Esforço e risco caem de médio para baixo. Ver IMPLEMENTATION_BRIEFS.md BRIEF P0-1 para o roteiro completo."
+    },
+    {
+      "id": "P0-2",
+      "title": "Corrigir a transcrição antes da análise de IA",
+      "priority": "P0",
+      "category": "IA / captura",
+      "problem": "A transcrição do Whisper é enviada à triagem sem possibilidade de correção. Erros em nomes, datas e horários produzem propostas erradas apresentadas com confiança.",
+      "evidence": [
+        "Declarado por Lucas como problema confirmado (briefing §9)",
+        "[CÓDIGO — verificado] quick-capture-modal.tsx: a fase audioPhase==='saved' já exibe a transcrição, mas em uma <div> somente leitura, não em campo editável",
+        "[CÓDIGO — verificado] Os dois botões corretos já existem: 'Concluir sem IA' e 'Analisar com IA'",
+        "[CÓDIGO — verificado] O item já é salvo antes de qualquer análise, com comentário explícito no código",
+        "[CÓDIGO — verificado] /api/ai/triage-capture lê item.content ?? item.title do banco — basta salvar o conteúdo editado antes de chamar"
+      ],
+      "userImpact": "O áudio é o canal principal de captura mobile. Se cada captura por voz exige revisão posterior no desktop, o áudio custa tempo em vez de economizar. Pior: uma IA que erra a data ensina Lucas a desconfiar de todas as propostas, anulando o ganho da triagem automática.",
+      "recommendation": "Trocar a <div> somente leitura da fase 'saved' por um <textarea> controlado e persistir a edição via updateItem antes de chamar a triagem. A estrutura de fases, os botões e o salvamento prévio já existem. Nenhuma mudança de dados: o ItemDetailModal reconstrói a transcrição original a partir do payload do evento item.created em domain_events.",
+      "expectedBenefit": "A qualidade da triagem passa a depender do que Lucas disse, não do que o Whisper entendeu. Elimina a categoria de erro 'IA inventou data ou nome'.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [],
+      "recurringCost": "reduz custo de IA por eliminar re-análises",
+      "acceptanceCriteria": [
+        "Após a transcrição, o texto aparece editável antes de qualquer análise",
+        "Corrigir uma palavra e analisar resulta em proposta baseada no texto corrigido",
+        "A transcrição original permanece recuperável no painel de proveniência",
+        "É possível concluir sem IA em um clique",
+        "Nenhuma etapa adicional é imposta a quem não quer editar",
+        "No mobile, o texto é legível e editável sem zoom"
+      ],
+      "regressionRisks": [
+        "A máquina de estados do QuickCaptureModal é a parte mais complexa do componente — mapear todos os estados antes de inserir o novo",
+        "Testes de AudioCaptureReview podem assumir transição direta de transcrição para triagem"
+      ],
+      "ifNothingIsDone": "Lucas abandona a análise de IA no áudio ou abandona o áudio. A Fase 3 do produto perde valor.",
+      "phase": "Fase 0 — imediata",
+      "revisionNote": "Segunda passagem: a correção é bem menor do que a primeira versão estimava — a estrutura já está ~90% pronta. Também corrigido: não existe campo dedicado de 'transcrição editada'; o original vem do evento de domínio, o que torna a mudança de dados desnecessária."
+    },
+    {
+      "id": "P0-3",
+      "title": "Homologar e tornar observáveis as automações em produção",
+      "priority": "P0",
+      "category": "confiabilidade / infraestrutura",
+      "problem": "O cron horário que executa recorrências, lembretes, sync de calendar e digests nunca foi homologado em produção. Não há como saber se roda, falha ou falha silenciosamente.",
+      "evidence": [
+        "[DOSSIÊ] 'implementado, mas não homologado (sem acesso a logs de produção nesta auditoria)'",
+        "[DOSSIÊ] 'O funcionamento do cron em produção depende de validação via monitoramento de logs do automation_runs'",
+        "[DOSSIÊ] Questão aberta: 'O cron de produção já executou de fato na Vercel?'",
+        "[INFERÊNCIA] Nenhuma tela ou componente exibe o estado de automation_runs"
+      ],
+      "userImpact": "É o item mais silenciosamente perigoso. Uma falha aqui produz o pior comportamento possível: Lucas cria uma rotina recorrente, ela não materializa, e ele descobre semanas depois — quando já parou de confiar que o sistema lembra das coisas. Todo o produto se apoia na premissa de que 'se está no painel, não vou esquecer'.",
+      "recommendation": "Verificar nos logs da Vercel e em automation_runs se o cron executou. Construir card de saúde permanente em /configuracoes com última execução, contagem de falhas nas últimas 24h e último erro traduzido. Garantir que falhas disparem o alerta digest.automation_failure_sent, que já existe como evento de domínio.",
+      "expectedBenefit": "Passa-se de 'acredito que as automações rodam' para 'sei que rodam'. Pré-requisito de P1-4 e P2-8. O card substitui os diagnósticos temporários por algo permanente e legítimo.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [
+        "acesso ao painel da Vercel",
+        "acesso ao Supabase"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "É possível responder com evidência na interface: 'o cron rodou hoje?'",
+        "Uma falha aparece com causa em linguagem comum e ação sugerida",
+        "Nenhum snake_case ou status HTTP cru é exibido",
+        "O card carrega em menos de um segundo",
+        "A ausência de execuções recentes é sinalizada como problema, não como estado neutro"
+      ],
+      "regressionRisks": [
+        "Nenhum significativo — é leitura. Cuidado para não introduzir consulta pesada em /configuracoes"
+      ],
+      "ifNothingIsDone": "Recorrências e lembretes podem estar falhando agora sem ninguém saber. Qualquer sistema de notificação construído sobre essa base herda a falha.",
+      "phase": "Fase 0 — imediata"
+    },
+    {
+      "id": "P1-1",
+      "title": "Tempo como primitivo de domínio",
+      "priority": "P1",
+      "category": "domínio / fundação",
+      "problem": "O sistema modela trabalho mas não modela a execução dele no tempo. Não existe sessão de trabalho nem atividade atual, e a estimativa — que existe — não tem fluxo prático para ser preenchida.",
+      "evidence": [
+        "[CÓDIGO — verificado] Nenhuma tabela, comando ou evento de sessão de trabalho existe no repositório",
+        "[CÓDIGO — verificado] estimatedMinutes EXISTE no ItemSchema, no banco, no repositório, no ItemDetailModal e em capacity.ts — mas só é editável abrindo o modal de detalhe",
+        "[CÓDIGO — verificado] capacity.ts trata a ausência de estimativa como 30min silenciosamente",
+        "[DOSSIÊ] Os 19 eventos de domínio não contêm nenhum evento temporal"
+      ],
+      "userImpact": "Quatro das nove perguntas diárias do briefing são indecidíveis sem isso. Seis das oito recomendações-exemplo que Lucas quer da IA dependem de saber quanto tempo as coisas levam. Desbloqueia P1-2, P1-3, P1-4, P2-3 e P2-7.",
+      "recommendation": "Três primitivos: (a) expor melhor a estimativa que já existe — seletor rápido (15min/30min/1h/2h/4h/mais) na triagem e na definição do foco, sem abrir o modal de detalhe, e parar de contar 30min para itens sem estimativa; (b) nova tabela work_sessions com comandos iniciar, pausar, retomar, encerrar, corrigir e registrar retroativamente, e cinco eventos de domínio; (c) atividade atual como a sessão sem ended_at. Duas restrições não-negociáveis: no máximo uma sessão ativa por workspace (garantida por índice único parcial no banco) e registro retroativo como cidadão de primeira classe.",
+      "expectedBenefit": "Habilita cinco respostas hoje impossíveis e transforma a tela Hoje de relatório em cockpit.",
+      "effort": "medium-high",
+      "risk": "medium",
+      "dependencies": [
+        "P0-1",
+        "Corrigir a granularidade do ChangeNotifier antes — hoje a invalidação é global e sessões geram mutações frequentes [CÓDIGO — verificado]"
+      ],
+      "recurringCost": "crescimento de linhas em work_sessions — desprezível para um usuário (~1.500/ano)",
+      "acceptanceCriteria": [
+        "É possível iniciar uma sessão em um clique a partir de Hoje",
+        "O tempo decorrido é visível sem rolar a tela",
+        "Só existe uma sessão ativa por vez, garantido pelo banco",
+        "Registrar trabalho já feito leva menos de 15 segundos",
+        "Capturar uma interrupção sem trocar de atividade custa exatamente o mesmo que hoje",
+        "Ao trocar de atividade, é possível registrar onde parou em uma linha opcional",
+        "Ao retomar, o tempo investido e a nota aparecem",
+        "Uma sessão esquecida a noite toda nunca registra a duração sem confirmação",
+        "Um item sem estimativa não distorce a capacidade e isso é visível na interface"
+      ],
+      "regressionRisks": [
+        "A tela Hoje é a mais complexa — a zona Agora deve ser adicionada sem quebrar as seções existentes",
+        "Alterar item.schema.ts afeta testes de domínio existentes; o campo é opcional, o que reduz o risco",
+        "Mutações frequentes de sessão podem expor problema de granularidade do ChangeNotifier"
+      ],
+      "ifNothingIsDone": "O painel permanece um gerenciador de tarefas competente e nunca se torna o sistema operacional pessoal descrito no briefing.",
+      "phase": "Fase 1 — 2 semanas",
+      "revisionNote": "Segunda passagem: (a) deixou de ser 'criar campo' e virou 'expor melhor', porque estimatedMinutes já existe em todas as camadas. Esforço e risco menores."
+    },
+    {
+      "id": "P1-2",
+      "title": "Reconstruir Hoje como central de decisão",
+      "priority": "P1",
+      "category": "UX / arquitetura da informação",
+      "problem": "A tela Hoje tem 8 seções de peso visual idêntico e não responde 'o que faço agora'.",
+      "evidence": [
+        "[DOSSIÊ] 8 seções descritas em SCREEN_COPY_AND_FLOW_INVENTORY §3.1",
+        "[DOSSIÊ] Padrão de card idêntico sem variação de peso",
+        "[DOSSIÊ] Aviso de capacidade aparece após tentar adicionar, como erro de validação",
+        "[INFERÊNCIA] Seções 6, 7 e 8 duplicam /revisao e /projetos"
+      ],
+      "userImpact": "Lucas mantém o painel aberto o dia todo. Uma tela que exige varredura de 8 blocos a cada consulta é uma tela que ele consulta cada vez menos. A informação que mais importa está distribuída em três seções ou não existe.",
+      "recommendation": "Três zonas hierárquicas: Agora (sempre visível, peso máximo, sessão em curso ou próxima decisão), Depois (linha do tempo unificada com compromissos e trabalho no mesmo eixo, espaço livre representado visualmente), Atenção (condicional, máximo 3 cartões, cada um com o quê, por quê, impacto e ação). Seis das oito seções são preservadas e reposicionadas; duas saem para a revisão semanal.",
+      "expectedBenefit": "Decisão extraível em menos de 3 segundos, sem rolagem, na maior parte dos dias.",
+      "effort": "medium",
+      "risk": "low",
+      "dependencies": [
+        "P1-1"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Em desktop, 'o que faço agora' e 'quanto tempo tenho' são respondidos sem rolar",
+        "A zona Agora nunca está vazia — os quatro estados cobrem todos os casos",
+        "A zona Atenção está vazia em um dia sem pendências",
+        "O espaço livre é visível na linha do tempo, não apenas numérico",
+        "Falha do Google Calendar mantém a tela útil",
+        "Nenhuma seção duplica /revisao ou /projetos",
+        "O foco de três itens continua funcionando com a mesma trava de domínio"
+      ],
+      "regressionRisks": [
+        "Alto risco de regressão funcional — recomendação: manter as seções antigas atrás de um sinalizador durante uma semana de uso real",
+        "TodayCalendarCard tem testes — preservar ou migrar a cobertura",
+        "A trava de 3 focos é validada no domínio; a mudança de interface não pode contorná-la"
+      ],
+      "ifNothingIsDone": "A tela mais importante do produto continua sendo a menos útil no momento em que mais importa.",
+      "phase": "Fase 1 — 2 semanas"
+    },
+    {
+      "id": "P1-3",
+      "title": "Capacidade habitual configurável",
+      "priority": "P1",
+      "category": "planejamento / capacidade",
+      "problem": "A capacidade disponível é uma constante fixa de 8 horas, todos os dias, sempre. E itens sem estimativa contam 30 minutos silenciosamente.",
+      "evidence": [
+        "[CÓDIGO — verificado] src/lib/capacity.ts: export const DAY_CAPACITY_MINUTES = 8 * 60 — não há jornada configurável, horas disponíveis, margem nem ajuste do dia",
+        "[CÓDIGO — verificado] computeCapacity usa item.estimatedMinutes ?? 30 — a ausência de estimativa vira 30min sem aviso",
+        "[CÓDIGO — verificado] O restante de capacity.ts está correto e testado: mergeIntervals, soma de comprometimento, suggestFreeSlot",
+        "Briefing seção 3: 'O painel não deve considerar automaticamente todo o período entre 8h30 e 18h como capacidade disponível'"
+      ],
+      "userImpact": "Um sistema que diz 'você tem 8h' quando Lucas tem 5h é ativamente prejudicial: ele planeja demais, não entrega, e conclui que o painel é otimista demais para confiar. O ?? 30 agrava nos dois sentidos — a capacidade mente por omissão.",
+      "recommendation": "Substituir a constante por quatro números configuráveis: jornada habitual, horas realmente disponíveis por dia (líquido, já absorvendo almoço, academia, pausas e deslocamentos), margem para imprevistos, e ajuste excepcional do dia. Compromissos do Calendar continuam sendo descontados porque variam por dia. Itens sem estimativa deixam de contar 30min e passam a ser sinalizados. NENHUM bloco de vida é cadastrado, listado ou classificado.",
+      "expectedBenefit": "'Você tem 2h48 livres hoje' passa a ser verdade, sem que nenhuma rotina pessoal precise ser registrada no painel.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [
+        "P1-1 (seletor rápido de estimativa, para que o comprometimento seja declarado e não inventado)"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "'Você tem X horas livres' confere com a verificação manual",
+        "Configuração inicial leva menos de 2 minutos e tem quatro campos",
+        "Nenhuma rotina pessoal precisa ser cadastrada para a capacidade ficar correta",
+        "Ajustar a capacidade de hoje leva um toque e não afeta amanhã",
+        "Itens sem estimativa aparecem sinalizados, não embutidos no total",
+        "Adicionar item que não cabe gera aviso antes, com proposta de o que mover",
+        "A carga da semana é visível na Agenda",
+        "Falha do Calendar não impede o cálculo"
+      ],
+      "regressionRisks": [
+        "capacity.ts tem cobertura de teste — parametrizar mantendo o valor padrão evita quebrar os testes existentes",
+        "Remover o ?? 30 muda os números exibidos hoje. É intencional e correto, mas deve ser comunicado na interface para não parecer defeito",
+        "TodayCalendarCard consome computeCapacity — atualizar em conjunto"
+      ],
+      "ifNothingIsDone": "O planejamento diário continua otimista por construção, e a sensação de 'nunca dou conta do que planejei' persiste — justamente o que o produto deveria resolver.",
+      "phase": "Fase 2 — 1 mês",
+      "revisionNote": "Segunda passagem: a versão anterior recomendava cadastrar almoço e academia como blocos recorrentes via recurrence_rules e exigia decisão de produto sobre ampliar o escopo do Google Calendar. Ambas foram retiradas. Rotinas que já funcionam não devem ser modeladas; e, sem a necessidade de classificar blocos, o freebusy basta."
+    },
+    {
+      "id": "P1-4",
+      "title": "Motor de recomendações determinísticas",
+      "priority": "P1",
+      "category": "IA / notificações",
+      "problem": "Nenhuma camada observa o estado do sistema e diz algo. Toda informação é passiva; Lucas precisa ir procurar.",
+      "evidence": [
+        "[DOSSIÊ] As 3 operações de IA são reativas e por objeto",
+        "[DOSSIÊ] Nenhuma opera sobre estado agregado",
+        "[DOSSIÊ] Tabela notifications existe com schema Zod, sem consumidor em UI",
+        "[CÓDIGO] Único canal de comunicação ativa é o digest por e-mail"
+      ],
+      "userImpact": "As dificuldades declaradas por Lucas são de percepção, não de registro: lembrar depois, entender impacto, saber se há capacidade, perceber que algo está parado. Um sistema que só responde quando perguntado não resolve nenhuma delas.",
+      "recommendation": "Construir como motor de regras determinístico, não como LLM — 6 das 8 recomendações-exemplo do briefing são queries SQL. Oito regras iniciais: projeto parado, dia comprometido demais, dia com espaço, sessão estourando, compromisso próximo, aguardando parado, prazo se aproximando, captura envelhecendo. Cada uma com chave de deduplicação estável, janela de silêncio ao dispensar, e auto-desativação após 3 dispensas sem ação. Exibição em três camadas: ambiente, nudge e push.",
+      "expectedBenefit": "O sistema passa de passivo a diretivo, com custo de IA zero e sem risco de alucinação. Regras são auditáveis por Lucas, o que constrói confiança.",
+      "effort": "medium",
+      "risk": "low",
+      "dependencies": [
+        "P0-3",
+        "P1-3 para as regras de tempo (as demais funcionam antes)"
+      ],
+      "recurringCost": "R$ 0,00 — nenhuma chamada de LLM",
+      "acceptanceCriteria": [
+        "Um projeto parado há 7 dias gera exatamente uma notificação, não sete",
+        "Dispensar impede reaparecimento no período definido",
+        "Toda notificação diz o quê, por quê e oferece ação executável",
+        "A zona Atenção está vazia em um dia sem pendências",
+        "Nenhuma chamada de IA é feita por esta camada",
+        "Três dispensas seguidas desativam a regra automaticamente",
+        "Máximo de três cartões visíveis simultaneamente"
+      ],
+      "regressionRisks": [
+        "Adicionar passo ao cron pode aumentar o tempo de execução — manter a idempotência",
+        "Regras mal calibradas geram ruído imediato e minam a confiança rapidamente — começar conservador e afrouxar"
+      ],
+      "ifNothingIsDone": "Lucas continua sendo o motor de vigilância do próprio sistema, que é exatamente a carga mental que o produto promete reduzir.",
+      "phase": "Fase 2 — 1 mês"
+    },
+    {
+      "id": "P1-5",
+      "title": "Áreas da vida e alternador de contexto",
+      "priority": "P1",
+      "category": "arquitetura da informação",
+      "problem": "Existe um único agrupador — project_id. Metade do escopo de vida que Lucas quer organizar não é projeto.",
+      "evidence": [
+        "[CÓDIGO] Único agrupador em items é o projeto",
+        "[CÓDIGO] /revisao alerta sobre 'itens sem projeto'",
+        "Briefing §4 lista 15 áreas de vida e pede coexistência sem mistura caótica",
+        "[INFERÊNCIA] A alternância entre visão geral, trabalho e pessoal é impossível hoje"
+      ],
+      "userImpact": "Sem essa dimensão, Lucas tem duas opções ruins: criar projetos falsos que poluem /projetos e o Pulso dos Projetos, ou deixar itens sem projeto e conviver com alerta permanente. Ambas impedem o uso do painel para a vida pessoal, empurrando-o de volta às ferramentas paralelas que ele relata como problema.",
+      "recommendation": "Campo area em projects e items — enum curto, exclusivo e estável (trabalho, pessoal, saude, casa, carreira, lazer). Alternador de contexto global no topo da casca (Tudo / Trabalho / Pessoal) filtrando Hoje, Entrada, Projetos e Agenda simultaneamente, sem afetar Captura Rápida nem Busca Global. /revisao passa a alertar sobre 'sem área' em vez de 'sem projeto'.",
+      "expectedBenefit": "O painel passa a comportar a vida inteira sem virar caos. Habilita agregação de tempo por área, mais útil que por projeto.",
+      "effort": "medium",
+      "risk": "medium",
+      "dependencies": [],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Alternar entre trabalho e pessoal leva um clique e afeta as quatro telas",
+        "A preferência persiste entre sessões e dispositivos",
+        "Capturar não exige escolher contexto",
+        "Buscar varre tudo, independentemente do contexto",
+        "/revisao alerta sobre itens sem área, não sobre itens sem projeto",
+        "Itens de vida pessoal não geram alerta permanente por não terem projeto"
+      ],
+      "regressionRisks": [
+        "Alterar os schemas de item e projeto afeta testes existentes; o campo é opcional, o que reduz o risco",
+        "O filtro por contexto altera todas as queries de listagem — cuidado com paginação e contagem",
+        "/revisao tem lógica testada em getReviewOverview — atualizar em conjunto"
+      ],
+      "ifNothingIsDone": "O painel permanece uma ferramenta de trabalho e a vida pessoal fica em outro lugar — exatamente a fragmentação que Lucas relata com Notion, caderno e Google Agenda.",
+      "phase": "Fase 2 — 1 mês"
+    },
+    {
+      "id": "P1-6",
+      "title": "Captura mobile de um toque",
+      "priority": "P1",
+      "category": "mobile / captura",
+      "problem": "Capturar por voz no celular exige seis interações antes de a transcrição começar.",
+      "evidence": [
+        "[DOSSIÊ] FAB abre QuickCaptureModal com 2 abas",
+        "[DOSSIÊ] A aba texto tem 5 campos visíveis",
+        "[INFERÊNCIA] Sequência para áudio: FAB, aba, gravar, falar, parar, enviar"
+      ],
+      "userImpact": "Os casos mobile são de 5 a 30 segundos, frequentemente com uma mão e em movimento. Seis toques com precisão é suficiente para Lucas desistir e 'anotar depois' — e depois é onde as coisas se perdem. O princípio 'capturar primeiro' falha exatamente onde é mais necessário.",
+      "recommendation": "Pressão longa no FAB inicia a gravação diretamente; soltar para e envia; arrastar para cima cancela. Toque simples abre captura de texto com um único campo visível e teclado já aberto, com os demais campos atrás de '+ detalhes'. Manter o botão de gravação dentro do modal como via acessível por teclado e leitor de tela.",
+      "expectedBenefit": "Da intenção de capturar até estar falando: um gesto. Aproveita memória muscular já existente de aplicativos de mensagem.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [
+        "P0-1",
+        "P0-2"
+      ],
+      "recurringCost": "aumento de chamadas ao Whisper — desejável, mas reforça a necessidade de P2-9",
+      "acceptanceCriteria": [
+        "Manter o FAB pressionado inicia a gravação em menos de 300ms",
+        "Soltar envia automaticamente",
+        "Arrastar para cima cancela sem enviar",
+        "Toque simples abre captura de texto com um campo e teclado aberto",
+        "O retorno tátil e visual torna o estado inequívoco",
+        "Existe caminho acessível equivalente sem gesto",
+        "O FAB não colide com o indicador de gestos do iPhone",
+        "Nenhuma captura é perdida por falta de sinal no momento do envio"
+      ],
+      "regressionRisks": [
+        "AudioRecorder tem testes — o novo modo não pode quebrar o modo por botão",
+        "Gestos podem conflitar com o gesto de voltar do sistema — testar em ambas as plataformas",
+        "Pressão longa em elemento fixo pode disparar o menu de contexto do navegador — suprimir explicitamente"
+      ],
+      "ifNothingIsDone": "O celular continua sendo um lugar ruim para capturar, e o que é capturado fora do desktop continua se perdendo.",
+      "phase": "Fase 1 — 2 semanas"
+    },
+    {
+      "id": "P2-1",
+      "title": "Consolidar design system",
+      "priority": "P2",
+      "category": "UI / design system",
+      "problem": "Padrão de card repetido manualmente em dezenas de arquivos, 9 famílias de cor, 3 larguras de container, erros renderizados de duas formas, áreas de toque abaixo de 44px.",
+      "evidence": [
+        "[DOSSIÊ] 'bg-white rounded-xl shadow-sm border p-4 md:p-6 repetido manualmente em dezenas de arquivos, não extraído em componente'",
+        "[DOSSIÊ] 9 famílias de cor com papel semântico, 5 na mesma faixa de alerta",
+        "[DOSSIÊ] max-w-4xl, 5xl e 6xl concorrendo sem critério",
+        "[DOSSIÊ] DataErrorNotice convive com blocos role=alert ad-hoc em 6+ telas",
+        "[DOSSIÊ] Área de toque <44px disseminada em botões só-ícone"
+      ],
+      "userImpact": "Todo elemento tem o mesmo peso visual, forçando varredura completa. E qualquer mudança de design futura é um trabalho de dezenas de arquivos — dívida que bloqueia melhoria.",
+      "recommendation": "Extrair nove componentes base (Surface, Section, Badge, Button, Field, EmptyState, Modal, ErrorNotice, Timeline). Reduzir para neutro + 1 acento + 1 alerta. Dois valores de radius, duas sombras, duas larguras de container. Corrigir áreas de toque e anel de foco. Aplicar glossário de terminologia.",
+      "expectedBenefit": "Interface calma e mudanças visuais futuras a custo baixo.",
+      "effort": "medium",
+      "risk": "low",
+      "dependencies": [
+        "P1-2 — fazer depois de saber a forma final de Hoje evita retrabalho"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Uma captura de tela de Hoje em dia movimentado tem no máximo duas cores além do neutro",
+        "Nenhum alvo tocável abaixo de 44px",
+        "Um termo por conceito em toda a interface",
+        "Um único componente de erro em uso"
+      ],
+      "regressionRisks": [
+        "Substituir cards manualmente escritos pode alterar espaçamentos sutis em telas não revisadas"
+      ],
+      "ifNothingIsDone": "Cada melhoria visual futura custa dezenas de arquivos, e a tendência é nunca fazê-las.",
+      "phase": "Fase 3 — 3 meses"
+    },
+    {
+      "id": "P2-2",
+      "title": "PWA e notificações push",
+      "priority": "P2",
+      "category": "mobile / infraestrutura",
+      "problem": "Não existe PWA. Sem isso, notificações push são impossíveis no iPhone.",
+      "evidence": [
+        "[INFERÊNCIA de alta confiança] Nenhuma menção a manifest, service worker ou push em nenhum dos 10 documentos do dossiê, nos 15 componentes ou nas 32 rotas"
+      ],
+      "userImpact": "É a única via para as notificações da seção 11 do briefing chegarem ao celular. Sem PWA, 'sua reunião começa em uma hora' só existe com o painel aberto na tela.",
+      "recommendation": "Manifest, service worker, ícones. Web Push para apenas três tipos urgentes: compromisso próximo, preparação pendente, troca de atividade. Fila offline para capturas. Explicar o passo de adicionar à Tela de Início no iOS.",
+      "expectedBenefit": "Notificações acionáveis no celular e capturas que nunca se perdem por falta de sinal.",
+      "effort": "medium",
+      "risk": "medium",
+      "dependencies": [
+        "P0-1",
+        "P1-4"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "O painel abre da tela inicial sem barra do navegador",
+        "Uma notificação de compromisso chega com o painel fechado",
+        "Capturas feitas offline sincronizam ao reconectar",
+        "Taxa de ação em push acima de 40%"
+      ],
+      "regressionRisks": [
+        "Service worker mal configurado pode servir versão desatualizada da aplicação"
+      ],
+      "ifNothingIsDone": "Metade da seção 11 do briefing é inalcançável.",
+      "phase": "Fase 3 — 3 meses"
+    },
+    {
+      "id": "P2-3",
+      "title": "IA diretiva sobre estado agregado",
+      "priority": "P2",
+      "category": "IA",
+      "problem": "Nenhuma operação de IA lê o estado do dia, da semana ou de um projeto.",
+      "evidence": [
+        "[DOSSIÊ] As três operações existentes recebem um objeto e devolvem proposta sobre esse objeto"
+      ],
+      "userImpact": "Cobre os casos que regras determinísticas não cobrem: ranqueamento semântico e julgamento situacional.",
+      "recommendation": "Uma chamada de LLM por dia, cacheada, recebendo snapshot determinístico produzido pela camada de regras e devolvendo de 1 a 3 recomendações estruturadas com Zod. O modelo escolhe entre ações existentes por identificador — nunca inventa ação. Envelope de contexto delimitado: só títulos, sem conteúdo integral, sem áreas pessoais.",
+      "expectedBenefit": "Recomendações que regras não conseguem produzir, sem custo relevante e com degradação segura.",
+      "effort": "medium",
+      "risk": "medium",
+      "dependencies": [
+        "P1-1",
+        "P1-3",
+        "P1-4 rodando por 3 a 4 semanas antes"
+      ],
+      "recurringCost": "~22 chamadas gpt-4.1-mini por mês com contexto pequeno — ordem de centavos",
+      "acceptanceCriteria": [
+        "No máximo uma chamada por dia, cacheada",
+        "Falha da chamada não degrada a tela — as regras já preencheram a zona Atenção",
+        "O modelo nunca propõe ação inexistente",
+        "Toda recomendação traz justificativa verificável"
+      ],
+      "regressionRisks": [
+        "Risco de o LLM redigir com floreio o que a regra já dizia melhor — comparar as duas saídas por duas semanas antes de substituir"
+      ],
+      "ifNothingIsDone": "As duas recomendações-exemplo do briefing que exigem julgamento semântico permanecem impossíveis. Impacto baixo.",
+      "phase": "Fase 3 — 3 meses"
+    },
+    {
+      "id": "P2-4",
+      "title": "Unificar Entrada, Ideias e Revisão",
+      "priority": "P2",
+      "category": "arquitetura da informação",
+      "problem": "Três telas são listas filtradas da mesma entidade com três implementações de filtro, estado vazio e card.",
+      "evidence": [
+        "[CÓDIGO] /entrada, /ideias e /revisao são todas listas filtradas de items"
+      ],
+      "userImpact": "Menos lugares para procurar a mesma coisa. Navegação cai de 8 para 6 itens.",
+      "recommendation": "Uma tela de itens com visões salvas. /ideias vira visão salva. /revisao vira ritual semanal acessível pela Agenda mais card condicional na zona Atenção de Hoje.",
+      "expectedBenefit": "Modelo mental mais claro e uma implementação em vez de três.",
+      "effort": "medium",
+      "risk": "medium",
+      "dependencies": [
+        "P1-5"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Navegação com 6 itens",
+        "Toda funcionalidade de /ideias e /revisao acessível na nova estrutura",
+        "Redução no número de vezes que Lucas abre /revisao diariamente"
+      ],
+      "regressionRisks": [
+        "Memória muscular das rotas atuais",
+        "getReviewOverview tem lógica testada"
+      ],
+      "ifNothingIsDone": "Fragmentação permanece; custo moderado.",
+      "phase": "Fase 3 — 3 meses"
+    },
+    {
+      "id": "P2-5",
+      "title": "Memória de projeto e preparação de reunião",
+      "priority": "P2",
+      "category": "projetos",
+      "problem": "O detalhe de projeto agrupa itens por tipo, sem linha do tempo, sem estado de discussão e sem o que foi decidido versus o que está aberto.",
+      "evidence": [
+        "[DOSSIÊ] Detalhe de projeto com cabeçalho editável e 5 seções de itens agrupados por tipo",
+        "Briefing §5 detalha a necessidade para o Grupo Almeida"
+      ],
+      "userImpact": "Alto para o Grupo Almeida especificamente; menor para os demais projetos.",
+      "recommendation": "Visão de projeto que responde: o que foi discutido, o que foi decidido, o que está aberto, o que depende de terceiros, o que preparar, qual a próxima ação. Antes da versão com LLM, testar a versão determinística: listar itens abertos, decisões recentes e o que está aguardando.",
+      "expectedBenefit": "Preservação de contexto de projeto B2B ao longo de meses.",
+      "effort": "high",
+      "risk": "medium",
+      "dependencies": [
+        "P1-5",
+        "P2-6"
+      ],
+      "recurringCost": "chamadas sob demanda de gpt-4.1-mini com contexto limitado às últimas N interações",
+      "acceptanceCriteria": [
+        "É possível reconstruir o estado de um projeto em menos de um minuto",
+        "Antes de uma reunião, o sistema mostra o que está aberto sem chamada de IA",
+        "O contexto enviado ao LLM é limitado às últimas interações, não ao histórico integral"
+      ],
+      "regressionRisks": [
+        "Construir a estrutura antes de haver conteúdo registrado produz tela vazia sofisticada"
+      ],
+      "ifNothingIsDone": "Contexto de projetos longos continua disperso entre itens.",
+      "phase": "Fase 3 a 4"
+    },
+    {
+      "id": "P2-6",
+      "title": "Dependências de terceiros e follow-up",
+      "priority": "P2",
+      "category": "projetos / fluxo",
+      "problem": "O status blocked não registra de quem depende, desde quando, nem quando cobrar.",
+      "evidence": [
+        "[CÓDIGO] Existe status blocked e seção 'Aguardando' em Hoje, sem quem nem desde quando"
+      ],
+      "userImpact": "Resolve uma dificuldade declarada — 'acompanhar algo que depende de outra pessoa' — com esforço muito baixo.",
+      "recommendation": "Três campos no item bloqueado: de quem depende, desde quando, quando cobrar. Alimenta a regra waiting_stale de P1-4.",
+      "expectedBenefit": "Melhor relação impacto por esforço de todo o P2. Considerar antecipar.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "É possível ver de quem se depende e há quanto tempo",
+        "A regra de aguardando parado usa esses dados"
+      ],
+      "regressionRisks": [
+        "Nenhum significativo — campos aditivos"
+      ],
+      "ifNothingIsDone": "Follow-up continua dependendo da memória de Lucas.",
+      "phase": "Fase 3 — 3 meses"
+    },
+    {
+      "id": "P2-7",
+      "title": "Estimativas aprendidas com histórico",
+      "priority": "P2",
+      "category": "tempo / estatística",
+      "problem": "Estimativas iniciais são ruins e o sistema não aprende com o histórico.",
+      "evidence": [
+        "Briefing §19 pede aprendizado progressivo sem falsa precisão"
+      ],
+      "userImpact": "Médio e crescente com o tempo.",
+      "recommendation": "Mediana e dispersão por tipo de trabalho, com cinco regras duras: nunca alterar automaticamente, mínimo de 5 amostras, faixa e não ponto, agrupar por tipo e não por item, mostrar o tamanho da amostra. Apresentar como calibração, nunca como desempenho. Estatística determinística — nunca LLM.",
+      "expectedBenefit": "Planejamento progressivamente mais realista.",
+      "effort": "medium",
+      "risk": "high",
+      "dependencies": [
+        "P1-1 com 6 semanas de dados e mínimo de 5 amostras por tipo"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Nenhuma sugestão com menos de 5 amostras",
+        "Sempre faixa, nunca valor pontual",
+        "O tamanho da amostra é exibido",
+        "Nenhuma estimativa é alterada sem aceitação explícita"
+      ],
+      "regressionRisks": [
+        "Falsa precisão mina a confiança em todo o módulo de tempo"
+      ],
+      "ifNothingIsDone": "Estimativas permanecem intuitivas. Impacto moderado.",
+      "phase": "Fase 4 — longo prazo"
+    },
+    {
+      "id": "P2-8",
+      "title": "Rotinas recorrentes fora do módulo Planos",
+      "priority": "P2",
+      "category": "planos / rotinas",
+      "problem": "O motor de recorrências só é alcançável via importação de documento.",
+      "evidence": [
+        "[CÓDIGO] recurrence-engine.ts determinístico, testado e idempotente, acessível apenas pelo fluxo de planos"
+      ],
+      "userImpact": "Desbloqueia obrigações recorrentes reais e esquecíveis — revisão semanal do sistema, envio de nota fiscal, follow-up mensal com cliente, renovação de domínio — reaproveitando infraestrutura pronta.",
+      "recommendation": "Permitir criar uma recurrence_rule diretamente de um item ou projeto, sem passar por documento.",
+      "expectedBenefit": "Valor diário extraído de infraestrutura já construída e testada.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [
+        "P0-3",
+        "P1-5"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "É possível criar uma rotina recorrente sem importar documento",
+        "Rotinas de vida alimentam o cálculo de capacidade"
+      ],
+      "regressionRisks": [
+        "Materialização de recorrências tem constraint de idempotência — preservar"
+      ],
+      "ifNothingIsDone": "O motor mais valioso do sistema permanece escondido atrás de um fluxo de baixa frequência.",
+      "phase": "Fase 3 — 3 meses",
+      "revisionNote": "Segunda passagem: a versão anterior citava 'academia, suplemento' como caso de uso e dizia que alimentaria os blocos de vida de P1-3. Errado nos dois pontos. Rotinas que já funcionam não devem virar itens recorrentes, e P1-3 não usa mais blocos de vida. O caso legítimo é a obrigação periódica ESQUECÍVEL."
+    },
+    {
+      "id": "P2-9",
+      "title": "Auditoria e controle de custo de IA",
+      "priority": "P2",
+      "category": "IA / observabilidade",
+      "problem": "A transcrição não é registrada em ai_runs. A lógica de custo vive acoplada ao estruturador de planos. Não há versionamento de prompt.",
+      "evidence": [
+        "[DOSSIÊ] '/api/audio/transcribe não grava em ai_runs (lacuna de auditoria)'",
+        "[DOSSIÊ] 'estimateCostUsd/PRICES_PER_MTOKEN vivem em openai-plan-structurer.ts mas são importados por uma rota de áudio'"
+      ],
+      "userImpact": "Com P1-6 multiplicando o volume de áudio, a maior fonte de custo do sistema fica invisível.",
+      "recommendation": "Registrar toda chamada paga em ai_runs. Extrair a lógica de custo para módulo próprio. Gravar versão de prompt em cada execução. Exibir custo semanal em /configuracoes com teto configurável.",
+      "expectedBenefit": "Custo sob controle e capacidade de diagnosticar degradação de qualidade por versão de prompt.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Toda chamada paga é registrada",
+        "O custo semanal é consultável",
+        "Cada execução registra a versão do prompt"
+      ],
+      "regressionRisks": [
+        "Nenhum significativo"
+      ],
+      "ifNothingIsDone": "O custo cresce com o uso de áudio sem visibilidade.",
+      "phase": "Fase 2 — 1 mês"
+    },
+    {
+      "id": "P2-10",
+      "title": "Lista de compras",
+      "priority": "P2",
+      "category": "vida pessoal / mobile",
+      "problem": "Não existe tratamento para listas de compras, um caso de uso declarado e de alta frequência.",
+      "evidence": [
+        "Briefing §3 e §4 mencionam lista de compras explicitamente entre os usos mobile"
+      ],
+      "userImpact": "Alto em frequência, baixo em complexidade. É o caso que mais testa se o painel realmente comporta a vida pessoal.",
+      "recommendation": "Um modo de exibição, não uma tela: lista densa, marcável com um toque em qualquer parte da linha, adicionar sem sair da lista com teclado aberto, marcados vão para o fim esmaecidos. Sem cards, sem badges, sem metadados.",
+      "expectedBenefit": "Reduz o uso de aplicativos paralelos e valida o painel como ponto único.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [
+        "P1-5"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Adicionar um item leva menos de 5 segundos no celular",
+        "Marcar é um toque em qualquer parte da linha",
+        "Lucas para de usar outro aplicativo para compras"
+      ],
+      "regressionRisks": [
+        "Nenhum significativo"
+      ],
+      "ifNothingIsDone": "Compras permanecem em outro aplicativo, quebrando o ponto único.",
+      "phase": "Fase 3 — 3 meses"
+    },
+    {
+      "id": "P2-11",
+      "title": "Componente de modal compartilhado",
+      "priority": "P2",
+      "category": "dívida técnica com impacto em UX",
+      "problem": "Três modais reimplementam overlay, role=dialog, gestão de foco e Escape, com três sombras diferentes.",
+      "evidence": [
+        "[DOSSIÊ] 'Os 3 modais globais reimplementam individualmente overlay, role=dialog, gerenciamento de foco e escuta da tecla Escape'"
+      ],
+      "userImpact": "Corrigir um bug de foco exige três lugares, e o comportamento pode divergir sem ninguém notar.",
+      "recommendation": "Extrair componente Modal com variantes desktop (diálogo) e mobile (folha), incluindo fechamento por arrasto.",
+      "expectedBenefit": "Consistência de comportamento, que importa mais que consistência de aparência.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [
+        "P2-1"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Um único componente de modal em uso",
+        "Escape, foco e overlay se comportam identicamente nos três casos"
+      ],
+      "regressionRisks": [
+        "ItemDetailModal, QuickCaptureModal e GlobalSearchModal têm testes — preservar cobertura"
+      ],
+      "ifNothingIsDone": "Divergência de comportamento entre modais persiste.",
+      "phase": "Fase 3 — 3 meses"
+    },
+    {
+      "id": "P2-12",
+      "title": "Controle granular de sync com Calendar",
+      "priority": "P2",
+      "category": "integrações",
+      "problem": "As rotas sync-item e sync-plan existem sem chamador de UI.",
+      "evidence": [
+        "[DOSSIÊ] 'Rotas /api/integrations/calendar/sync-item e sync-plan sem chamador de UI identificado'",
+        "[DOSSIÊ] 'items.calendar_sync e execution_plans.calendar_sync_scope existem no banco mas não têm campo correspondente no schema Zod'"
+      ],
+      "userImpact": "Com a vida inteira no painel, Lucas não vai querer 'comprar detergente' no Google Calendar.",
+      "recommendation": "Expor o controle em UI. Antes, trazer calendar_sync e calendar_sync_scope para dentro dos schemas Zod.",
+      "expectedBenefit": "Controle sobre o que vaza para o calendário compartilhado.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [
+        "P1-5"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "É possível definir o que sincroniza com o Calendar por item e por plano",
+        "Os campos passam pelo ciclo de validação Zod"
+      ],
+      "regressionRisks": [
+        "Adicionar campos ao schema pode afetar mapeadores testados"
+      ],
+      "ifNothingIsDone": "Capacidade construída permanece inacessível; risco de poluir o calendário.",
+      "phase": "Fase 3 — 3 meses"
+    },
+    {
+      "id": "P3-1",
+      "title": "Planejamento semanal explícito",
+      "priority": "P3",
+      "category": "planejamento",
+      "problem": "Não existe visão de planejamento semanal com distribuição de carga.",
+      "evidence": [
+        "Briefing §14 e §24 mencionam planejamento semanal"
+      ],
+      "userImpact": "Médio. A versão barata (carga por dia na Agenda, em P1-3) provavelmente resolve 70% da necessidade.",
+      "recommendation": "Adiar. Condição de entrada: 6 semanas de dados de capacidade e sessão.",
+      "expectedBenefit": "Planejamento semanal fundamentado em histórico real.",
+      "effort": "medium",
+      "risk": "medium",
+      "dependencies": [
+        "P1-1",
+        "P1-3",
+        "6 semanas de dados"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Só construir após a condição de entrada ser satisfeita"
+      ],
+      "regressionRisks": [],
+      "ifNothingIsDone": "A carga por dia na Agenda cobre a maior parte da necessidade.",
+      "phase": "Fase 4 — longo prazo"
+    },
+    {
+      "id": "P3-2",
+      "title": "Organização financeira",
+      "priority": "P3",
+      "category": "expansão de escopo",
+      "problem": "Finanças está no escopo declarado mas não existe no produto.",
+      "evidence": [
+        "Briefing §4 menciona organização financeira futura"
+      ],
+      "userImpact": "Alto quando existir, mas é um domínio inteiro — contas, categorias, recorrências, conciliação.",
+      "recommendation": "Adiar. Condição de entrada: núcleo de tempo estável e em uso há pelo menos 3 meses. Risco sério de virar um segundo produto dentro do produto.",
+      "expectedBenefit": "Vida financeira no mesmo sistema.",
+      "effort": "high",
+      "risk": "medium",
+      "dependencies": [
+        "núcleo de tempo consolidado por 3 meses"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Só construir após a condição de entrada"
+      ],
+      "regressionRisks": [],
+      "ifNothingIsDone": "Finanças permanecem fora do painel. Aceitável no horizonte atual.",
+      "phase": "Fase 4 — longo prazo"
+    },
+    {
+      "id": "P3-3",
+      "title": "Horas, contratos e rentabilidade",
+      "priority": "P3",
+      "category": "tempo / negócio",
+      "problem": "Não é possível relacionar tempo trabalhado a valor.",
+      "evidence": [
+        "Briefing §10 menciona relacionar horas a valores, contratos ou rentabilidade futuramente"
+      ],
+      "userImpact": "Alto para a operação da Sartec Digital quando houver múltiplos projetos com valor contratado.",
+      "recommendation": "Adiar. Condição de entrada: histórico de sessões confiável e ao menos dois projetos com valor contratado.",
+      "expectedBenefit": "Precificação fundamentada em tempo real gasto.",
+      "effort": "medium",
+      "risk": "medium",
+      "dependencies": [
+        "P1-1 com dados confiáveis"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Só construir com registro de tempo comprovadamente completo"
+      ],
+      "regressionRisks": [
+        "Calcular rentabilidade sobre registro incompleto produz números errados sobre dinheiro"
+      ],
+      "ifNothingIsDone": "Precificação permanece intuitiva.",
+      "phase": "Fase 4 — longo prazo"
+    },
+    {
+      "id": "P3-4",
+      "title": "Pipeline de candidaturas e carreira",
+      "priority": "P3",
+      "category": "carreira",
+      "problem": "Não existe estrutura dedicada para acompanhar candidaturas.",
+      "evidence": [
+        "Briefing §5 detalha o fluxo de carreira"
+      ],
+      "userImpact": "Médio. O volume provavelmente não justifica estrutura própria.",
+      "recommendation": "Testar primeiro a solução sem código: projeto 'Candidaturas' na área carreira, um item por vaga, usando status, próxima ação, prazo e aguardando (P2-6). Só construir estrutura dedicada se o volume passar de 10 candidaturas simultâneas e os campos genéricos se mostrarem insuficientes.",
+      "expectedBenefit": "Acompanhamento de candidaturas sem construir um produto de recrutamento.",
+      "effort": "medium",
+      "risk": "low",
+      "dependencies": [
+        "P1-5",
+        "P2-6"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Testar a solução barata antes de construir qualquer coisa"
+      ],
+      "regressionRisks": [],
+      "ifNothingIsDone": "Candidaturas gerenciadas com os campos genéricos, que provavelmente bastam.",
+      "phase": "Fase 4 — longo prazo"
+    },
+    {
+      "id": "P3-5",
+      "title": "Modo foco",
+      "priority": "P3",
+      "category": "UX",
+      "problem": "Não é possível ocultar tudo exceto a atividade atual.",
+      "evidence": [
+        "Briefing §24 menciona modo foco"
+      ],
+      "userImpact": "Baixo a médio.",
+      "recommendation": "Versão simples: um botão que expande a zona Agora para tela cheia. Sem bloqueio de site, sem Pomodoro, sem estatística de foco.",
+      "expectedBenefit": "Redução de distração durante trabalho profundo.",
+      "effort": "low",
+      "risk": "low",
+      "dependencies": [
+        "P1-1",
+        "P1-2"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Ativar e desativar em um clique, sem configuração"
+      ],
+      "regressionRisks": [],
+      "ifNothingIsDone": "Impacto baixo — a zona Agora já concentra a atenção.",
+      "phase": "Fase 4 — longo prazo"
+    },
+    {
+      "id": "P3-6",
+      "title": "Widget e atalhos nativos",
+      "priority": "P3",
+      "category": "mobile",
+      "problem": "Não há captura a partir da tela inicial sem abrir o aplicativo.",
+      "evidence": [
+        "Briefing §24 menciona widget mobile e atalhos"
+      ],
+      "userImpact": "Alto potencial, mas exige aplicativo nativo ou integração com Atalhos via API.",
+      "recommendation": "Adiar. Condição de entrada: PWA em uso e comprovadamente insuficiente. A pressão longa no FAB somada ao PWA provavelmente resolve o mesmo problema por uma fração do custo.",
+      "expectedBenefit": "Captura instantânea sem abrir o aplicativo.",
+      "effort": "medium",
+      "risk": "high",
+      "dependencies": [
+        "P2-2 em uso"
+      ],
+      "recurringCost": "possível custo de distribuição em loja",
+      "acceptanceCriteria": [
+        "Só considerar se o PWA se mostrar insuficiente na prática"
+      ],
+      "regressionRisks": [
+        "Risco alto de esforço desproporcional"
+      ],
+      "ifNothingIsDone": "P1-6 com PWA provavelmente basta.",
+      "phase": "Fase 4 — longo prazo"
+    },
+    {
+      "id": "P3-7",
+      "title": "Tema escuro",
+      "priority": "P3",
+      "category": "UI",
+      "problem": "Tema claro único; variáveis CSS reservadas para evolução futura.",
+      "evidence": [
+        "[DOSSIÊ] Comentário em globals.css: 'tema escuro entra como evolução consciente, não como resíduo de template'"
+      ],
+      "userImpact": "Baixo.",
+      "recommendation": "Adiar. Condição de entrada: P2-1 concluído. Com tokens consolidados é barato; sem eles é trabalho em dezenas de arquivos e vira dívida imediata.",
+      "expectedBenefit": "Conforto visual em ambientes escuros.",
+      "effort": "medium",
+      "risk": "low",
+      "dependencies": [
+        "P2-1"
+      ],
+      "recurringCost": "nenhum",
+      "acceptanceCriteria": [
+        "Só construir após tokens consolidados"
+      ],
+      "regressionRisks": [
+        "Construir antes dos tokens cria dívida imediata"
+      ],
+      "ifNothingIsDone": "Impacto baixo.",
+      "phase": "Fase 4 — longo prazo"
+    }
+  ],
+  "roadmap": [
+    {
+      "phase": "Fase 0 — imediata",
+      "objective": "O que existe passa a ser confiável — e o que já foi corrigido passa a ser confirmado, não presumido",
+      "deliverables": [
+        "Corrigir a transcrição antes da triagem de IA",
+        "Homologar o cron e as automações em produção",
+        "Criar o card permanente de saúde das automações em /configuracoes",
+        "Revalidar os fluxos desktop e mobile já corrigidos (texto/áudio, criação e edição nos dois dispositivos, revalidação ao voltar à aba)",
+        "Remover os diagnósticos temporários — depois da homologação",
+        "Capturar screenshots das telas internas atuais (desktop e mobile)"
+      ],
+      "recommendations": [
+        "P0-1",
+        "P0-2",
+        "P0-3"
+      ],
+      "dependencies": [
+        "dispositivos iOS e Android reais",
+        "painel da Vercel",
+        "acesso ao Supabase",
+        "sessão autenticada real para as capturas de tela"
+      ],
+      "successCriteria": [
+        "Item capturado no celular aparece no desktop de forma verificável e repetível",
+        "É possível responder com evidência: 'o cron rodou hoje?'",
+        "Transcrição com erro pode ser corrigida antes da análise",
+        "/configuracoes não expõe nenhum texto em snake_case"
+      ],
+      "risks": [
+        "Se o roteiro de homologação encontrar um caso real e reproduzível de não sincronização, escalar para diagnóstico de causa raiz e só então considerar mudanças em cookies/RLS/autenticação/Realtime — nesta ordem, e só se necessário"
+      ],
+      "doNotDo": [
+        "Não começar time tracking",
+        "Não mexer em design system",
+        "Não remover scaffolding vazio",
+        "Não remover os diagnósticos antes de concluir a homologação",
+        "Não alterar cookies, RLS, autenticação, implementar Supabase Realtime ou reestruturar o workspace por padrão — só como hipótese condicional"
+      ],
+      "closingQuestion": "Homologuei — não presumi — que o que capturo no celular chega ao desktop e que as automações rodam? Tenho screenshots reais das telas internas?",
+      "revisionNote": "Correção de 25/07/2026: ordem revisada e natureza do item de sincronização mudou de diagnóstico para homologação; entrega de screenshots das telas internas adicionada."
+    },
+    {
+      "phase": "Fase 1 — próximas duas semanas",
+      "objective": "O sistema passa a saber o que Lucas está fazendo agora (incremental — sem redesenhar Hoje ainda)",
+      "deliverables": [
+        "Duração estimada opcional nos itens",
+        "Domínio de sessão de trabalho (tabela work_sessions)",
+        "Regra de uma única sessão ativa por vez",
+        "Iniciar, pausar, retomar e encerrar sessão",
+        "Registro retroativo simples",
+        "Nota opcional de retomada",
+        "Zona Agora adicionada à tela Hoje",
+        "Manter temporariamente as seções atuais de Hoje (nada é removido nesta fase)",
+        "Usar por aproximadamente uma semana antes de qualquer mudança adicional na tela",
+        "Captura mobile de um gesto"
+      ],
+      "recommendations": [
+        "P1-1",
+        "P1-2",
+        "P1-6"
+      ],
+      "dependencies": [
+        "Fase 0 concluída",
+        "verificação da granularidade do ChangeNotifier"
+      ],
+      "successCriteria": [
+        "A pergunta 'o que estou fazendo e há quanto tempo' é respondida sem rolar a tela, pela zona Agora",
+        "Iniciar uma sessão custa um clique",
+        "Registrar trabalho já feito é tão fácil quanto iniciar o cronômetro",
+        "Nunca existe mais de uma sessão ativa ao mesmo tempo",
+        "No celular, pressionar o FAB e falar é um único gesto",
+        "As seções atuais de Hoje continuam funcionando exatamente como antes, ao lado da zona Agora",
+        "Métrica de adoção na semana 1: ao menos 50% dos dias úteis com sessão registrada"
+      ],
+      "risks": [
+        "Principal: abandono por atrito — medir adoção na semana 2 e tratar número baixo como defeito de produto, não de disciplina",
+        "Sessões esquecidas gerando dados absurdos — confirmação obrigatória acima de 4h desde o primeiro dia"
+      ],
+      "doNotDo": [
+        "Não construir a zona Depois nem a zona Atenção — ficam para a Fase 2, depois de ~1 semana de uso da zona Agora",
+        "Não remover nem reorganizar as seções atuais de Hoje",
+        "Não construir estatísticas de estimativa — não há dados",
+        "Não tocar em cores ou componentes",
+        "Não construir fila de retorno de interrupções",
+        "Não construir agregação de tempo — dados ainda incompletos"
+      ],
+      "closingQuestion": "Consigo responder 'o que estou fazendo e há quanto tempo' sem pensar? Estou registrando na maioria dos dias?",
+      "revisionNote": "Correção de 25/07/2026: 'Zona Depois com linha do tempo unificada' removida desta fase e adiada para a Fase 2, para não combinar a criação do domínio de tempo com um redesenho completo e irreversível da tela Hoje. Adicionados: sessão única ativa como item explícito, e o portão de uso de ~1 semana antes de reorganizar o resto da tela."
+    },
+    {
+      "phase": "Fase 2 — próximo mês",
+      "objective": "O sistema passa a saber quanto tempo Lucas realmente tem, e começa a falar",
+      "deliverables": [
+        "Zona Depois com linha do tempo unificada (movida da Fase 1)",
+        "Campo area em itens e projetos",
+        "Alternador de contexto global",
+        "Capacidade habitual configurável (jornada, horas disponíveis, margem, ajuste do dia)",
+        "Cálculo de capacidade real com margem para imprevistos",
+        "Motor de regras com as 8 regras iniciais",
+        "Zona Atenção na tela Hoje",
+        "Notificações in-app com deduplicação",
+        "Auditoria de transcrição e módulo de custo de IA",
+        "Áreas de toque e anel de foco corrigidos"
+      ],
+      "recommendations": [
+        "P1-2",
+        "P1-3",
+        "P1-4",
+        "P1-5",
+        "P2-9"
+      ],
+      "dependencies": [
+        "Fase 1 concluída, incluindo a semana de uso da zona Agora",
+        "P0-3 concluído"
+      ],
+      "successCriteria": [
+        "'Você tem X horas livres hoje' é verdade quando verificado manualmente",
+        "A zona Atenção está vazia na maioria dos dias",
+        "Alternar entre trabalho e pessoal leva um clique",
+        "Nenhuma notificação repetida sem mudança de estado",
+        "Nenhum alvo tocável abaixo de 44px",
+        "Custo semanal de IA é consultável",
+        "Nenhuma rotina pessoal precisou ser cadastrada para a capacidade ficar correta"
+      ],
+      "risks": [
+        "Regras mal calibradas gerando ruído — começar conservador, auto-desativação desde o dia 1",
+        "Configuração de capacidade virar manutenção — quatro números, uma vez; almoço e academia não são cadastrados",
+        "Enum de área mal escolhido — poucas e genéricas, nulo permitido"
+      ],
+      "doNotDo": [
+        "Não usar LLM em nenhuma recomendação — todas determinísticas",
+        "Não construir Web Push — depende de PWA",
+        "Não unificar rotas ainda",
+        "Não construir planejamento semanal — poucos dados"
+      ],
+      "closingQuestion": "Quando o painel diz que tenho 2h livres, isso é verdade? A zona Atenção fica vazia na maioria dos dias?",
+      "revisionNote": "Correção de 25/07/2026: recebe a Zona Depois, movida da Fase 1. A dependência de decisão sobre escopo do Google Calendar foi removida — não existe mais (ver P1-3 e TIME_CAPACITY_AND_INTERRUPTION_SYSTEM.md secao 4.4)."
+    },
+    {
+      "phase": "Fase 3 — próximos três meses",
+      "objective": "O sistema fica calmo, confiável no bolso, e começa a ter opinião fundamentada",
+      "deliverables": [
+        "Componentes base e redução de paleta",
+        "Componente de modal compartilhado",
+        "Glossário aplicado e tradução de erros técnicos",
+        "PWA com manifest, service worker, ícones e fila offline",
+        "Web Push para os três tipos urgentes",
+        "Camada de IA para recomendação diária redigida",
+        "Dependências de terceiros e follow-up",
+        "Rotinas recorrentes fora do módulo Planos",
+        "Unificação de Entrada, Ideias e Revisão",
+        "Revisão semanal com onde gastei meu tempo",
+        "Lista de compras",
+        "Controle granular de sync com Calendar"
+      ],
+      "recommendations": [
+        "P2-1",
+        "P2-2",
+        "P2-3",
+        "P2-4",
+        "P2-6",
+        "P2-8",
+        "P2-10",
+        "P2-11",
+        "P2-12"
+      ],
+      "dependencies": [
+        "Fase 2 concluída",
+        "camada de IA exige 3 a 4 semanas de motor de regras rodando antes",
+        "revisão semanal exige dados de sessão confiáveis"
+      ],
+      "successCriteria": [
+        "Captura de tela de Hoje em dia movimentado tem no máximo duas cores além do neutro",
+        "O painel abre da tela inicial do celular sem barra do navegador",
+        "Uma notificação de compromisso chega com o painel fechado",
+        "A recomendação diária custa menos de uma chamada por dia",
+        "Lucas para de usar outro aplicativo para lista de compras",
+        "A revisão semanal é lida em menos de um minuto"
+      ],
+      "risks": [
+        "Design system consumir tempo desproporcional — nove componentes, não um sistema completo",
+        "Web Push em iOS não funcionar como esperado — verificar o comportamento atual do Safari antes",
+        "LLM redigindo com floreio o que a regra já dizia melhor — comparar as saídas por duas semanas"
+      ],
+      "doNotDo": [
+        "Não construir memória de projeto completa",
+        "Não construir estatísticas de estimativa sem 6 semanas de dados",
+        "Não construir tema escuro",
+        "Não construir finanças, MCP ou agentes"
+      ],
+      "closingQuestion": "O painel me diz algo útil que eu não teria percebido sozinho? Uso ele no celular sem atrito?"
+    },
+    {
+      "phase": "Fase 4 — longo prazo",
+      "objective": "O sistema aprende, e a vida inteira cabe dentro dele",
+      "deliverables": [
+        "Estimativas aprendidas — condição: 6 semanas de sessões e 5 amostras por tipo",
+        "Memória de projeto e preparação de reunião — condição: volume de registros suficiente",
+        "Planejamento semanal explícito — condição: 6 semanas de dados de capacidade",
+        "Horas, contratos e rentabilidade — condição: histórico confiável e 2 projetos contratados",
+        "Pipeline de candidaturas — condição: solução barata testada e insuficiente",
+        "Organização financeira — condição: núcleo de tempo estável há 3 meses",
+        "Modo foco — condição: P1-1 e P1-2 consolidados",
+        "Tema escuro — condição: P2-1 concluído",
+        "Widget e atalhos nativos — condição: PWA em uso e insuficiente"
+      ],
+      "recommendations": [
+        "P2-5",
+        "P2-7",
+        "P3-1",
+        "P3-2",
+        "P3-3",
+        "P3-4",
+        "P3-5",
+        "P3-6",
+        "P3-7"
+      ],
+      "dependencies": [
+        "cada item tem condição de entrada explícita que deve ser satisfeita"
+      ],
+      "successCriteria": [
+        "Nada entra sem a condição satisfeita"
+      ],
+      "risks": [
+        "Adicionar itens sem satisfazer a condição de entrada é a forma mais provável de o sistema virar um museu de funcionalidades pela metade"
+      ],
+      "doNotDo": [
+        "Não antecipar nenhum item cuja condição de entrada não tenha sido satisfeita"
+      ],
+      "closingQuestion": "O sistema sabe algo sobre como eu trabalho que eu mesmo não sabia?"
+    }
+  ],
+  "metrics": [
+    {
+      "id": "M1",
+      "name": "Tempo até capturar",
+      "question": "A captura continua sem atrito?",
+      "target": "< 10s texto, < 20s áudio",
+      "surface": "instrumentação, não exibido"
+    },
+    {
+      "id": "M2",
+      "name": "Percentual de dias úteis com sessão registrada",
+      "question": "O registro de tempo está sendo usado ou foi abandonado?",
+      "target": "> 70% dos dias úteis; abaixo de 50% na semana 2 indica atrito",
+      "surface": "revisão semanal",
+      "note": "A mais importante. Número baixo é defeito de produto, não falta de disciplina — a resposta é simplificar o fluxo."
+    },
+    {
+      "id": "M3",
+      "name": "Erro mediano de estimativa",
+      "question": "As estimativas estão melhorando?",
+      "target": "tendência de queda; nunca zero",
+      "surface": "revisão semanal",
+      "note": "Apresentar como calibração, nunca como desempenho. Única métrica com risco real de trair o princípio de não-vigilância."
+    },
+    {
+      "id": "M4",
+      "name": "Taxa de aceitação de recomendação",
+      "question": "As recomendações são úteis ou ruído?",
+      "target": "> 40%; abaixo de 20% por 2 semanas desativa a regra automaticamente",
+      "surface": "interno, dispara ajuste automático"
+    },
+    {
+      "id": "M5",
+      "name": "Itens sem projeto ou área com mais de 7 dias",
+      "question": "A captura está virando organização?",
+      "target": "< 10 itens",
+      "surface": "card na revisão"
+    },
+    {
+      "id": "M6",
+      "name": "Custo de IA por semana",
+      "question": "O custo está sob controle?",
+      "target": "teto configurável com aviso em 80%",
+      "surface": "/configuracoes"
+    }
+  ],
+  "metricsExplicitlyRejected": [
+    {
+      "metric": "Quantidade de interrupções",
+      "reason": "Não é acionável — Lucas não controla quando é interrompido. Exibir produz culpa por algo fora do controle dele, contrariando o pedido explícito de sistema não invasivo. Registrar como dado, nunca exibir como contagem."
+    },
+    {
+      "metric": "Tempo para retomar uma atividade",
+      "reason": "Difícil de medir com honestidade sem instrumentação invasiva."
+    },
+    {
+      "metric": "Uso desktop versus mobile",
+      "reason": "Curiosidade, não decisão."
+    },
+    {
+      "metric": "Notificações úteis versus ignoradas como relatório",
+      "reason": "Deve ser controle automático (auto-desativação após 3 dispensas), não número para Lucas analisar."
+    }
+  ],
+  "notNow": [
+    {
+      "item": "Modelagem de rotinas que já funcionam (almoço, academia, pausas, deslocamentos)",
+      "action": "descartar",
+      "reason": "Não são problema de memória. Modelá-las como itens, recorrências, hábitos ou lembretes cria manutenção, ruído em listas e obrigação de conclusão para comportamentos que nunca foram problema. A primeira versão desta auditoria recomendou isso e estava errada — otimizava o modelo de dados às custas da experiência.",
+      "insteadDo": "Entram apenas como redução aproximada da disponibilidade diária: um número único de horas realmente disponíveis, configurado uma vez.",
+      "reconsiderWhen": "nunca, para rotinas estáveis. Se uma rotina passar a ser esquecida com frequência, ela deixou de ser estável e entra pela porta normal."
+    },
+    {
+      "item": "MCP (Model Context Protocol)",
+      "action": "descartar",
+      "reason": "Contrato sem implementação e sem caso de uso concreto no briefing. Remover mcp.registry.ts.",
+      "reconsiderWhen": "surgir necessidade concreta de operar o painel a partir de um agente externo"
+    },
+    {
+      "item": "Adaptador genérico de integrações e webhooks",
+      "action": "descartar",
+      "reason": "Abstração adivinhada que nunca teve duas implementações concorrentes. AIProvider é a evidência de que isso não funciona neste repositório.",
+      "reconsiderWhen": "houver 2 ou 3 implementações reais de onde extrair a abstração"
+    },
+    {
+      "item": "Leitura da caixa de entrada do Gmail",
+      "action": "descartar",
+      "reason": "Exige escopo sensível e traz 95% de ruído para encontrar 5% de sinal. Encaminhar e-mail ou copiar o trecho relevante é mais preciso e barato.",
+      "reconsiderWhen": "Lucas identificar perda recorrente de demandas por e-mail sem alternativa manual viável"
+    },
+    {
+      "item": "Agentes autônomos que executam ações",
+      "action": "descartar",
+      "reason": "Contraria diretamente a seção 8 do briefing. Um sistema que age sozinho exige verificação constante — a carga mental que o produto promete eliminar.",
+      "reconsiderWhen": "nunca"
+    },
+    {
+      "item": "Suíte completa de testes E2E de interface",
+      "action": "descartar",
+      "reason": "Para um produto de usuário único usado diariamente, Lucas é o teste E2E. O que falta é observabilidade de produção, não cobertura.",
+      "reconsiderWhen": "houver mais de um usuário"
+    },
+    {
+      "item": "Funcionalidade multi-usuário e colaboração",
+      "action": "descartar",
+      "reason": "A infraestrutura já existe e não custa manter, mas construir convites, papéis e atribuição seria outro produto. O briefing é explícito: 'o usuário principal sou eu'.",
+      "reconsiderWhen": "houver necessidade real de colaboração"
+    },
+    {
+      "item": "Outbox transacional",
+      "action": "descartar",
+      "reason": "Resolve entrega de eventos em sistemas distribuídos com múltiplos consumidores. Aqui há um consumidor e um usuário.",
+      "reconsiderWhen": "nunca, no escopo atual"
+    },
+    {
+      "item": "Dashboard de métricas do produto",
+      "action": "descartar",
+      "reason": "A maioria das métricas úteis não deve ser mostrada — deve alimentar decisões automáticas do sistema.",
+      "reconsiderWhen": "nunca"
+    },
+    {
+      "item": "Contagem de interrupções exibida",
+      "action": "descartar",
+      "reason": "Não acionável e produz culpa por algo fora do controle. Registrar como dado, nunca exibir.",
+      "reconsiderWhen": "nunca"
+    },
+    {
+      "item": "Gamificação, sequências e hábitos com streaks",
+      "action": "descartar",
+      "reason": "Ativamente prejudicial para quem relata dificuldade com carga mental. Rotinas via recurrence_rules resolvem a necessidade real.",
+      "reconsiderWhen": "nunca"
+    },
+    {
+      "item": "Estimativas aprendidas",
+      "action": "adiar",
+      "reason": "Com poucas amostras, aprendizado é ruído apresentado como certeza.",
+      "reconsiderWhen": "6 semanas de sessões e 5 amostras por tipo de trabalho"
+    },
+    {
+      "item": "Planejamento semanal explícito",
+      "action": "adiar",
+      "reason": "Planejar a semana requer saber quanto cabe em uma semana.",
+      "reconsiderWhen": "6 semanas de dados de capacidade"
+    },
+    {
+      "item": "Memória de projeto e preparação de reunião",
+      "action": "adiar",
+      "reason": "Alto esforço; construir a estrutura antes de haver conteúdo produz tela vazia sofisticada.",
+      "reconsiderWhen": "volume de registros do Grupo Almeida justificar; testar antes a versão determinística"
+    },
+    {
+      "item": "Organização financeira",
+      "action": "adiar",
+      "reason": "Domínio inteiro; risco de terminar com dois módulos pela metade em vez de um completo.",
+      "reconsiderWhen": "núcleo de tempo estável e em uso há 3 meses"
+    },
+    {
+      "item": "Horas, contratos e rentabilidade",
+      "action": "adiar",
+      "reason": "Números errados sobre dinheiro levam a decisões comerciais ruins.",
+      "reconsiderWhen": "registro de tempo comprovadamente confiável e 2 projetos com valor contratado"
+    },
+    {
+      "item": "Tema escuro",
+      "action": "adiar",
+      "reason": "Sem tokens consolidados, é trabalho em dezenas de arquivos e vira dívida imediata.",
+      "reconsiderWhen": "P2-1 concluído"
+    },
+    {
+      "item": "Widget iOS e Atalhos nativos",
+      "action": "adiar",
+      "reason": "Esforço desproporcional; pressão longa no FAB somada ao PWA provavelmente resolve o mesmo problema.",
+      "reconsiderWhen": "PWA em uso e comprovadamente insuficiente"
+    },
+    {
+      "item": "Busca semântica e embeddings",
+      "action": "adiar",
+      "reason": "A busca textual já funciona bem. Embeddings exigem armazenamento vetorial, reindexação e custo recorrente.",
+      "reconsiderWhen": "falha demonstrável da busca textual após melhorias simples"
+    },
+    {
+      "item": "Integração com contatos e documentos",
+      "action": "adiar",
+      "reason": "Mencionadas sem caso de uso descrito. Solução à procura de problema.",
+      "reconsiderWhen": "caso de uso concreto e recorrente"
+    },
+    {
+      "item": "Integração com GitHub",
+      "action": "adiar",
+      "reason": "O painel gerencia decisões e tempo, não código.",
+      "reconsiderWhen": "identificar o que especificamente traria valor"
+    },
+    {
+      "item": "Pipeline de candidaturas dedicado",
+      "action": "simplificar",
+      "reason": "Testar primeiro: projeto na área carreira, um item por vaga, campos existentes. Zero código novo.",
+      "reconsiderWhen": "volume passar de 10 candidaturas simultâneas e os campos genéricos falharem"
+    },
+    {
+      "item": "Modo foco elaborado",
+      "action": "simplificar",
+      "reason": "Provavelmente 20 linhas de CSS sobre a zona Agora. Sem bloqueio de site, sem Pomodoro, sem estatística.",
+      "reconsiderWhen": "a versão simples se mostrar insuficiente"
+    },
+    {
+      "item": "Preparação de reunião por IA",
+      "action": "simplificar",
+      "reason": "Uma regra determinística listando itens abertos, decisões recentes e o que está aguardando entrega a maior parte do valor sem custo nem alucinação.",
+      "reconsiderWhen": "a lista determinística se mostrar insuficiente"
+    },
+    {
+      "item": "Notificações inteligentes com aprendizado",
+      "action": "simplificar",
+      "reason": "Regras com deduplicação e auto-desativação já produzem o comportamento de aprender o que não interessa, de forma explicável e sem custo.",
+      "reconsiderWhen": "nunca, provavelmente"
+    },
+    {
+      "item": "Motor de automação configurável por eventos",
+      "action": "simplificar",
+      "reason": "Seria construir Zapier interno. As automações específicas escritas no cron com idempotência já é o padrão correto.",
+      "reconsiderWhen": "houver mais de 10 automações distintas com necessidade de configuração pelo usuário"
+    }
+  ],
+  "openQuestions": [
+    {
+      "id": "OQ-1",
+      "question": "Qual opção de escopo do Google Calendar adotar?",
+      "type": "RESOLVIDA — deixou de existir",
+      "resolution": "A pergunta era como distinguir almoço de reunião de academia. Com a correção de escopo do produto (rotinas estáveis não são modeladas e já estão embutidas nas horas disponíveis), essa distinção é irrelevante. Manter calendar.freebusy. Sem ampliação de escopo, sem reconsentimento OAuth."
+    },
+    {
+      "id": "OQ-2",
+      "question": "O ChangeNotifier invalida globalmente ou por chave de entidade?",
+      "type": "RESOLVIDA — hipótese confirmada",
+      "resolution": "Invalidação totalmente global. notify() chama todos os listeners; instância única compartilhada por todos os repositórios; cada useReactiveQuery assina três repositórios; /hoje tem 6 queries reativas. Qualquer mutação re-executa todas. Corrigir ANTES de P1-1.",
+      "impact": "alto"
+    },
+    {
+      "id": "OQ-3",
+      "question": "A tabela notifications contém dedup_key e dismissed_until?",
+      "type": "RESOLVIDA — parcialmente",
+      "resolution": "A tabela existe com type, title, body, entity_type, entity_id, read_at. FALTAM dedup_key e dismissed_until. Migration pequena mas obrigatória em P1-4 — dedup_key é o campo que impede o sistema de notificação de virar ruído."
+    },
+    {
+      "id": "OQ-4",
+      "question": "A proveniência de áudio tem campos distintos para transcrição original e editada?",
+      "type": "RESOLVIDA — melhor que o esperado",
+      "resolution": "Não há campo dedicado, mas o ItemDetailModal reconstrói o original a partir do payload do evento item.created em domain_events. P0-2 não precisa de nenhuma mudança de dados."
+    },
+    {
+      "id": "OQ-5",
+      "question": "recurrence_rules comporta regras que geram blocos de tempo?",
+      "type": "RESOLVIDA — tornou-se irrelevante",
+      "resolution": "A correção de escopo do produto eliminou a necessidade de blocos de vida. Não verificado, e não precisa ser."
+    },
+    {
+      "id": "OQ-6",
+      "question": "Qual é a frequência real de uso de cada tela?",
+      "type": "suposição mais frágil da priorização",
+      "impact": "Assumi que importação de documento é rara e captura é diária. Se errado, a priorização de P2-4 e P2-8 muda"
+    },
+    {
+      "id": "OQ-7",
+      "question": "O cron de produção já executou de fato na Vercel?",
+      "type": "herdada do dossiê — endereçada por P0-3"
+    },
+    {
+      "id": "OQ-8",
+      "question": "A sincronização mobile já está correta em uso real? (hipótese de ausência de sincronização entre dispositivos já refutada no código; falta homologar os demais fluxos)",
+      "type": "parcialmente resolvida na segunda passagem — homologação final é P0-1"
+    },
+    {
+      "id": "OQ-9",
+      "question": "As rotas sync-item e sync-plan são vestígio de UI removida ou aguardam tela futura?",
+      "type": "herdada do dossiê — endereçada por P2-12"
+    },
+    {
+      "id": "OQ-10",
+      "question": "Screenshots das telas internas podem ser capturados antes de executar as recomendações de UI?",
+      "type": "limitação desta auditoria",
+      "impact": "Toda análise visual de Hoje, Entrada, Projetos, Agenda e dos modais deriva de descrição textual, não de observação direta"
+    },
+    {
+      "id": "OQ-11",
+      "question": "Qual a cobertura de teste atual de capacity.ts?",
+      "type": "verificação pendente",
+      "impact": "Determina o risco de parametrizar DAY_CAPACITY_MINUTES e remover o ?? 30 em P1-3"
+    },
+    {
+      "id": "OQ-12",
+      "question": "Qual o comportamento atual do Web Push em iOS Safari?",
+      "type": "verificação pendente",
+      "impact": "Verificar antes de investir em P2-2; as restrições mudam entre versões do Safari"
+    },
+    {
+      "id": "OQ-13",
+      "question": "Normalizar os fins de linha do repositório antes de começar?",
+      "type": "recomendação avulsa",
+      "impact": "git status mostra 89 arquivos modificados que são apenas CRLF (git diff --ignore-cr-at-eol retorna vazio). Sem um .gitattributes com '* text=auto', todo diff futuro virá poluído e a revisão de mudanças fica impraticável"
+    }
+  ],
+  "auditLimitations": [
+    "Segunda passagem: o código foi lido de forma DIRIGIDA, não integral. Verificados capacity.ts, item.schema.ts, change-notifier.ts, hooks.ts, quick-capture-modal.tsx, item-detail-modal.tsx, as migrations e o fluxo de triagem — os pontos que sustentam P0 e P1.",
+    "Apenas 2 imagens foram analisadas, ambas da tela pública de login. Nenhuma tela interna foi observada renderizada; a análise visual deriva de descrição e de leitura de JSX.",
+    "Nenhuma validação em produção: não foram consultados logs da Vercel, execuções de automation_runs nem registros de ai_runs. P0-3 existe para fechar isso.",
+    "A frequência real de uso de cada tela foi inferida a partir do briefing, não medida. É a suposição mais frágil da priorização.",
+    "Lint, testes e build não foram executados nesta auditoria. Alterações em item.schema.ts e capacity.ts tocam arquivos com cobertura existente.",
+    "As classificações de esforço (baixo, médio, alto) são relativas entre si e calibradas para implementação assistida por IA. Não são estimativas de horas."
+  ],
+  "productPrinciple": {
+    "statement": "O painel ajuda no que pode ser esquecido, subestimado, abandonado, atrasado ou mal priorizado. Não no que já funciona.",
+    "addedIn": "segunda passagem, 2026-07-24, a partir de correção do Lucas",
+    "test": "Antes de modelar qualquer coisa: isso é algo que eu posso esquecer ou errar? Se não, o painel não deve tocar.",
+    "boundary": "A fronteira não é pessoal vs. profissional. Uma consulta médica é pessoal, pontual e esquecível — item legítimo. A academia de terça é pessoal, rotineira e não esquecível — não é. A distinção é rotina estável vs. compromisso esquecível.",
+    "consequences": [
+      "Almoço, academia, pausas, deslocamentos e tempo pessoal rotineiro entram apenas como redução aproximada da disponibilidade diária",
+      "Não aparecem em listas de tarefas",
+      "Não geram notificações",
+      "Não exigem conclusão",
+      "Não entram na revisão",
+      "Não poluem a tela Hoje",
+      "Não são classificados individualmente"
+    ]
+  }
+}

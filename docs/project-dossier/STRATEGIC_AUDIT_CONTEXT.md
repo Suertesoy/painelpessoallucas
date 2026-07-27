@@ -58,3 +58,23 @@ Ao utilizar este dossiê para conduzir a auditoria estratégica de produto, UX e
 3. **Análise de Inconsistências de UI**: Investigar o impacto das inconsistências apontadas no [DESIGN_SYSTEM_AND_VISUAL_AUDIT.md](file:///C:/Users/USER/Desktop/PROJETOS/PAINEL%20PESSOAL%20LUCAS/docs/project-dossier/DESIGN_SYSTEM_AND_VISUAL_AUDIT.md) (como áreas de toque reduzidas e variação de border-radius).
 4. **Avaliação da Cobertura de Testes E2E**: Notar que, embora haja 216 testes unitários/componentes passando, as integrações com Supabase, Google e OpenAI utilizam mocks. A auditoria deve ponderar os riscos de ausência de homologação E2E automatizada em ambiente real.
 5. **Limites de Automação e IA**: Garantir que as propostas de melhoria mantenham os guardrails éticos e funcionais (humano no loop, sem execuções autônomas sem confirmação).
+
+---
+
+## 6. CONTEXTO PESSOAL E OPERACIONAL A SER ADICIONADO PELO USUÁRIO
+
+> **Nota**: Esta auditoria de preparação é estritamente factual e derivada do código-fonte. Ela **não** contém — e não deveria inventar — informações sobre a rotina, as responsabilidades ou as preferências pessoais do usuário (Lucas). Antes de anexar este dossiê a um modelo com maior capacidade de análise para a auditoria estratégica de produto/UX, o usuário deveria complementar este documento com as informações abaixo, que só ele pode fornecer:
+
+- **Rotina de uso**: em que momentos do dia o painel é efetivamente aberto (ex.: início do expediente, durante reuniões, à noite); se o uso é contínuo ao longo do dia ou concentrado em blocos.
+- **Dispositivos e contexto de uso**: proporção de uso em desktop vs. celular; se a captura por áudio é usada em deslocamento, em reuniões, ou em outro contexto específico.
+- **Projetos reais em andamento**: quais projetos hoje cadastrados (ex.: os citados em `docs/PRODUCT_DIRECTION.md` — Grupo Almeida, Sartec, Marketing Sartec, portfólio/carreira, Sartec Digital) ainda são ativos, e quais mudaram de escopo desde que aquele documento foi escrito.
+- **Tipos de demanda predominantes**: qual proporção do fluxo de captura é tarefa vs. ideia vs. decisão vs. reunião/compromisso; se há demandas recorrentes que ainda não têm um "molde" (ex.: reuniões semanais, relatórios).
+- **Dificuldades reais de organização**: em que ponto do fluxo (captura, triagem, revisão, agenda) o usuário sente mais atrito ou abandona a tarefa hoje.
+- **Comportamento esperado da IA**: quão intervencionista a IA deveria ser (sugestões amplas vs. conservadoras); tolerância a falsos positivos na triagem por voz.
+- **Preferências de notificação e resumo**: se os resumos por e-mail (digest) já estão ativados e sendo usados; frequência desejada; se alertas críticos são úteis ou ruído.
+- **Frequência real de revisão**: se a tela `/revisao` é consultada com regularidade, ou se a "higiene do sistema" acumula pendências sem revisão.
+- **Objetivos de curto prazo** (próximas 2-4 semanas) para o painel: o que precisa funcionar melhor primeiro.
+- **Objetivos de longo prazo**: até onde o usuário pretende levar o produto (uso estritamente pessoal vs. eventual expansão a outras pessoas/equipe — embora o `docs/PRODUCT_DIRECTION.md` explicitamente descarte colaboração multiusuário na fase atual).
+- **Tolerância a mudança visual/estrutural**: o quanto o usuário está disposto a reaprender fluxos em nome de uma experiência mais "fluida"/"Apple-like", conforme mencionado como objetivo de uma auditoria futura.
+
+Sem essas respostas, qualquer recomendação de produto/UX feita pela próxima auditoria corre o risco de otimizar para um uso genérico hipotético em vez do uso real do Lucas.
