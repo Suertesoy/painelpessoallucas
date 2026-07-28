@@ -34,6 +34,7 @@ Novidades da fase:
 - **Ideias e Insights**: base de conhecimento e banco de decisões, com edição inline.
 - **Agenda**: semana navegável separando *agendamentos* de *prazos* (fuso horário local correto).
 - **Revisão**: prazos estourados, bloqueados, inbox estagnada, itens sem projeto e projetos sem marco.
+- **Aprendizado** (`/aprendizado`): Learning Engine genérico — meta diária (padrão 15 min, configurável), sessões de estudo, progresso estrutural honesto. Japonês é o primeiro curso cadastrado; sem IA, áudio, listening ou speaking nesta fase.
 - Interface responsiva (mobile com menu e captura por botão flutuante) e reativa (sem refresh).
 
 ## Stack
@@ -48,7 +49,7 @@ src/
   app/          # Rotas (hoje, entrada, projetos, ideias, agenda, revisao, api/health)
   components/   # Modais de captura/busca e navegação
   lib/          # Hooks reativos, utilitários de data (fuso local), constantes, eventos de UI
-  modules/      # items, projects, planning, global — camadas domain/application/infrastructure
+  modules/      # items, projects, planning, plans, learning, global — camadas domain/application/infrastructure
   platform/     # storage, events e contratos futuros (ai, integrations, mcp)
   providers/    # Injeção de dependência (RepositoryProvider)
   test/         # Testes unitários (Vitest)

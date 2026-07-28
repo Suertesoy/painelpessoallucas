@@ -11,6 +11,7 @@ import { ptBR } from 'date-fns/locale/pt-BR';
 import { CheckCircle, AlertCircle, Clock, Layout, Target, Plus, X, Hourglass, CalendarCheck } from 'lucide-react';
 import Link from 'next/link';
 import { TodayCalendarCard } from '@/components/today-calendar-card';
+import { HojeLearningCard } from '@/components/learning/hoje-learning-card';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import { ItemCompleteButton } from '@/components/item-complete-button';
 import { openItemDetail } from '@/lib/ui-events';
@@ -517,6 +518,9 @@ export default function HojePage() {
               )}
             </div>
           </section>
+
+          {/* Aprendizado (compacto) */}
+          <HojeLearningCard />
 
         </div>
       </div>

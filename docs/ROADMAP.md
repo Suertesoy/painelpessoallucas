@@ -31,6 +31,28 @@ Entregue na branch `feat/cloud-sync-ai-automations`:
 **Critério de saída:** login em 2 dispositivos com os mesmos dados, um plano
 importado/aprovado gerando ocorrências, digest recebido, cron estável por 1 semana.
 
+## Aprendizado — Learning Engine ✅ (Fase 1 do módulo)
+Motor de aprendizado genérico (`modules/learning`), preparado para vários
+cursos futuros. Japonês é o primeiro curso cadastrado — nada é hardcoded para
+um idioma específico.
+
+Entregue:
+- Dashboard (`/aprendizado`) com meta diária (padrão 15 min, configurável de
+  5 a 180), sessão de hoje e lista de cursos.
+- Página do curso (`/aprendizado/[courseId]`) com módulos (Fundamentos,
+  Gramática, Vocabulário, Kanji, Leitura — apenas Fundamentos disponível
+  nesta fase), progresso estrutural honesto e atividade recente.
+- Configurações (`/aprendizado/configuracoes`): meta diária geral e
+  preferências específicas do curso (romaji, furigana, tradução, reprodução
+  automática — esta última guardada para uso futuro, sem disparar áudio).
+- Sessões de estudo com estados `planned/in_progress/completed/cancelled`,
+  duração confirmada pelo usuário, meta diária concluída ao atingir o valor
+  configurado e sessões adicionais continuam somando.
+- Card compacto em `/hoje`.
+
+Explicitamente fora desta fase: IA, TTS/áudio, listening, speaking,
+gamificação, notificações. Progresso do curso nunca deriva de tempo estudado.
+
 ## Fase 3 — Triagem com IA
 - Primeira função: triagem de capturas (título, tipo, projeto, prioridade, prazo, próxima ação, confiança, justificativa) com **confirmação humana**.
 - Captura salva antes da análise; falha de IA nunca perde captura.

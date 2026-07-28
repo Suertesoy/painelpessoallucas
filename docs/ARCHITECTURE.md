@@ -88,6 +88,31 @@ Vitest em ambiente `node` (proposital: prova que os módulos não dependem de `w
 - Sem realtime (decisão do ROADMAP): mudanças de outro dispositivo chegam por
   refetch em foco/visibilidade da aba.
 
+## Learning Engine (módulo Aprendizado)
+
+`modules/learning` — motor de aprendizado genérico (Course, LearningModule,
+StudySession, LearningPreferences, CoursePreferences), com Japonês como
+primeiro curso cadastrado (não hardcoded). Dois repositórios, seguindo o
+mesmo princípio de agrupamento de `plans` (`ExecutionPlanRepository` reúne
+plano/fases/ações/recorrências):
+- `LearningContentRepository`: cursos, módulos e preferências (gerais e por
+  curso) — muda pouco, principalmente no seed inicial e em telas de
+  configuração.
+- `StudySessionRepository`: sessões de estudo — a entidade mais dinâmica.
+
+`LearningCommands`/`LearningQueries` seguem o padrão de `PlanCommands`/
+`PlanQueries`. O curso Japonês **não é semeado pela migration SQL**: como
+`learning_courses` é uma tabela por workspace, uma migration só alcançaria os
+workspaces já existentes no momento em que ela roda. O cadastro é feito por
+`LearningCommands.initializeDefaultLearningContent`, chamado (idempotente) na
+primeira visita a `/aprendizado` — mesmo padrão de `ensure_personal_workspace`
+para o workspace pessoal.
+
+`useReactiveQuery` (`src/lib/hooks.ts`) assina também
+`learningContentRepository` e `studySessionRepository`, para que o dashboard
+de Aprendizado e o card em `/hoje` atualizem sem refresh ao iniciar/concluir
+sessões.
+
 ## Evolução planejada
 
 - **Automações externas**: regras centrais vivem no painel (commands/endpoints); ferramentas externas (n8n etc.) apenas chamam essas portas.

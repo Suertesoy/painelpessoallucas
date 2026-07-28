@@ -33,7 +33,14 @@ export function useReactiveQuery<T>(
   isOffline: boolean;
   refetch: () => void;
 } {
-  const { itemRepository, projectRepository, dailyPlanRepository, calendarEventLinkRepository } = useRepositories();
+  const {
+    itemRepository,
+    projectRepository,
+    dailyPlanRepository,
+    calendarEventLinkRepository,
+    learningContentRepository,
+    studySessionRepository,
+  } = useRepositories();
   const [data, setData] = useState<T | undefined>(initialData);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +84,8 @@ export function useReactiveQuery<T>(
     const unsub2 = projectRepository.subscribe(runFetch);
     const unsub3 = dailyPlanRepository.subscribe(runFetch);
     const unsub4 = calendarEventLinkRepository.subscribe(runFetch);
+    const unsub5 = learningContentRepository.subscribe(runFetch);
+    const unsub6 = studySessionRepository.subscribe(runFetch);
 
     return () => {
       mounted = false;
@@ -84,6 +93,8 @@ export function useReactiveQuery<T>(
       unsub2();
       unsub3();
       unsub4();
+      unsub5();
+      unsub6();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

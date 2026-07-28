@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Search, Plus, Menu, X, Sun, Inbox, Folder, Lightbulb, Calendar, Activity, Settings, LogOut, FileText } from 'lucide-react';
+import { Search, Plus, Menu, X, Sun, Inbox, Folder, Lightbulb, Calendar, Activity, Settings, LogOut, FileText, GraduationCap } from 'lucide-react';
 import { openGlobalSearch, openQuickCapture } from '@/lib/ui-events';
 import { useAuth } from '@/providers/auth.provider';
 
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/ideias', label: 'Ideias e Insights', icon: Lightbulb },
   { href: '/agenda', label: 'Agenda', icon: Calendar },
   { href: '/planos', label: 'Planos', icon: FileText },
+  { href: '/aprendizado', label: 'Aprendizado', icon: GraduationCap },
   { href: '/revisao', label: 'Revisão', icon: Activity },
   { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ];

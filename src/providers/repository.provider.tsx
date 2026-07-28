@@ -37,6 +37,12 @@ import {
   SourceDocumentRepository,
   ExecutionPlanRepository,
 } from '@/modules/plans/application/plan.repository';
+import { SupabaseLearningContentRepository } from '@/modules/learning/infrastructure/supabase-learning-content.repository';
+import { SupabaseStudySessionRepository } from '@/modules/learning/infrastructure/supabase-study-session.repository';
+import { LearningContentRepository } from '@/modules/learning/application/learning-content.repository';
+import { StudySessionRepository } from '@/modules/learning/application/study-session.repository';
+import { LearningCommands } from '@/modules/learning/application/learning.commands';
+import { LearningQueries } from '@/modules/learning/application/learning.queries';
 import { useAuth } from './auth.provider';
 
 interface RepositoryContextType {
@@ -59,6 +65,10 @@ interface RepositoryContextType {
   executionPlanRepository: ExecutionPlanRepository;
   planCommands: PlanCommands;
   planQueries: PlanQueries;
+  learningContentRepository: LearningContentRepository;
+  studySessionRepository: StudySessionRepository;
+  learningCommands: LearningCommands;
+  learningQueries: LearningQueries;
 }
 
 const RepositoryContext = createContext<RepositoryContextType | null>(null);
@@ -92,6 +102,8 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     const projectQueries = new ProjectQueries(projectRepo);
     const docRepo = new SupabaseSourceDocumentRepository(supabase, workspaceId, notifier);
     const planRepo = new SupabaseExecutionPlanRepository(supabase, workspaceId, notifier);
+    const learningContentRepo = new SupabaseLearningContentRepository(supabase, workspaceId, notifier);
+    const studySessionRepo = new SupabaseStudySessionRepository(supabase, workspaceId, notifier);
 
     return {
       itemRepository: itemRepo,
@@ -115,6 +127,10 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
         activateAndMaterializePlanRules(supabase, planId)
       ),
       planQueries: new PlanQueries(docRepo, planRepo),
+      learningContentRepository: learningContentRepo,
+      studySessionRepository: studySessionRepo,
+      learningCommands: new LearningCommands(learningContentRepo, studySessionRepo, eventRepo),
+      learningQueries: new LearningQueries(learningContentRepo, studySessionRepo),
     };
   }, [status, workspaceId]);
 
@@ -179,7 +195,8 @@ export function useCommands() {
     item: context.itemCommands,
     project: context.projectCommands,
     dailyPlan: context.dailyPlanCommands,
-    plan: context.planCommands
+    plan: context.planCommands,
+    learning: context.learningCommands
   };
 }
 
@@ -192,6 +209,7 @@ export function useQueries() {
     dailyPlan: context.dailyPlanQueries,
     global: context.globalQueries,
     plan: context.planQueries,
-    calendarEvent: context.calendarEventQueries
+    calendarEvent: context.calendarEventQueries,
+    learning: context.learningQueries
   };
 }

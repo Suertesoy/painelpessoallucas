@@ -35,6 +35,16 @@ Todo evento respeita uma estrutura mínima:
 - `migration.completed`
 - `digest.daily_sent` · `digest.weekly_sent` · `digest.critical_sent` · `digest.automation_failure_sent`
 
+## Eventos do módulo Aprendizado (Learning Engine)
+- `learning.course.initialized` (emitido apenas na primeira inicialização do
+  curso por workspace; chamadas seguintes são idempotentes e não reemitem)
+- `learning.preferences.updated` (meta diária geral)
+- `learning.course_preferences.updated` (romaji/furigana/tradução/reprodução
+  automática — específicas de curso)
+- `learning.session.started`
+- `learning.session.completed` (payload inclui `durationMinutes` e `goalMet`)
+- `learning.session.cancelled`
+
 ## Persistência (Fase 2)
 Os eventos vivem na tabela `domain_events` do Supabase (append-only, RLS por
 workspace, imutáveis para o cliente). O `LocalStorageEventRepository` permanece

@@ -20,6 +20,8 @@ vi.mock('@/providers/repository.provider', () => ({
     projectRepository: fakeRepo,
     dailyPlanRepository: fakeRepo,
     calendarEventLinkRepository: fakeRepo,
+    learningContentRepository: fakeRepo,
+    studySessionRepository: fakeRepo,
   }),
 }));
 
