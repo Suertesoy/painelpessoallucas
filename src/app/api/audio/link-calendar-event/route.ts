@@ -18,7 +18,7 @@ const ModalitySchema = z.enum(['in_person', 'online', 'undetermined']);
 
 const BodySchema = z.object({
   itemId: z.string().uuid(),
-  aiRunId: z.string().uuid(),
+  aiRunId: z.string().uuid().optional(),
   googleCalendarId: z.string().min(1),
   googleEventId: z.string().min(1),
   title: z.string().min(1),
@@ -61,18 +61,20 @@ export async function POST(request: Request) {
     return errorResponse(404, 'invalid_request', 'Captura não encontrada.');
   }
 
-  const currentContent = (item.content as string | null) ?? (item.title as string | null) ?? '';
-  const freshness = await checkTriageFreshness(session.supabase, {
-    aiRunId: body.aiRunId,
-    itemId: body.itemId,
-    workspaceId: session.workspaceId,
-    currentContent,
-  });
-  if (!freshness.fresh) {
-    if (freshness.reason === 'stale') {
-      return errorResponse(409, 'stale_analysis', STALE_ANALYSIS_MESSAGE);
+  if (body.aiRunId) {
+    const currentContent = (item.content as string | null) ?? (item.title as string | null) ?? '';
+    const freshness = await checkTriageFreshness(session.supabase, {
+      aiRunId: body.aiRunId,
+      itemId: body.itemId,
+      workspaceId: session.workspaceId,
+      currentContent,
+    });
+    if (!freshness.fresh) {
+      if (freshness.reason === 'stale') {
+        return errorResponse(409, 'stale_analysis', STALE_ANALYSIS_MESSAGE);
+      }
+      return errorResponse(404, 'invalid_request', 'Análise não encontrada. Analise novamente antes de confirmar.');
     }
-    return errorResponse(404, 'invalid_request', 'Análise não encontrada. Analise novamente antes de confirmar.');
   }
 
   const admin = getSupabaseAdminClient();

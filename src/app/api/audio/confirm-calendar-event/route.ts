@@ -32,7 +32,9 @@ const ModalitySchema = z.enum(['in_person', 'online', 'undetermined']);
 
 const BodySchema = z.object({
   itemId: z.string().uuid(),
-  aiRunId: z.string().uuid(),
+  // Ausente quando o evento é criado manualmente (sem proposta de IA por
+  // trás) — nesse caso não há o que revalidar em ai_runs.
+  aiRunId: z.string().uuid().optional(),
   title: z.string().min(1),
   description: z.string().optional(),
   startAt: z.string().datetime({ offset: true }),
@@ -98,18 +100,22 @@ export async function POST(request: Request) {
     return errorResponse(404, 'invalid_request', 'Captura não encontrada.');
   }
 
-  const currentContent = (item.content as string | null) ?? (item.title as string | null) ?? '';
-  const freshness = await checkTriageFreshness(session.supabase, {
-    aiRunId: body.aiRunId,
-    itemId: body.itemId,
-    workspaceId: session.workspaceId,
-    currentContent,
-  });
-  if (!freshness.fresh) {
-    if (freshness.reason === 'stale') {
-      return errorResponse(409, 'stale_analysis', STALE_ANALYSIS_MESSAGE);
+  // Criação manual (sem aiRunId) não tem proposta de IA para revalidar —
+  // pula direto para a criação do evento.
+  if (body.aiRunId) {
+    const currentContent = (item.content as string | null) ?? (item.title as string | null) ?? '';
+    const freshness = await checkTriageFreshness(session.supabase, {
+      aiRunId: body.aiRunId,
+      itemId: body.itemId,
+      workspaceId: session.workspaceId,
+      currentContent,
+    });
+    if (!freshness.fresh) {
+      if (freshness.reason === 'stale') {
+        return errorResponse(409, 'stale_analysis', STALE_ANALYSIS_MESSAGE);
+      }
+      return errorResponse(404, 'invalid_request', 'Análise não encontrada. Analise novamente antes de confirmar.');
     }
-    return errorResponse(404, 'invalid_request', 'Análise não encontrada. Analise novamente antes de confirmar.');
   }
 
   const account = await getCalendarAccount(session.supabase, session.workspaceId);

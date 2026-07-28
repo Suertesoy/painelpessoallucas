@@ -9,8 +9,9 @@ import { QUICK_CAPTURE_EVENT } from '@/lib/ui-events';
 import { fileExtensionForMimeType } from '@/lib/audio-recording';
 import { AudioRecorder } from '@/components/audio-recorder';
 import { AudioCaptureReview } from '@/components/audio-capture-review';
+import { CalendarEventCreator } from '@/components/calendar-event-creator';
 import type { AudioTriageProposal } from '@/platform/ai/audio-triage.schema';
-import { X, Mic, Type, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Mic, Type, Sparkles, AlertCircle, Loader2, Calendar } from 'lucide-react';
 
 type CaptureMode = 'text' | 'audio';
 type AudioPhase = 'idle' | 'processing' | 'saved' | 'analyzing' | 'reviewing';
@@ -26,6 +27,8 @@ export function QuickCaptureModal() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [createdItemId, setCreatedItemId] = useState<string | null>(null);
+  const [createdItemTitle, setCreatedItemTitle] = useState('');
   const { item: itemCmds } = useCommands();
   const { workspaceId } = useWorkspace();
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -83,6 +86,8 @@ export function QuickCaptureModal() {
     setProjectId('');
     setError('');
     setSuccess(false);
+    setCreatedItemId(null);
+    setCreatedItemTitle('');
     resetAudioFlow();
     if (previousFocusRef.current) {
       previousFocusRef.current.focus();
@@ -144,8 +149,9 @@ export function QuickCaptureModal() {
     setIsSubmitting(true);
     setError('');
     try {
-      await itemCmds.createItem({
-        title: title.trim() || content.substring(0, 40) + (content.length > 40 ? '...' : ''),
+      const savedTitle = title.trim() || content.substring(0, 40) + (content.length > 40 ? '...' : '');
+      const newItem = await itemCmds.createItem({
+        title: savedTitle,
         content: content.trim(),
         type,
         priority,
@@ -153,10 +159,11 @@ export function QuickCaptureModal() {
         source: 'quick_capture'
       }, workspaceId);
 
+      setCreatedItemId(newItem.id);
+      setCreatedItemTitle(savedTitle);
       setSuccess(true);
-      setTimeout(() => {
-        closeModal();
-      }, 800);
+      // Não fecha automaticamente: o usuário pode aproveitar para adicionar
+      // um evento de calendário a esta captura antes de fechar.
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Erro ao criar item';
       setError(errorMsg);
@@ -316,9 +323,29 @@ export function QuickCaptureModal() {
 
         {mode === 'text' && (
           <form onSubmit={handleSubmit} className="overflow-y-auto p-4 space-y-4">
-            {success ? (
-              <div className="bg-green-50 text-green-700 p-4 rounded-md text-center" role="status">
-                Item capturado com sucesso!
+            {success && createdItemId ? (
+              <div className="space-y-4">
+                <div className="bg-green-50 text-green-700 p-3 rounded-md text-sm" role="status">
+                  Item capturado com sucesso!
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-white p-3">
+                  <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <Calendar size={14} className="text-blue-500" /> Adicionar ao Calendário (opcional)
+                  </h3>
+                  <div className="mt-2">
+                    <CalendarEventCreator itemId={createdItemId} initialTitle={createdItemTitle} />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    aria-label="Fechar captura"
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    Fechar
+                  </button>
+                </div>
               </div>
             ) : (
               <>

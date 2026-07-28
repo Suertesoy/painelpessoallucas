@@ -4,13 +4,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
-import { X, CheckCircle, RotateCcw, Archive, ArchiveRestore, Loader2, Mic, ExternalLink, Sparkles, AlertCircle } from 'lucide-react';
+import { X, CheckCircle, RotateCcw, Archive, ArchiveRestore, Loader2, Mic, ExternalLink, Sparkles, AlertCircle, Calendar, Plus } from 'lucide-react';
 import { useCommands, useQueries, useRepositories } from '@/providers/repository.provider';
 import { ITEM_DETAIL_EVENT } from '@/lib/ui-events';
 import { datetimeLocalToISO, isoToDatetimeLocalInput } from '@/lib/dates';
 import { resolveItemOrigin } from '@/lib/item-origin';
 import { formatRecordingDuration } from '@/lib/audio-recording';
 import { AudioCaptureReview } from '@/components/audio-capture-review';
+import { CalendarEventCreator } from '@/components/calendar-event-creator';
 import type { Item, ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import type { Project } from '@/modules/projects/domain/project.schema';
 import type { AudioTriageRunSummary, CalendarEventLinkSummary } from '@/platform/ai/audio-provenance.repository';
@@ -87,6 +88,7 @@ export function ItemDetailModal() {
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [triageProposal, setTriageProposal] = useState<AudioTriageProposal | null>(null);
   const [triageAiRunId, setTriageAiRunId] = useState<string | null>(null);
+  const [showCalendarCreator, setShowCalendarCreator] = useState(false);
   // Estado "carregado para" (em vez de um booleano isLoading setado no efeito):
   // carregando é derivado comparando o item aberto com o último id resolvido.
   const [loadedItemId, setLoadedItemId] = useState<string | null>(null);
@@ -146,6 +148,7 @@ export function ItemDetailModal() {
     setAnalyzeError(null);
     setTriageProposal(null);
     setTriageAiRunId(null);
+    setShowCalendarCreator(false);
     if (previousFocusRef.current) previousFocusRef.current.focus();
   }, []);
 
@@ -212,21 +215,31 @@ export function ItemDetailModal() {
         setLoadError(null);
         setLoadedItemId(itemId);
 
+        // Vínculo de calendário: QUALQUER item pode ter um evento criado pelo
+        // painel (não é mais exclusivo de captura por áudio) — uma falha
+        // aqui nunca deve impedir a exibição/edição do item.
+        audioProvenanceRepository
+          .findCalendarEventLink(itemId)
+          .then((link) => {
+            if (!cancelled) setCalendarLink(link);
+          })
+          .catch((e: unknown) => {
+            console.error('Falha ao carregar o vínculo de calendário', e);
+          });
+
         // Proveniência de áudio é informação complementar de auditoria — uma
         // falha aqui nunca deve impedir a exibição/edição do item.
         if (loadedItem.source === 'audio_capture') {
           Promise.all([
             eventRepository.findByEntityId(itemId),
             audioProvenanceRepository.findLatestTriageRun(itemId),
-            audioProvenanceRepository.findCalendarEventLink(itemId),
           ])
-            .then(([events, run, link]) => {
+            .then(([events, run]) => {
               if (cancelled) return;
               const createdEvent = events.find((ev) => ev.type === 'item.created');
               const createdPayload = createdEvent?.payload as { content?: string } | undefined;
               setOriginalTranscript(createdPayload?.content ?? null);
               setTriageRun(run);
-              setCalendarLink(link);
               setIsTriageStale(computeTriageStale(events, run));
             })
             .catch((e: unknown) => {
@@ -634,9 +647,45 @@ export function ItemDetailModal() {
                   originalTranscript={originalTranscript}
                   currentContent={item.content}
                   triageRun={triageRun}
-                  calendarLink={calendarLink}
                 />
               )}
+
+              {/* Calendário: qualquer item pode ter (ou ganhar) um evento no
+                  Google Calendar — não fica restrito a captura por áudio. */}
+              <div className="rounded-lg border border-gray-200 bg-white p-3">
+                <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <Calendar size={14} className="text-blue-500" /> Calendário
+                </h3>
+                {calendarLink ? (
+                  <div className="mt-2 text-xs">
+                    <a
+                      href={googleCalendarEventUrl(calendarLink.googleCalendarId, calendarLink.googleEventId)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+                    >
+                      <ExternalLink size={12} /> Ver evento no Google Calendar
+                    </a>
+                    <span className="ml-2 text-gray-400">({calendarLink.syncStatus})</span>
+                  </div>
+                ) : showCalendarCreator ? (
+                  <div className="mt-2">
+                    <CalendarEventCreator
+                      itemId={item.id}
+                      initialTitle={item.title}
+                      onCreated={() => void refreshAudioProvenance(item.id)}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowCalendarCreator(true)}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <Plus size={12} /> Adicionar evento no Calendar
+                  </button>
+                )}
+              </div>
 
               {/* Analisar com IA a partir do detalhe: caminho previsto para
                   quem clicou "Salvar sem analisar" na captura, e reanálise
@@ -745,14 +794,12 @@ function AudioProvenancePanel({
   originalTranscript,
   currentContent,
   triageRun,
-  calendarLink,
 }: {
   createdAt: string;
   durationSeconds?: number;
   originalTranscript: string | null;
   currentContent?: string;
   triageRun: AudioTriageRunSummary | null;
-  calendarLink: CalendarEventLinkSummary | null;
 }) {
   const wasEdited =
     originalTranscript !== null && currentContent !== undefined && currentContent !== originalTranscript;
@@ -842,20 +889,6 @@ function AudioProvenancePanel({
           ) : (
             triageRun.errorMessage && <p className="text-xs text-red-600">{triageRun.errorMessage}</p>
           )}
-        </div>
-      )}
-
-      {calendarLink && (
-        <div className="border-t border-blue-100 pt-2 text-xs">
-          <a
-            href={googleCalendarEventUrl(calendarLink.googleCalendarId, calendarLink.googleEventId)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-blue-600 hover:underline"
-          >
-            <ExternalLink size={12} /> Ver evento no Google Calendar
-          </a>
-          <span className="ml-2 text-gray-400">({calendarLink.syncStatus})</span>
         </div>
       )}
     </div>
