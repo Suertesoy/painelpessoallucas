@@ -109,7 +109,7 @@ export async function syncItemToCalendar(
         description: typedItem.content ?? undefined,
         startIso,
         endIso,
-        withReminder: typedItem.calendar_sync === 'sync_reminder',
+        reminderMinutes: typedItem.calendar_sync === 'sync_reminder' ? [15] : [],
       },
       link?.sync_status !== 'deleted' ? link?.google_event_id : undefined
     );

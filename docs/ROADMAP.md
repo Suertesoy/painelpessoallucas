@@ -54,3 +54,37 @@ importado/aprovado gerando ocorrências, digest recebido, cron estável por 1 se
 - Captura por áudio (transcrição + triagem).
 - Pipelines leves (leads, vagas) como visões derivadas.
 - Colaboração leve (se ainda fizer sentido).
+
+## Fase 8 — Agenda interativa e sincronização bidirecional com Google Agenda
+Fase futura, ainda não iniciada. A correção de exibição de eventos criados
+pelo painel (Fase 2/3 — `calendar_event_links` normalizado, consumido por
+`useQueries().calendarEvent`) foi desenhada para não impedir esta evolução:
+o campo `created_by_panel` já distingue evento criado pelo painel de evento
+lido diretamente do Google, e a agenda interna já renderiza a partir de uma
+representação normalizada (não direto da API do Google a cada carregamento).
+- Leitura dos calendários selecionados pelo usuário (não só "Painel Lucas").
+- Sincronização inicial completa dos calendários selecionados.
+- Sincronização incremental com `syncToken`.
+- Recebimento de mudanças via `events.watch` (push notifications do Google).
+- Renovação periódica dos canais de watch.
+- Criação, edição e cancelamento de eventos a partir do painel refletindo no Google e vice-versa.
+- Suporte a eventos recorrentes e eventos de dia inteiro.
+- Cores compatíveis com a paleta de cores do Google Calendar (`colorId`).
+- Tratamento de eventos excluídos no Google (remoção refletida no painel).
+- Prevenção de duplicações entre eventos criados pelo painel e eventos lidos do Google.
+- Resolução de conflitos de edição concorrente (painel x Google).
+- Tela de seleção de quais calendários do usuário participam da sincronização.
+- Fluxo de reconsentimento OAuth quando novos escopos forem necessários.
+- Observabilidade e recuperação automática da sincronização (falhas de watch, tokens expirados, backlog).
+- Não amplia os escopos OAuth atuais (`calendar.app.created` + `calendar.freebusy`) enquanto esta fase não for iniciada.
+
+## Fase 9 — PWA e Web Push
+Fase futura, sem alterar a prioridade central atual.
+- Transformar o painel em PWA (manifest, ícones, instalação).
+- Adicionar service worker.
+- Registrar push subscriptions por dispositivo.
+- Permitir Web Push no celular e no computador.
+- No iPhone, orientar a adição do painel à Tela de Início e a autorização das notificações (limitação do Safari/iOS para push web).
+- Usar push próprio para: mudança de atividade, avisos de capacidade, projetos parados, falhas de automação, lembretes internos.
+- Continuar usando o Google Calendar (lembretes nativos) para notificações de compromissos com horário — não substituído pelo push próprio.
+- Não migra para aplicativo nativo.

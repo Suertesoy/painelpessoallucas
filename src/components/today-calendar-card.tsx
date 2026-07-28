@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Calendar, Gauge } from 'lucide-react';
 import type { Item } from '@/modules/items/domain/item.schema';
+import { useRepositories } from '@/providers/repository.provider';
 import {
   computeCapacity,
   formatMinutes,
@@ -42,21 +43,30 @@ export function TodayCalendarCard({
 }) {
   const [calendar, setCalendar] = useState<CalendarToday | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { calendarEventLinkRepository } = useRepositories();
+
+  const fetchCalendar = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/integrations/calendar/today?date=${date}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setCalendar((await res.json()) as CalendarToday);
+      setError(null);
+    } catch {
+      setError('Não foi possível carregar o Google Calendar.');
+      setCalendar({ connected: false, busy: [], events: [] });
+    }
+  }, [date]);
 
   useEffect(() => {
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/integrations/calendar/today?date=${date}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        setCalendar((await res.json()) as CalendarToday);
-        setError(null);
-      } catch {
-        setError('Não foi possível carregar o Google Calendar.');
-        setCalendar({ connected: false, busy: [], events: [] });
-      }
-    }, 0);
+    const timer = setTimeout(() => void fetchCalendar(), 0);
     return () => clearTimeout(timer);
-  }, [date]);
+  }, [fetchCalendar]);
+
+  // Um evento criado na mesma sessão (ex.: confirmação de captura por áudio)
+  // precisa aparecer sem esperar o próximo foco da aba.
+  useEffect(() => {
+    return calendarEventLinkRepository.subscribe(() => void fetchCalendar());
+  }, [calendarEventLinkRepository, fetchCalendar]);
 
   const busy = calendar?.busy ?? [];
   const unscheduledFocus = focusItems.filter((f) => !f.scheduledAt);

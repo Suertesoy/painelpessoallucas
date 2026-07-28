@@ -97,12 +97,31 @@ export interface PainelEventInput {
   description?: string;
   startIso: string;
   endIso: string;
-  withReminder: boolean;
+  /** Local físico (endereço) OU link de reunião — vai para o campo `location` do Google. */
+  location?: string;
+  /** Minutos antes do início para cada lembrete popup; array vazio = sem lembrete. */
+  reminderMinutes: number[];
 }
 
-interface GoogleEvent {
+export interface GoogleEvent {
   id: string;
   etag: string;
+  iCalUID?: string;
+  htmlLink?: string;
+  status?: string;
+  colorId?: string;
+  updated?: string;
+}
+
+/**
+ * Erro de requisição inválida (4xx) do Google — nunca deve ser exibido cru
+ * na UI (mensagens do Google não são para o usuário final). O chamador
+ * decide a mensagem amigável; aqui só preservamos o status para diagnóstico.
+ */
+export class GoogleCalendarRequestError extends Error {
+  constructor(public readonly status: number) {
+    super(`Falha ao sincronizar evento (HTTP ${status})`);
+  }
 }
 
 /** Cria ou atualiza o evento do item no calendário da app. */
@@ -115,11 +134,13 @@ export async function upsertItemEvent(
   const body = JSON.stringify({
     summary: input.title,
     description: input.description ?? '',
+    location: input.location ?? undefined,
     start: { dateTime: input.startIso, timeZone: 'America/Sao_Paulo' },
     end: { dateTime: input.endIso, timeZone: 'America/Sao_Paulo' },
-    reminders: input.withReminder
-      ? { useDefault: false, overrides: [{ method: 'popup', minutes: 15 }] }
-      : { useDefault: false, overrides: [] },
+    reminders:
+      input.reminderMinutes.length > 0
+        ? { useDefault: false, overrides: input.reminderMinutes.map((minutes) => ({ method: 'popup', minutes })) }
+        : { useDefault: false, overrides: [] },
     // Identificação anti-loop: eventos do painel são reconhecíveis.
     extendedProperties: { private: { painel: '1', painelItemId: input.itemId } },
   });
@@ -137,7 +158,7 @@ export async function upsertItemEvent(
     return upsertItemEvent(accessToken, calendarId, input);
   }
   if (!res.ok) {
-    throw new Error(`Falha ao sincronizar evento (HTTP ${res.status})`);
+    throw new GoogleCalendarRequestError(res.status);
   }
   const event = (await res.json()) as GoogleEvent;
   return event;

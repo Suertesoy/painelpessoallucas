@@ -8,6 +8,9 @@ import { DailyPlanRepository } from '@/modules/planning/application/daily-plan.r
 import { EventRepository } from '@/platform/events/event.repository';
 import { AudioProvenanceRepository } from '@/platform/ai/audio-provenance.repository';
 import { AutomationHealthRepository } from '@/platform/automation/automation-health.repository';
+import { CalendarEventLinkRepository } from '@/platform/integrations/calendar-event-link.repository';
+import { SupabaseCalendarEventLinkRepository } from '@/platform/integrations/supabase-calendar-event-link.repository';
+import { CalendarEventQueries } from '@/platform/integrations/calendar-event.queries';
 import { SupabaseItemRepository } from '@/modules/items/infrastructure/supabase-item.repository';
 import { SupabaseProjectRepository } from '@/modules/projects/infrastructure/supabase-project.repository';
 import { SupabaseDailyPlanRepository } from '@/modules/planning/infrastructure/supabase-daily-plan.repository';
@@ -43,6 +46,7 @@ interface RepositoryContextType {
   eventRepository: EventRepository;
   audioProvenanceRepository: AudioProvenanceRepository;
   automationHealthRepository: AutomationHealthRepository;
+  calendarEventLinkRepository: CalendarEventLinkRepository;
   itemCommands: ItemCommands;
   projectCommands: ProjectCommands;
   dailyPlanCommands: DailyPlanCommands;
@@ -50,6 +54,7 @@ interface RepositoryContextType {
   projectQueries: ProjectQueries;
   dailyPlanQueries: DailyPlanQueries;
   globalQueries: GlobalQueries;
+  calendarEventQueries: CalendarEventQueries;
   sourceDocumentRepository: SourceDocumentRepository;
   executionPlanRepository: ExecutionPlanRepository;
   planCommands: PlanCommands;
@@ -81,6 +86,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     const eventRepo = new SupabaseEventRepository(supabase, workspaceId);
     const audioProvenanceRepo = new SupabaseAudioProvenanceRepository(supabase, workspaceId);
     const automationHealthRepo = new SupabaseAutomationHealthRepository(supabase, workspaceId);
+    const calendarEventLinkRepo = new SupabaseCalendarEventLinkRepository(supabase, workspaceId, notifier);
 
     const itemQueries = new ItemQueries(itemRepo);
     const projectQueries = new ProjectQueries(projectRepo);
@@ -94,6 +100,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       eventRepository: eventRepo,
       audioProvenanceRepository: audioProvenanceRepo,
       automationHealthRepository: automationHealthRepo,
+      calendarEventLinkRepository: calendarEventLinkRepo,
       itemCommands: new ItemCommands(itemRepo, eventRepo),
       projectCommands: new ProjectCommands(projectRepo, eventRepo),
       dailyPlanCommands: new DailyPlanCommands(dailyPlanRepo, eventRepo),
@@ -101,6 +108,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       projectQueries,
       dailyPlanQueries: new DailyPlanQueries(dailyPlanRepo),
       globalQueries: new GlobalQueries(itemQueries, projectQueries),
+      calendarEventQueries: new CalendarEventQueries(calendarEventLinkRepo),
       sourceDocumentRepository: docRepo,
       executionPlanRepository: planRepo,
       planCommands: new PlanCommands(docRepo, planRepo, eventRepo, (planId) =>
@@ -183,6 +191,7 @@ export function useQueries() {
     project: context.projectQueries,
     dailyPlan: context.dailyPlanQueries,
     global: context.globalQueries,
-    plan: context.planQueries
+    plan: context.planQueries,
+    calendarEvent: context.calendarEventQueries
   };
 }
