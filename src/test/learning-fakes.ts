@@ -4,6 +4,7 @@ import type { EventRepository } from '@/platform/events/event.repository';
 import type {
   Course,
   LearningModule,
+  Lesson,
   LearningPreferences,
   CoursePreferences,
   StudySession,
@@ -15,6 +16,7 @@ import type { DomainEvent } from '@/platform/events/event.schema';
 export class FakeLearningContentRepository implements LearningContentRepository {
   courses = new Map<string, Course>();
   modules = new Map<string, LearningModule>();
+  lessons = new Map<string, Lesson>();
   preferences = new Map<string, LearningPreferences>();
   coursePreferences = new Map<string, CoursePreferences>();
 
@@ -30,6 +32,9 @@ export class FakeLearningContentRepository implements LearningContentRepository 
   async saveCourse(course: Course): Promise<void> {
     this.courses.set(course.id, course);
   }
+  async findModuleById(id: string): Promise<LearningModule | null> {
+    return this.modules.get(id) ?? null;
+  }
   async listModulesByCourse(courseId: string): Promise<LearningModule[]> {
     return [...this.modules.values()]
       .filter((m) => m.courseId === courseId)
@@ -37,6 +42,14 @@ export class FakeLearningContentRepository implements LearningContentRepository 
   }
   async saveModules(modules: LearningModule[]): Promise<void> {
     modules.forEach((m) => this.modules.set(m.id, m));
+  }
+  async listLessonsByModule(moduleId: string): Promise<Lesson[]> {
+    return [...this.lessons.values()]
+      .filter((l) => l.moduleId === moduleId)
+      .sort((a, b) => a.position - b.position);
+  }
+  async saveLessons(lessons: Lesson[]): Promise<void> {
+    lessons.forEach((l) => this.lessons.set(l.id, l));
   }
   async findPreferences(): Promise<LearningPreferences | null> {
     return [...this.preferences.values()][0] ?? null;

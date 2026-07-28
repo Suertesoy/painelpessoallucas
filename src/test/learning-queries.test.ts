@@ -51,6 +51,32 @@ describe('LearningQueries — dashboard', () => {
   });
 });
 
+describe('LearningQueries — reatividade da meta diária', () => {
+  it('dashboard reflete a nova meta diária imediatamente após a alteração', async () => {
+    const { commands, queries } = setup();
+    await commands.initializeDefaultLearningContent(WORKSPACE_A);
+
+    let dashboard = await queries.getLearningDashboard(todayDateStr());
+    expect(dashboard.today.goalMinutes).toBe(15);
+
+    await commands.updateLearningPreferences(WORKSPACE_A, { defaultDailyGoalMinutes: 20 });
+
+    dashboard = await queries.getLearningDashboard(todayDateStr());
+    expect(dashboard.today.goalMinutes).toBe(20);
+    expect(dashboard.preferences.defaultDailyGoalMinutes).toBe(20);
+  });
+
+  it('getTodayStudySummary (usado pela página do curso) reflete a meta atualizada', async () => {
+    const { commands, queries } = setup();
+    await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    await commands.updateLearningPreferences(WORKSPACE_A, { defaultDailyGoalMinutes: 20 });
+
+    const preferences = await queries.getLearningPreferences();
+    const summary = await queries.getTodayStudySummary(todayDateStr(), preferences!.defaultDailyGoalMinutes);
+    expect(summary.goalMinutes).toBe(20);
+  });
+});
+
 describe('LearningQueries — getTodayStudySummary (dia local)', () => {
   it('soma apenas sessões concluídas cujo dia local de início é o dia consultado', async () => {
     const { sessionRepo, queries } = setup();

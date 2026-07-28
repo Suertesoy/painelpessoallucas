@@ -17,10 +17,15 @@ function minutesSince(startedAt: string, now: number): number {
  */
 export function StudySessionCard({
   course,
+  goalMinutes,
   activeSession,
   onChanged,
 }: {
   course: Course;
+  /** Meta diária VIGENTE (preferência geral), não `course.dailyGoalMinutes`
+   * — este último é o valor de criação do curso e não muda quando o usuário
+   * ajusta a meta em Configurações. */
+  goalMinutes: number;
   activeSession: StudySession | null;
   onChanged: () => void;
 }) {
@@ -95,7 +100,7 @@ export function StudySessionCard({
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-gray-900">{course.title}</h3>
         <span className="text-xs text-gray-500">
-          Sessão de hoje · {course.dailyGoalMinutes} min
+          Sessão de hoje · {goalMinutes} min
         </span>
       </div>
 

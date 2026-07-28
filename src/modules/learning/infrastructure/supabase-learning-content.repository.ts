@@ -6,6 +6,8 @@ import {
   CourseSchema,
   LearningModule,
   LearningModuleSchema,
+  Lesson,
+  LessonSchema,
   LearningPreferences,
   LearningPreferencesSchema,
   CoursePreferences,
@@ -40,6 +42,19 @@ function moduleRowToDomain(row: Row): LearningModule {
     position: row.position,
     status: row.status,
     lessonsCount: row.lessons_count,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+}
+
+function lessonRowToDomain(row: Row): Lesson {
+  return LessonSchema.parse({
+    id: row.id,
+    workspaceId: row.workspace_id,
+    moduleId: row.module_id,
+    title: row.title,
+    description: row.description ?? undefined,
+    position: row.position,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
@@ -123,6 +138,16 @@ export class SupabaseLearningContentRepository implements LearningContentReposit
     this.notifier.notify();
   }
 
+  async findModuleById(id: string): Promise<LearningModule | null> {
+    const { data, error } = await this.supabase
+      .from('learning_modules')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw new Error(`Não foi possível carregar o módulo: ${error.message}`);
+    return data ? moduleRowToDomain(data) : null;
+  }
+
   async listModulesByCourse(courseId: string): Promise<LearningModule[]> {
     const { data, error } = await this.supabase
       .from('learning_modules')
@@ -150,6 +175,34 @@ export class SupabaseLearningContentRepository implements LearningContentReposit
       { onConflict: 'id' }
     );
     if (error) throw new Error(`Não foi possível salvar os módulos: ${error.message}`);
+    this.notifier.notify();
+  }
+
+  async listLessonsByModule(moduleId: string): Promise<Lesson[]> {
+    const { data, error } = await this.supabase
+      .from('learning_lessons')
+      .select('*')
+      .eq('module_id', moduleId)
+      .order('position', { ascending: true });
+    if (error) throw new Error(`Não foi possível carregar as lições: ${error.message}`);
+    return (data ?? []).map(lessonRowToDomain);
+  }
+
+  async saveLessons(lessons: Lesson[]): Promise<void> {
+    if (lessons.length === 0) return;
+    const { error } = await this.supabase.from('learning_lessons').upsert(
+      lessons.map((l) => ({
+        id: l.id,
+        workspace_id: l.workspaceId,
+        module_id: l.moduleId,
+        title: l.title,
+        description: l.description ?? null,
+        position: l.position,
+        created_at: l.createdAt,
+      })),
+      { onConflict: 'id' }
+    );
+    if (error) throw new Error(`Não foi possível salvar as lições: ${error.message}`);
     this.notifier.notify();
   }
 

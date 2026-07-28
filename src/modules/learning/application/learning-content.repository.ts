@@ -1,13 +1,14 @@
 import type {
   Course,
   LearningModule,
+  Lesson,
   LearningPreferences,
   CoursePreferences,
 } from '../domain/learning.schema';
 
 /**
- * Conteúdo de aprendizado: cursos, módulos e preferências (gerais e por
- * curso). Agrupados num único repositório porque mudam juntos com pouca
+ * Conteúdo de aprendizado: cursos, módulos, lições e preferências (gerais e
+ * por curso). Agrupados num único repositório porque mudam juntos com pouca
  * frequência (seed inicial e telas de configuração) — mesmo princípio de
  * `ExecutionPlanRepository` agrupando plano/fases/ações/recorrências.
  *
@@ -20,8 +21,12 @@ export interface LearningContentRepository {
   listCourses(): Promise<Course[]>;
   saveCourse(course: Course): Promise<void>;
 
+  findModuleById(id: string): Promise<LearningModule | null>;
   listModulesByCourse(courseId: string): Promise<LearningModule[]>;
   saveModules(modules: LearningModule[]): Promise<void>;
+
+  listLessonsByModule(moduleId: string): Promise<Lesson[]>;
+  saveLessons(lessons: Lesson[]): Promise<void>;
 
   findPreferences(): Promise<LearningPreferences | null>;
   savePreferences(preferences: LearningPreferences): Promise<void>;

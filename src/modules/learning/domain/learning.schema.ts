@@ -57,6 +57,25 @@ export const LearningModuleSchema = z.object({
 });
 export type LearningModule = z.infer<typeof LearningModuleSchema>;
 
+// --- Lesson --------------------------------------------------------------------
+
+/**
+ * Lição real dentro de um módulo. `LearningModule.lessonsCount` deve sempre
+ * corresponder à quantidade de linhas aqui — nunca um contador arbitrário
+ * (bug corrigido: Fundamentos anunciava "1 lição" sem nenhuma entidade real).
+ */
+export const LessonSchema = z.object({
+  id: z.string().uuid(),
+  workspaceId: z.string().uuid(),
+  moduleId: z.string().uuid(),
+  title: z.string().min(1),
+  description: z.string().optional(),
+  position: z.number().int().min(0),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+});
+export type Lesson = z.infer<typeof LessonSchema>;
+
 // --- StudySession --------------------------------------------------------------
 
 export const StudySessionStatusSchema = z.enum(['planned', 'in_progress', 'completed', 'cancelled']);
@@ -171,4 +190,14 @@ export function computeCourseProgress(modules: LearningModule[]): number {
   if (modules.length === 0) return 0;
   const completed = modules.filter((m) => m.status === 'completed').length;
   return Math.round((completed / modules.length) * 100);
+}
+
+/**
+ * URL do módulo, ou `null` quando bloqueado (não deve ser navegável).
+ * Fonte única usada tanto pela página do curso quanto pelos testes, para que
+ * a regra "módulo bloqueado não é clicável" nunca fique só na UI.
+ */
+export function moduleHref(courseId: string, mod: LearningModule): string | null {
+  if (mod.status === 'locked') return null;
+  return `/aprendizado/${courseId}/modulos/${mod.id}`;
 }

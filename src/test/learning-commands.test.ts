@@ -213,6 +213,81 @@ describe('LearningCommands — sessões de estudo', () => {
   });
 });
 
+describe('LearningCommands — meta diária vigente na sessão', () => {
+  it('meta configurada em 20 minutos é usada como snapshot de uma sessão iniciada depois', async () => {
+    const { commands } = setup();
+    const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    await commands.updateLearningPreferences(WORKSPACE_A, { defaultDailyGoalMinutes: 20 });
+
+    const session = await commands.startStudySession(WORKSPACE_A, course.id);
+    expect(session.dailyGoalMinutesSnapshot).toBe(20);
+  });
+
+  it('sessão já iniciada preserva seu dailyGoalMinutesSnapshot mesmo após a meta mudar', async () => {
+    const { commands, sessionRepo } = setup();
+    const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    const session = await commands.startStudySession(WORKSPACE_A, course.id);
+    expect(session.dailyGoalMinutesSnapshot).toBe(15);
+
+    await commands.updateLearningPreferences(WORKSPACE_A, { defaultDailyGoalMinutes: 20 });
+
+    const stillInProgress = await sessionRepo.findById(session.id);
+    expect(stillInProgress?.dailyGoalMinutesSnapshot).toBe(15);
+
+    const completed = await commands.completeStudySession(session.id, { durationMinutes: 15 });
+    expect(completed.dailyGoalMinutesSnapshot).toBe(15);
+
+    const nextSession = await commands.startStudySession(WORKSPACE_A, course.id);
+    expect(nextSession.dailyGoalMinutesSnapshot).toBe(20);
+  });
+});
+
+describe('LearningCommands — módulos e lições reais', () => {
+  it('cria a lição real de Fundamentos e o contador reflete a entidade existente', async () => {
+    const { commands, contentRepo } = setup();
+    const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    const modules = await contentRepo.listModulesByCourse(course.id);
+    const fundamentos = modules.find((m) => m.title === 'Fundamentos')!;
+
+    const lessons = await contentRepo.listLessonsByModule(fundamentos.id);
+    expect(lessons).toHaveLength(fundamentos.lessonsCount);
+    expect(lessons).toHaveLength(1);
+    expect(lessons[0].title).toBe('Introdução ao curso');
+  });
+
+  it('módulos bloqueados não têm lições e o contador reflete essa ausência (0, não fictício)', async () => {
+    const { commands, contentRepo } = setup();
+    const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    const modules = await contentRepo.listModulesByCourse(course.id);
+
+    for (const mod of modules.filter((m) => m.title !== 'Fundamentos')) {
+      const lessons = await contentRepo.listLessonsByModule(mod.id);
+      expect(mod.lessonsCount).toBe(0);
+      expect(lessons).toHaveLength(0);
+    }
+  });
+
+  it('repara o contador de lições quando ele está fora de sincronia com a realidade (reparo idempotente)', async () => {
+    const { commands, contentRepo } = setup();
+    const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    const modules = await contentRepo.listModulesByCourse(course.id);
+    const fundamentos = modules.find((m) => m.title === 'Fundamentos')!;
+
+    // Reproduz o bug relatado: contador anunciando lições que não batem com a
+    // quantidade real de entidades já existentes.
+    await contentRepo.saveModules([{ ...fundamentos, lessonsCount: 99 }]);
+    expect(
+      (await contentRepo.listModulesByCourse(course.id)).find((m) => m.id === fundamentos.id)?.lessonsCount
+    ).toBe(99);
+
+    await commands.initializeDefaultLearningContent(WORKSPACE_A);
+
+    const repaired = (await contentRepo.listModulesByCourse(course.id)).find((m) => m.id === fundamentos.id)!;
+    expect(repaired.lessonsCount).toBe(1);
+    expect(await contentRepo.listLessonsByModule(fundamentos.id)).toHaveLength(1);
+  });
+});
+
 describe('LearningCommands — preferências específicas do curso', () => {
   let commands: LearningCommands;
   let contentRepo: FakeLearningContentRepository;

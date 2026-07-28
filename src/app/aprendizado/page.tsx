@@ -102,7 +102,12 @@ export default function AprendizadoPage() {
           <div className="mt-6">
             <h2 className="text-lg font-semibold text-gray-900">Sessão de hoje</h2>
             <div className="mt-3">
-              <StudySessionCard course={primaryCourse} activeSession={activeSession} onChanged={refetch} />
+              <StudySessionCard
+                course={primaryCourse}
+                goalMinutes={todaySummary.goalMinutes}
+                activeSession={activeSession}
+                onChanged={refetch}
+              />
             </div>
           </div>
 
@@ -129,7 +134,7 @@ export default function AprendizadoPage() {
                         <p className="mt-1 truncate text-xs text-gray-500">{course.description}</p>
                       )}
                       <p className="mt-1 text-xs text-gray-400">
-                        Meta diária: {course.dailyGoalMinutes} min · Progresso estrutural: {progress}%
+                        Meta diária: {todaySummary.goalMinutes} min · Progresso estrutural: {progress}%
                       </p>
                     </div>
                     <ChevronRight size={18} className="shrink-0 text-gray-400" />

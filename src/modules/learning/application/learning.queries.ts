@@ -5,6 +5,7 @@ import { StudySessionRepository } from './study-session.repository';
 import {
   Course,
   LearningModule,
+  Lesson,
   LearningPreferences,
   CoursePreferences,
   StudySession,
@@ -38,8 +39,16 @@ export class LearningQueries {
     return this.contentRepo.findCourseById(id);
   }
 
+  getModuleById(moduleId: string): Promise<LearningModule | null> {
+    return this.contentRepo.findModuleById(moduleId);
+  }
+
   listModulesByCourse(courseId: string): Promise<LearningModule[]> {
     return this.contentRepo.listModulesByCourse(courseId);
+  }
+
+  listLessonsByModule(moduleId: string): Promise<Lesson[]> {
+    return this.contentRepo.listLessonsByModule(moduleId);
   }
 
   getLearningPreferences(): Promise<LearningPreferences | null> {

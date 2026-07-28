@@ -11,7 +11,7 @@ import { todayDateStr } from '@/lib/dates';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import { DailyGoalProgress } from '@/components/learning/daily-goal-progress';
 import { StudySessionCard } from '@/components/learning/study-session-card';
-import type { ModuleStatus } from '@/modules/learning/domain/learning.schema';
+import { moduleHref, type ModuleStatus } from '@/modules/learning/domain/learning.schema';
 
 const MODULE_STATUS_LABEL: Record<ModuleStatus, string> = {
   locked: 'Bloqueado',
@@ -121,7 +121,12 @@ export default function CursoDetalhePage({ params }: { params: Promise<{ courseI
       </section>
 
       <div className="mt-6">
-        <StudySessionCard course={course} activeSession={activeSession ?? null} onChanged={refetchAll} />
+        <StudySessionCard
+          course={course}
+          goalMinutes={todaySummary?.goalMinutes ?? goalMinutesForSummary}
+          activeSession={activeSession ?? null}
+          onChanged={refetchAll}
+        />
       </div>
 
       <section id="modulos" className="mt-6 scroll-mt-6">
@@ -137,20 +142,14 @@ export default function CursoDetalhePage({ params }: { params: Promise<{ courseI
               .sort((a, b) => a.position - b.position)
               .map((mod) => {
                 const Icon = MODULE_STATUS_ICON[mod.status];
-                return (
-                  <div
-                    key={mod.id}
-                    className={`flex items-center justify-between rounded-lg border p-3 ${
-                      mod.status === 'locked' ? 'border-gray-200 bg-gray-50' : 'border-gray-200 bg-white'
-                    }`}
-                  >
+                const href = moduleHref(course.id, mod);
+                const isLocked = href === null;
+                const content = (
+                  <>
                     <div className="flex items-center gap-3 min-w-0">
-                      <Icon
-                        size={18}
-                        className={mod.status === 'locked' ? 'text-gray-300' : 'text-blue-500'}
-                      />
+                      <Icon size={18} className={isLocked ? 'text-gray-300' : 'text-blue-500'} />
                       <div className="min-w-0">
-                        <p className={`text-sm font-medium ${mod.status === 'locked' ? 'text-gray-400' : 'text-gray-900'}`}>
+                        <p className={`text-sm font-medium ${isLocked ? 'text-gray-400' : 'text-gray-900'}`}>
                           {mod.title}
                         </p>
                         {mod.description && (
@@ -162,7 +161,29 @@ export default function CursoDetalhePage({ params }: { params: Promise<{ courseI
                       <div>{MODULE_STATUS_LABEL[mod.status]}</div>
                       <div>{mod.lessonsCount} lição(ões)</div>
                     </div>
-                  </div>
+                  </>
+                );
+
+                if (isLocked) {
+                  return (
+                    <div
+                      key={mod.id}
+                      aria-disabled="true"
+                      className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-3"
+                    >
+                      {content}
+                    </div>
+                  );
+                }
+
+                return (
+                  <Link
+                    key={mod.id}
+                    href={href}
+                    className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3 hover:bg-gray-50 transition-colors"
+                  >
+                    {content}
+                  </Link>
                 );
               })}
           </div>
