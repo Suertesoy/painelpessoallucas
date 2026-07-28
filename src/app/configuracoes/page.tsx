@@ -7,8 +7,6 @@ import { useAuth } from '@/providers/auth.provider';
 import { GoogleIntegrationCard } from '@/components/google-integration-card';
 import { DigestSettingsCard } from '@/components/digest-settings-card';
 import { AutomationHealthCard } from '@/components/automation-health-card';
-import { SyncDiagnosticsCard } from '@/components/sync-diagnostics-card';
-import { DataFlowDiagnosticsCard } from '@/components/data-flow-diagnostics-card';
 
 function ConfiguracoesContent() {
   const { user } = useAuth();
@@ -54,11 +52,6 @@ function ConfiguracoesContent() {
 
       <section className="mt-6">
         <AutomationHealthCard />
-      </section>
-
-      <section className="mt-6">
-        <SyncDiagnosticsCard />
-        <DataFlowDiagnosticsCard />
       </section>
     </div>
   );
