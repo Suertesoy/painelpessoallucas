@@ -12,6 +12,7 @@ import { resolveItemOrigin } from '@/lib/item-origin';
 import { formatRecordingDuration } from '@/lib/audio-recording';
 import { AudioCaptureReview } from '@/components/audio-capture-review';
 import { CalendarEventCreator } from '@/components/calendar-event-creator';
+import { isAnalyzableCapture } from '@/platform/ai/capture-processing';
 import type { Item, ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import type { Project } from '@/modules/projects/domain/project.schema';
 import type { AudioTriageRunSummary, CalendarEventLinkSummary } from '@/platform/ai/audio-provenance.repository';
@@ -37,6 +38,7 @@ function computeTriageStale(events: DomainEvent[], triageRun: AudioTriageRunSumm
 const TYPE_LABEL: Record<ItemType, string> = {
   note: 'Nota livre',
   task: 'Tarefa',
+  shopping_item: 'Item de compra',
   idea: 'Ideia',
   insight: 'Insight',
   decision: 'Decisão',
@@ -67,7 +69,7 @@ function formatDateTime(iso: string): string {
 
 /**
  * Detalhe/edição de item — aberto de qualquer tela via openItemDetail(id)
- * (Hoje, Entrada, Agenda, Ideias, detalhe de projeto, busca global).
+ * (Hoje, Entrada, Agenda, Notas, detalhe de projeto, busca global).
  * Toda alteração passa pelos Commands/Repositories existentes; nada é
  * gravado diretamente no Supabase pela UI.
  */
@@ -155,7 +157,7 @@ export function ItemDetailModal() {
   // Recarrega proveniência (histórico + última triagem + vínculo de
   // calendário) após aplicar uma ação ou rodar uma nova análise — mantém o
   // painel somente-leitura sempre refletindo o estado mais recente.
-  const refreshAudioProvenance = useCallback(
+  const refreshCaptureProvenance = useCallback(
     async (id: string) => {
       try {
         const [events, run, link] = await Promise.all([
@@ -167,7 +169,7 @@ export function ItemDetailModal() {
         setCalendarLink(link);
         setIsTriageStale(computeTriageStale(events, run));
       } catch (e) {
-        console.error('Falha ao atualizar a proveniência da captura por áudio', e);
+        console.error('Falha ao atualizar a proveniência da captura', e);
       }
     },
     [eventRepository, audioProvenanceRepository]
@@ -227,9 +229,15 @@ export function ItemDetailModal() {
             console.error('Falha ao carregar o vínculo de calendário', e);
           });
 
-        // Proveniência de áudio é informação complementar de auditoria — uma
-        // falha aqui nunca deve impedir a exibição/edição do item.
-        if (loadedItem.source === 'audio_capture') {
+        setOriginalTranscript(null);
+        setTriageRun(null);
+        setIsTriageStale(false);
+        setTriageProposal(null);
+        setTriageAiRunId(null);
+
+        // A análise é complementar: uma falha aqui nunca deve impedir a
+        // exibição/edição da captura original.
+        if (isAnalyzableCapture(loadedItem)) {
           Promise.all([
             eventRepository.findByEntityId(itemId),
             audioProvenanceRepository.findLatestTriageRun(itemId),
@@ -238,12 +246,23 @@ export function ItemDetailModal() {
               if (cancelled) return;
               const createdEvent = events.find((ev) => ev.type === 'item.created');
               const createdPayload = createdEvent?.payload as { content?: string } | undefined;
-              setOriginalTranscript(createdPayload?.content ?? null);
+              if (loadedItem.source === 'audio_capture') {
+                setOriginalTranscript(createdPayload?.content ?? null);
+              }
+              const stale = computeTriageStale(events, run);
               setTriageRun(run);
-              setIsTriageStale(computeTriageStale(events, run));
+              setIsTriageStale(stale);
+              if (
+                run?.status === 'completed' &&
+                run.proposal &&
+                !stale
+              ) {
+                setTriageProposal(run.proposal);
+                setTriageAiRunId(run.id);
+              }
             })
             .catch((e: unknown) => {
-              console.error('Falha ao carregar proveniência da captura por áudio', e);
+              console.error('Falha ao carregar a análise da captura', e);
             });
         }
       })
@@ -268,7 +287,8 @@ export function ItemDetailModal() {
     }
     setIsSaving(true);
     setSaveError(null);
-    const contentChanged = item?.source === 'audio_capture' && content.trim() !== (item.content ?? '');
+    const contentChanged =
+      !!item && isAnalyzableCapture(item) && content.trim() !== (item.content ?? '');
     try {
       const updated = await itemCmds.updateItem(itemId, {
         title: title.trim() || undefined,
@@ -297,11 +317,7 @@ export function ItemDetailModal() {
     }
   };
 
-  // Analisa (ou reanalisa) a captura por áudio com IA a partir do detalhe do
-  // item — caminho previsto para quando a captura foi salva com "Salvar sem
-  // analisar" ou quando a análise ficou desatualizada por uma edição
-  // posterior. A proposta retornada é sempre uma revisão nova e transitória
-  // (nunca reaplica automaticamente ações de uma análise anterior).
+  // Analisa (ou reanalisa) a captura livre com IA a partir do detalhe.
   const handleAnalyzeWithAI = async () => {
     if (!itemId) return;
     setIsAnalyzing(true);
@@ -310,7 +326,10 @@ export function ItemDetailModal() {
       const res = await fetch('/api/ai/triage-capture', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId, idempotencyKey: itemId }),
+        body: JSON.stringify({
+          itemId,
+          idempotencyKey: crypto.randomUUID(),
+        }),
       });
       if (!res.ok) {
         setAnalyzeError('A captura foi salva, mas a análise não foi concluída. Tente novamente.');
@@ -330,7 +349,7 @@ export function ItemDetailModal() {
   const closeTriageReview = () => {
     setTriageProposal(null);
     setTriageAiRunId(null);
-    if (itemId) void refreshAudioProvenance(itemId);
+    if (itemId) void refreshCaptureProvenance(itemId);
   };
 
   const runAction = async (fn: () => Promise<Item>) => {
@@ -639,9 +658,10 @@ export function ItemDetailModal() {
                 </div>
               )}
 
-              {/* Proveniência de captura por áudio */}
-              {item.source === 'audio_capture' && (
-                <AudioProvenancePanel
+              {/* Histórico da captura e da análise */}
+              {isAnalyzableCapture(item) && (
+                <CaptureProvenancePanel
+                  source={item.source}
                   createdAt={item.createdAt}
                   durationSeconds={item.audioDurationSeconds}
                   originalTranscript={originalTranscript}
@@ -673,7 +693,7 @@ export function ItemDetailModal() {
                     <CalendarEventCreator
                       itemId={item.id}
                       initialTitle={item.title}
-                      onCreated={() => void refreshAudioProvenance(item.id)}
+                      onCreated={() => void refreshCaptureProvenance(item.id)}
                     />
                   </div>
                 ) : (
@@ -687,11 +707,8 @@ export function ItemDetailModal() {
                 )}
               </div>
 
-              {/* Analisar com IA a partir do detalhe: caminho previsto para
-                  quem clicou "Salvar sem analisar" na captura, e reanálise
-                  obrigatória quando a transcrição foi editada depois da
-                  última análise. */}
-              {item.source === 'audio_capture' && !triageProposal && (
+              {/* Analisar ou retomar a revisão da captura. */}
+              {isAnalyzableCapture(item) && !triageProposal && (
                 <div className="space-y-2">
                   {isTriageStale && (
                     <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
@@ -721,17 +738,33 @@ export function ItemDetailModal() {
                       )}
                     </button>
                   )}
+                  {!isTriageStale &&
+                    triageRun?.status === 'completed' &&
+                    triageRun.proposal && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTriageProposal(triageRun.proposal);
+                          setTriageAiRunId(triageRun.id);
+                        }}
+                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                      >
+                        <Sparkles size={14} /> Revisar sugestões
+                      </button>
+                    )}
                 </div>
               )}
 
-              {item.source === 'audio_capture' && triageProposal && triageAiRunId && (
+              {isAnalyzableCapture(item) && triageProposal && triageAiRunId && (
                 <AudioCaptureReview
                   itemId={item.id}
                   aiRunId={triageAiRunId}
                   proposal={triageProposal}
                   availableProjects={projects.map((p) => ({ id: p.id, name: p.name }))}
+                  initialActionOutcomes={triageRun?.actionsOutcome}
+                  initialCalendarOutcome={triageRun?.calendarOutcome}
                   onClose={closeTriageReview}
-                  onApplied={() => void refreshAudioProvenance(item.id)}
+                  onApplied={() => void refreshCaptureProvenance(item.id)}
                 />
               )}
 
@@ -788,13 +821,15 @@ function googleCalendarEventUrl(calendarId: string, eventId: string): string {
   return `https://calendar.google.com/calendar/event?eid=${encodeURIComponent(base64)}`;
 }
 
-function AudioProvenancePanel({
+function CaptureProvenancePanel({
+  source,
   createdAt,
   durationSeconds,
   originalTranscript,
   currentContent,
   triageRun,
 }: {
+  source: Item['source'];
   createdAt: string;
   durationSeconds?: number;
   originalTranscript: string | null;
@@ -807,11 +842,19 @@ function AudioProvenancePanel({
   return (
     <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/50 p-3">
       <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700">
-        <Mic size={12} /> Captura por áudio
+        {source === 'audio_capture' ? (
+          <>
+            <Mic size={12} /> Captura por áudio
+          </>
+        ) : (
+          <>
+            <Sparkles size={12} /> Captura livre
+          </>
+        )}
       </h3>
 
       <p className="text-xs text-gray-600">
-        Gravado em {formatDateTime(createdAt)}
+        {source === 'audio_capture' ? 'Gravado' : 'Registrado'} em {formatDateTime(createdAt)}
         {durationSeconds ? ` · ${formatRecordingDuration(durationSeconds)}` : ''}
       </p>
 
@@ -859,6 +902,8 @@ function AudioProvenancePanel({
                           className={
                             outcome?.status === 'done'
                               ? 'text-green-700'
+                              : outcome?.status === 'dismissed'
+                                ? 'text-gray-500'
                               : outcome?.status === 'error'
                                 ? 'text-red-600'
                                 : 'text-gray-400'
@@ -866,6 +911,8 @@ function AudioProvenancePanel({
                         >
                           {outcome?.status === 'done'
                             ? 'Aprovada e aplicada'
+                            : outcome?.status === 'dismissed'
+                              ? 'Ignorada'
                             : outcome?.status === 'error'
                               ? 'Aprovada — falhou ao aplicar'
                               : 'Não aprovada'}
@@ -880,6 +927,8 @@ function AudioProvenancePanel({
                   Evento sugerido: {triageRun.proposal.calendarProposal.title} —{' '}
                   {triageRun.calendarOutcome === 'done'
                     ? 'aprovado e criado'
+                    : triageRun.calendarOutcome === 'dismissed'
+                      ? 'ignorado'
                     : triageRun.calendarOutcome === 'error'
                       ? 'aprovado — falhou ao criar'
                       : 'não aprovado'}

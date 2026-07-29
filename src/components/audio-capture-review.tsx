@@ -7,10 +7,15 @@ import { datetimeLocalToISO, isoToDatetimeLocalInput } from '@/lib/dates';
 import { CalendarEventCreator } from '@/components/calendar-event-creator';
 import type { ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import type { AudioTriageProposal, ProposedAction } from '@/platform/ai/audio-triage.schema';
+import type {
+  TriageActionOutcome,
+  TriageActionOutcomeStatus,
+} from '@/platform/ai/audio-provenance.repository';
 
 const TYPE_LABEL: Record<ItemType, string> = {
   note: 'Nota livre',
   task: 'Tarefa',
+  shopping_item: 'Item de compra',
   idea: 'Ideia',
   insight: 'Insight',
   decision: 'Decisão',
@@ -36,11 +41,14 @@ interface ActionDraft {
   dueAt: string; // datetime-local
   scheduledAt: string; // datetime-local
   estimatedMinutes: string;
-  status: 'idle' | 'saving' | 'done' | 'error';
+  status: 'idle' | 'saving' | 'done' | 'dismissed' | 'error';
   error: string | null;
 }
 
-function draftFromAction(action: ProposedAction): ActionDraft {
+function draftFromAction(
+  action: ProposedAction,
+  outcome?: TriageActionOutcome
+): ActionDraft {
   return {
     approved: false,
     title: action.title,
@@ -52,8 +60,16 @@ function draftFromAction(action: ProposedAction): ActionDraft {
     dueAt: action.dueAt ? isoToDatetimeLocalInput(action.dueAt) : '',
     scheduledAt: action.scheduledAt ? isoToDatetimeLocalInput(action.scheduledAt) : '',
     estimatedMinutes: action.estimatedMinutes ? String(action.estimatedMinutes) : '',
-    status: 'idle',
-    error: null,
+    status:
+      outcome?.status === 'done' || outcome?.status === 'dismissed'
+        ? outcome.status
+        : outcome?.status === 'error'
+          ? 'error'
+          : 'idle',
+    error:
+      outcome?.status === 'error'
+        ? 'A tentativa anterior falhou. Você pode tentar novamente.'
+        : null,
   };
 }
 
@@ -63,7 +79,7 @@ interface AvailableProject {
 }
 
 /**
- * Revisão da triagem por IA de uma captura de áudio. A IA só propõe — cada
+ * Revisão da triagem por IA de uma captura livre. A IA só propõe — cada
  * ação (item novo, atualização da captura, evento de calendário) exige
  * aprovação explícita e individual antes de qualquer gravação real. O
  * formulário de evento em si (validação, modalidade, local, link, lembretes)
@@ -76,6 +92,8 @@ export function AudioCaptureReview({
   aiRunId,
   proposal,
   availableProjects,
+  initialActionOutcomes = [],
+  initialCalendarOutcome = null,
   onClose,
   onApplied,
 }: {
@@ -89,12 +107,23 @@ export function AudioCaptureReview({
   aiRunId: string;
   proposal: AudioTriageProposal;
   availableProjects: AvailableProject[];
+  initialActionOutcomes?: TriageActionOutcome[];
+  initialCalendarOutcome?: TriageActionOutcomeStatus | null;
   onClose: () => void;
   onApplied?: () => void;
 }) {
   const { audioProvenanceRepository } = useRepositories();
 
-  const [drafts, setDrafts] = useState<ActionDraft[]>(() => proposal.proposedActions.map(draftFromAction));
+  const [drafts, setDrafts] = useState<ActionDraft[]>(() =>
+    proposal.proposedActions.map((action, index) =>
+      draftFromAction(
+        action,
+        initialActionOutcomes.find((outcome) => outcome.index === index)
+      )
+    )
+  );
+  const [calendarStatus, setCalendarStatus] =
+    useState<TriageActionOutcomeStatus | null>(initialCalendarOutcome);
 
   const updateDraft = (index: number, patch: Partial<ActionDraft>) => {
     setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, ...patch } : d)));
@@ -141,10 +170,27 @@ export function AudioCaptureReview({
     }
   };
 
+  const dismissAction = (index: number) => {
+    updateDraft(index, {
+      approved: false,
+      status: 'dismissed',
+      error: null,
+    });
+    void audioProvenanceRepository.recordActionOutcome(
+      aiRunId,
+      index,
+      'dismissed'
+    );
+    onApplied?.();
+  };
+
   const handleApproveSelected = async () => {
     const indexes = drafts
       .map((d, i) => ({ d, i }))
-      .filter(({ d }) => d.approved && d.status !== 'done');
+      .filter(
+        ({ d }) =>
+          d.approved && d.status !== 'done' && d.status !== 'dismissed'
+      );
     for (const { i } of indexes) {
       await applyAction(i);
     }
@@ -197,7 +243,9 @@ export function AudioCaptureReview({
                 <input
                   type="checkbox"
                   checked={draft.approved}
-                  disabled={draft.status === 'done'}
+                  disabled={
+                    draft.status === 'done' || draft.status === 'dismissed'
+                  }
                   onChange={(e) => updateDraft(i, { approved: e.target.checked })}
                   aria-label={`Aprovar ação: ${draft.title}`}
                   className="mt-1"
@@ -289,6 +337,22 @@ export function AudioCaptureReview({
                       <Check size={12} /> Aplicado
                     </p>
                   )}
+                  {draft.status === 'dismissed' && (
+                    <p className="flex items-center gap-1 text-xs text-gray-500">
+                      <X size={12} /> Sugestão ignorada
+                    </p>
+                  )}
+                  {draft.status !== 'done' &&
+                    draft.status !== 'dismissed' &&
+                    draft.status !== 'saving' && (
+                      <button
+                        type="button"
+                        onClick={() => dismissAction(i)}
+                        className="text-xs font-medium text-gray-500 hover:text-gray-800 hover:underline"
+                      >
+                        Ignorar esta sugestão
+                      </button>
+                    )}
                 </div>
               </div>
             </div>
@@ -299,7 +363,14 @@ export function AudioCaptureReview({
           <button
             type="button"
             onClick={handleApproveSelected}
-            disabled={!drafts.some((d) => d.approved && d.status !== 'done')}
+            disabled={
+              !drafts.some(
+                (d) =>
+                  d.approved &&
+                  d.status !== 'done' &&
+                  d.status !== 'dismissed'
+              )
+            }
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Confirmar ações selecionadas
@@ -317,19 +388,50 @@ export function AudioCaptureReview({
               Data/horário não identificados com clareza na fala — preencha antes de criar o evento.
             </p>
           )}
-          <div className="mt-2">
-            <CalendarEventCreator
-              itemId={itemId}
-              aiRunId={aiRunId}
-              initialTitle={proposal.calendarProposal.title}
-              initialStartAt={proposal.calendarProposal.startAt}
-              initialEndAt={proposal.calendarProposal.endAt}
-              initialLocation={proposal.calendarProposal.location}
-              attendees={proposal.calendarProposal.attendees}
-              onCreated={() => onApplied?.()}
-              onOutcome={(status) => void audioProvenanceRepository.recordCalendarOutcome(aiRunId, status)}
-            />
-          </div>
+          {calendarStatus === 'done' ? (
+            <p className="mt-2 flex items-center gap-1 text-xs text-green-700">
+              <Check size={12} /> Evento criado
+            </p>
+          ) : calendarStatus === 'dismissed' ? (
+            <p className="mt-2 flex items-center gap-1 text-xs text-gray-500">
+              <X size={12} /> Sugestão de evento ignorada
+            </p>
+          ) : (
+            <>
+              <div className="mt-2">
+                <CalendarEventCreator
+                  itemId={itemId}
+                  aiRunId={aiRunId}
+                  initialTitle={proposal.calendarProposal.title}
+                  initialStartAt={proposal.calendarProposal.startAt}
+                  initialEndAt={proposal.calendarProposal.endAt}
+                  initialLocation={proposal.calendarProposal.location}
+                  attendees={proposal.calendarProposal.attendees}
+                  onCreated={() => onApplied?.()}
+                  onOutcome={(status) => {
+                    void audioProvenanceRepository.recordCalendarOutcome(
+                      aiRunId,
+                      status
+                    );
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCalendarStatus('dismissed');
+                  void audioProvenanceRepository.recordCalendarOutcome(
+                    aiRunId,
+                    'dismissed'
+                  );
+                  onApplied?.();
+                }}
+                className="mt-2 text-xs font-medium text-gray-500 hover:text-gray-800 hover:underline"
+              >
+                Ignorar sugestão de evento
+              </button>
+            </>
+          )}
         </div>
       )}
 

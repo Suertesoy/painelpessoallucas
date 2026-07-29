@@ -22,7 +22,7 @@ export class SupabaseAudioProvenanceRepository implements AudioProvenanceReposit
       .select('id, model, status, created_at, completed_at, error_message, response_metadata')
       .eq('workspace_id', this.workspaceId)
       .eq('item_id', itemId)
-      .eq('operation', 'audio_capture_triage')
+      .in('operation', ['capture_triage', 'audio_capture_triage'])
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -30,14 +30,52 @@ export class SupabaseAudioProvenanceRepository implements AudioProvenanceReposit
       throw new Error(`Não foi possível carregar o resultado da análise por IA: ${error.message}`);
     }
     if (!data) return null;
+    return this.rowToTriageRun(data);
+  }
 
+  async findLatestTriageRuns(
+    itemIds: string[]
+  ): Promise<Record<string, AudioTriageRunSummary>> {
+    if (itemIds.length === 0) return {};
+
+    const { data, error } = await this.supabase
+      .from('ai_runs')
+      .select('id, item_id, model, status, created_at, completed_at, error_message, response_metadata')
+      .eq('workspace_id', this.workspaceId)
+      .in('item_id', itemIds)
+      .in('operation', ['capture_triage', 'audio_capture_triage'])
+      .order('created_at', { ascending: false });
+    if (error) {
+      throw new Error(`Não foi possível carregar os estados das análises: ${error.message}`);
+    }
+
+    const latest: Record<string, AudioTriageRunSummary> = {};
+    for (const row of data ?? []) {
+      if (row.item_id && !latest[row.item_id]) {
+        latest[row.item_id] = this.rowToTriageRun(row);
+      }
+    }
+    return latest;
+  }
+
+  private rowToTriageRun(data: {
+    id: string;
+    model: string;
+    status: 'queued' | 'running' | 'completed' | 'failed';
+    created_at: string;
+    completed_at: string | null;
+    error_message: string | null;
+    response_metadata: unknown;
+  }): AudioTriageRunSummary {
     const raw = (data.response_metadata ?? {}) as Record<string, unknown>;
     const parsedProposal = AudioTriageProposalSchema.safeParse(raw);
     const actionsOutcome: TriageActionOutcome[] = Array.isArray(raw.actionsOutcome)
       ? (raw.actionsOutcome as TriageActionOutcome[])
       : [];
     const calendarOutcome =
-      raw.calendarOutcome === 'done' || raw.calendarOutcome === 'error'
+      raw.calendarOutcome === 'done' ||
+      raw.calendarOutcome === 'dismissed' ||
+      raw.calendarOutcome === 'error'
         ? (raw.calendarOutcome as TriageActionOutcomeStatus)
         : null;
 

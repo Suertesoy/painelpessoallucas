@@ -24,6 +24,7 @@ export const TriageIntentSchema = z.enum([
   'calendar_event',
   'meeting',
   'note',
+  'shopping_item',
   'multiple',
   'unknown',
 ]);

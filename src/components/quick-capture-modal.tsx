@@ -1,106 +1,64 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useCommands, useQueries } from '@/providers/repository.provider';
-import { ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
-import { Project } from '@/modules/projects/domain/project.schema';
-import { useWorkspace } from '@/providers/auth.provider';
-import { QUICK_CAPTURE_EVENT } from '@/lib/ui-events';
-import { fileExtensionForMimeType } from '@/lib/audio-recording';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertCircle, Loader2, Mic, Send, X } from 'lucide-react';
 import { AudioRecorder } from '@/components/audio-recorder';
-import { AudioCaptureReview } from '@/components/audio-capture-review';
-import { CalendarEventCreator } from '@/components/calendar-event-creator';
-import type { AudioTriageProposal } from '@/platform/ai/audio-triage.schema';
-import { X, Mic, Type, Sparkles, AlertCircle, Loader2, Calendar } from 'lucide-react';
+import { fileExtensionForMimeType } from '@/lib/audio-recording';
+import { QUICK_CAPTURE_EVENT } from '@/lib/ui-events';
+import { useCommands } from '@/providers/repository.provider';
+import { useWorkspace } from '@/providers/auth.provider';
 
-type CaptureMode = 'text' | 'audio';
-type AudioPhase = 'idle' | 'processing' | 'saved' | 'analyzing' | 'reviewing';
+type AudioPhase = 'idle' | 'recording' | 'processing';
+
+const SAVED_NOTICE_DURATION_MS = 4_000;
 
 export function QuickCaptureModal() {
   const [isOpen, setIsOpen] = useState(false);
-  const [mode, setMode] = useState<CaptureMode>('text');
   const [content, setContent] = useState('');
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState<ItemType>('note');
-  const [priority, setPriority] = useState<ItemPriority>('normal');
-  const [projectId, setProjectId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const [createdItemId, setCreatedItemId] = useState<string | null>(null);
-  const [createdItemTitle, setCreatedItemTitle] = useState('');
-  const { item: itemCmds } = useCommands();
-  const { workspaceId } = useWorkspace();
+  const [error, setError] = useState<string | null>(null);
+  const [audioPhase, setAudioPhase] = useState<AudioPhase>('idle');
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [hasPendingAudio, setHasPendingAudio] = useState(false);
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const pendingAudioRef = useRef<{ blob: Blob; seconds: number } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { item: itemCommands } = useCommands();
+  const { workspaceId } = useWorkspace();
 
-  const { project: projectQueries } = useQueries();
-  const [projects, setProjects] = useState<Project[]>([]);
+  const showSavedNotice = useCallback((message: string) => {
+    setSavedNotice(message);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => {
+      setSavedNotice(null);
+      noticeTimerRef.current = null;
+    }, SAVED_NOTICE_DURATION_MS);
+  }, []);
 
-  // --- Fluxo de captura por áudio -------------------------------------------
-  const [audioPhase, setAudioPhase] = useState<AudioPhase>('idle');
-  // "transcript" é o campo editável (Revisar transcrição); "originalTranscript"
-  // é a última versão já persistida no item — usada só para saber se há edição
-  // pendente antes de decidir se precisa chamar updateItem.
-  const [transcript, setTranscript] = useState('');
-  const [originalTranscript, setOriginalTranscript] = useState('');
-  const [audioError, setAudioError] = useState<string | null>(null);
-  const [persistError, setPersistError] = useState<string | null>(null);
-  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
-  const [isSavingWithoutAnalysis, setIsSavingWithoutAnalysis] = useState(false);
-  const pendingAudioRef = useRef<{ blob: Blob; seconds: number } | null>(null);
-  const [hasPendingAudio, setHasPendingAudio] = useState(false);
-  const [savedItemId, setSavedItemId] = useState<string | null>(null);
-  const [savedDurationSeconds, setSavedDurationSeconds] = useState(0);
-  const [triageProposal, setTriageProposal] = useState<AudioTriageProposal | null>(null);
-  const [triageAiRunId, setTriageAiRunId] = useState<string | null>(null);
+  const reset = useCallback(() => {
+    setContent('');
+    setIsSubmitting(false);
+    setError(null);
+    setAudioPhase('idle');
+    setAudioError(null);
+    setHasPendingAudio(false);
+    pendingAudioRef.current = null;
+  }, []);
 
   const openModal = useCallback(() => {
     previousFocusRef.current = document.activeElement as HTMLElement;
     setIsOpen(true);
   }, []);
 
-  const resetAudioFlow = () => {
-    setAudioPhase('idle');
-    setTranscript('');
-    setOriginalTranscript('');
-    setAudioError(null);
-    setPersistError(null);
-    setAnalyzeError(null);
-    setIsSavingWithoutAnalysis(false);
-    pendingAudioRef.current = null;
-    setHasPendingAudio(false);
-    setSavedItemId(null);
-    setSavedDurationSeconds(0);
-    setTriageProposal(null);
-    setTriageAiRunId(null);
-  };
-
   const closeModal = useCallback(() => {
+    if (isSubmitting || audioPhase === 'processing') return;
     setIsOpen(false);
-    setMode('text');
-    setContent('');
-    setTitle('');
-    setType('note');
-    setPriority('normal');
-    setProjectId('');
-    setError('');
-    setSuccess(false);
-    setCreatedItemId(null);
-    setCreatedItemTitle('');
-    resetAudioFlow();
-    if (previousFocusRef.current) {
-      previousFocusRef.current.focus();
-    }
-  }, []);
+    reset();
+    previousFocusRef.current?.focus();
+  }, [audioPhase, isSubmitting, reset]);
 
-  useEffect(() => {
-    if (isOpen) {
-      projectQueries.listProjects().then(ps => setProjects(ps.filter(p => p.status === 'active')));
-    }
-  }, [isOpen, projectQueries]);
-
-  // Abertura via botões da interface (sidebar, FAB mobile)
   useEffect(() => {
     const handleOpen = () => openModal();
     window.addEventListener(QUICK_CAPTURE_EVENT, handleOpen);
@@ -108,73 +66,102 @@ export function QuickCaptureModal() {
   }, [openModal]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl/Cmd + Shift + Space
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.code === 'Space') {
-        const target = e.target as HTMLElement;
-        const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        event.code === 'Space'
+      ) {
+        const target = event.target as HTMLElement;
+        const isInput =
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable;
+        if (isInput && !isOpen) return;
 
-        if (isInput && !isOpen) return; // Não abre se estiver digitando em outro lugar
-
-        e.preventDefault();
-        if (!isOpen) {
-          openModal();
-        } else {
-          closeModal();
-        }
+        event.preventDefault();
+        if (isOpen) closeModal();
+        else openModal();
       }
-
-      if (e.key === 'Escape' && isOpen) {
-        closeModal();
-      }
+      if (event.key === 'Escape' && isOpen) closeModal();
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, openModal, closeModal]);
+  }, [closeModal, isOpen, openModal]);
 
   useEffect(() => {
-    if (isOpen && mode === 'text') {
-      setTimeout(() => inputRef.current?.focus(), 50);
+    if (isOpen && audioPhase === 'idle') {
+      const timer = setTimeout(() => inputRef.current?.focus(), 50);
+      return () => clearTimeout(timer);
     }
-  }, [isOpen, mode]);
+  }, [audioPhase, isOpen]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!content.trim()) {
-      setError('Conteúdo é obrigatório');
+  useEffect(
+    () => () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    },
+    []
+  );
+
+  const queueAnalysis = (itemId: string) => {
+    // A captura já está persistida. A resposta não precisa manter o modal
+    // aberto; ai_runs + Realtime comunicam o andamento à Caixa de Entrada.
+    void fetch('/api/ai/triage-capture', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId, idempotencyKey: itemId }),
+      keepalive: true,
+    }).catch(() => {
+      // Sem erro transitório no modal: o item permanece como "Recebida" e
+      // pode ser analisado novamente a partir da Caixa de Entrada.
+    });
+  };
+
+  const finishCapture = (itemId: string, source: 'text' | 'audio') => {
+    queueAnalysis(itemId);
+    setIsOpen(false);
+    reset();
+    showSavedNotice(
+      source === 'audio'
+        ? 'Áudio transcrito e captura salva. A análise continua em segundo plano.'
+        : 'Captura salva. A análise continua em segundo plano.'
+    );
+    previousFocusRef.current?.focus();
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const trimmed = content.trim();
+    if (!trimmed) {
+      setError('Escreva algo ou use o microfone para gravar.');
       return;
     }
 
     setIsSubmitting(true);
-    setError('');
+    setError(null);
     try {
-      const savedTitle = title.trim() || content.substring(0, 40) + (content.length > 40 ? '...' : '');
-      const newItem = await itemCmds.createItem({
-        title: savedTitle,
-        content: content.trim(),
-        type,
-        priority,
-        projectId: projectId || undefined,
-        source: 'quick_capture'
-      }, workspaceId);
-
-      setCreatedItemId(newItem.id);
-      setCreatedItemTitle(savedTitle);
-      setSuccess(true);
-      // Não fecha automaticamente: o usuário pode aproveitar para adicionar
-      // um evento de calendário a esta captura antes de fechar.
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Erro ao criar item';
-      setError(errorMsg);
-    } finally {
+      const item = await itemCommands.createItem(
+        {
+          content: trimmed,
+          type: 'note',
+          priority: 'normal',
+          source: 'quick_capture',
+        },
+        workspaceId
+      );
+      finishCapture(item.id, 'text');
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Não foi possível salvar a captura.'
+      );
       setIsSubmitting(false);
     }
   };
 
-  // Envia o Blob gravado para transcrição e, assim que houver texto, salva a
-  // captura na Caixa de Entrada IMEDIATAMENTE — antes de qualquer análise de
-  // IA. Uma falha na IA depois disso nunca pode apagar esta captura.
   const sendForTranscription = async (blob: Blob, seconds: number) => {
     pendingAudioRef.current = { blob, seconds };
     setHasPendingAudio(true);
@@ -183,21 +170,29 @@ export function QuickCaptureModal() {
 
     try {
       const formData = new FormData();
-      formData.append('audio', blob, `captura.${fileExtensionForMimeType(blob.type)}`);
-
-      const res = await fetch('/api/audio/transcribe', { method: 'POST', body: formData });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      formData.append(
+        'audio',
+        blob,
+        `captura.${fileExtensionForMimeType(blob.type)}`
+      );
+      const response = await fetch('/api/audio/transcribe', {
+        method: 'POST',
+        body: formData,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
         throw new Error(body.error ?? 'Não foi possível transcrever o áudio.');
       }
-      const transcribedText: string = body.transcript;
-      setTranscript(transcribedText);
-      setOriginalTranscript(transcribedText);
 
-      const item = await itemCmds.createItem(
+      const transcript =
+        typeof body.transcript === 'string' ? body.transcript.trim() : '';
+      if (!transcript) {
+        throw new Error('A transcrição voltou vazia. Tente gravar novamente.');
+      }
+
+      const item = await itemCommands.createItem(
         {
-          title: transcribedText.slice(0, 60) + (transcribedText.length > 60 ? '…' : ''),
-          content: transcribedText,
+          content: transcript,
           type: 'note',
           priority: 'normal',
           source: 'audio_capture',
@@ -205,356 +200,213 @@ export function QuickCaptureModal() {
         },
         workspaceId
       );
-      setSavedItemId(item.id);
-      setSavedDurationSeconds(seconds);
-      setAudioPhase('saved');
+      // O Blob nunca é persistido. Depois desta linha, só a transcrição e a
+      // duração permanecem no painel.
       pendingAudioRef.current = null;
       setHasPendingAudio(false);
-    } catch (err) {
-      setAudioError(err instanceof Error ? err.message : 'Erro ao processar o áudio.');
-      setAudioPhase('idle');
-      // pendingAudioRef mantém o Blob — "Tentar novamente" não obriga regravar.
+      finishCapture(item.id, 'audio');
+    } catch (caught) {
+      setAudioError(
+        caught instanceof Error
+          ? caught.message
+          : 'Não foi possível processar o áudio.'
+      );
+      setAudioPhase('recording');
     }
   };
 
-  const handleRetryTranscription = () => {
-    if (pendingAudioRef.current) {
-      void sendForTranscription(pendingAudioRef.current.blob, pendingAudioRef.current.seconds);
-    }
+  const retryTranscription = () => {
+    if (!pendingAudioRef.current) return;
+    void sendForTranscription(
+      pendingAudioRef.current.blob,
+      pendingAudioRef.current.seconds
+    );
   };
 
-  // Só persiste se o texto do campo divergir do que já está salvo no item —
-  // evita uma escrita desnecessária quando o usuário não edita nada. Em caso
-  // de falha, o texto digitado permanece no campo para nova tentativa (nunca
-  // é descartado) e quem chamou decide não prosseguir (nem triagem, nem
-  // fechar o modal).
-  const persistTranscriptEditIfNeeded = async (): Promise<boolean> => {
-    if (!savedItemId) return false;
-    const trimmed = transcript.trim();
-    if (trimmed === originalTranscript.trim()) return true;
-    try {
-      await itemCmds.updateItem(savedItemId, {
-        content: trimmed,
-        title: trimmed.slice(0, 60) + (trimmed.length > 60 ? '…' : ''),
-      });
-      setOriginalTranscript(trimmed);
-      return true;
-    } catch {
-      setPersistError('Não foi possível salvar a correção. Seu texto continua aqui. Tente novamente.');
-      return false;
-    }
+  const toggleAudio = () => {
+    setError(null);
+    setAudioError(null);
+    setAudioPhase((current) => (current === 'idle' ? 'recording' : 'idle'));
   };
 
-  const handleAnalyzeWithAI = async () => {
-    if (!savedItemId || !transcript.trim()) return;
-    setAudioPhase('analyzing');
-    setAnalyzeError(null);
-    setPersistError(null);
-
-    const persisted = await persistTranscriptEditIfNeeded();
-    if (!persisted) {
-      setAudioPhase('saved');
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/ai/triage-capture', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId: savedItemId, idempotencyKey: savedItemId }),
-      });
-      if (!res.ok) {
-        setAnalyzeError('A captura foi salva, mas a análise não foi concluída. Tente novamente.');
-        setAudioPhase('saved');
-        return;
-      }
-      const body = await res.json().catch(() => ({}));
-      setTriageProposal(body.proposal as AudioTriageProposal);
-      setTriageAiRunId(body.aiRunId as string);
-      setAudioPhase('reviewing');
-    } catch {
-      setAnalyzeError('A captura foi salva, mas a análise não foi concluída. Tente novamente.');
-      setAudioPhase('saved');
+  const handleTextareaKeyDown = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      (event.key === 'Enter' || event.key === 'NumpadEnter')
+    ) {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
     }
   };
-
-  const handleSaveWithoutAnalysis = async () => {
-    setPersistError(null);
-    setIsSavingWithoutAnalysis(true);
-    const persisted = await persistTranscriptEditIfNeeded();
-    setIsSavingWithoutAnalysis(false);
-    if (persisted) closeModal();
-  };
-
-  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Captura rápida">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden flex max-h-[90vh] flex-col">
-        <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-          <h2 className="font-semibold text-gray-800">Captura Rápida</h2>
-          <button onClick={closeModal} className="text-gray-500 hover:text-gray-800" aria-label="Fechar">
-            <X size={20} />
-          </button>
+    <>
+      {savedNotice && (
+        <div
+          role="status"
+          className="fixed bottom-24 right-4 z-[60] max-w-sm rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900 shadow-lg md:bottom-6"
+        >
+          {savedNotice}
         </div>
+      )}
 
-        <div className="flex border-b bg-white px-4 pt-3 gap-1">
-          <button
-            type="button"
-            onClick={() => setMode('text')}
-            disabled={audioPhase !== 'idle'}
-            className={`inline-flex items-center gap-1.5 rounded-t-md px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 ${
-              mode === 'text' ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:bg-gray-50'
-            }`}
-          >
-            <Type size={14} /> Texto
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('audio')}
-            disabled={audioPhase !== 'idle'}
-            className={`inline-flex items-center gap-1.5 rounded-t-md px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 ${
-              mode === 'audio' ? 'bg-blue-50 text-blue-700' : 'text-gray-500 hover:bg-gray-50'
-            }`}
-          >
-            <Mic size={14} /> Áudio
-          </button>
-        </div>
-
-        {mode === 'text' && (
-          <form onSubmit={handleSubmit} className="overflow-y-auto p-4 space-y-4">
-            {success && createdItemId ? (
-              <div className="space-y-4">
-                <div className="bg-green-50 text-green-700 p-3 rounded-md text-sm" role="status">
-                  Item capturado com sucesso!
-                </div>
-                <div className="rounded-lg border border-gray-200 bg-white p-3">
-                  <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    <Calendar size={14} className="text-blue-500" /> Adicionar ao Calendário (opcional)
-                  </h3>
-                  <div className="mt-2">
-                    <CalendarEventCreator itemId={createdItemId} initialTitle={createdItemTitle} />
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    aria-label="Fechar captura"
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                  >
-                    Fechar
-                  </button>
-                </div>
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Captura rápida"
+        >
+          <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b bg-gray-50 p-4">
+              <div>
+                <h2 className="font-semibold text-gray-900">Capturar</h2>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Registre primeiro. A organização vem depois.
+                </p>
               </div>
-            ) : (
-              <>
-                {error && <div className="text-red-600 text-sm" role="alert">{error}</div>}
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={isSubmitting || audioPhase === 'processing'}
+                className="rounded-md p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-40"
+                aria-label="Fechar"
+              >
+                <X size={20} />
+              </button>
+            </div>
 
-                <div>
-                  <label htmlFor="qc-content" className="sr-only">Conteúdo</label>
-                  <textarea
-                    id="qc-content"
-                    ref={inputRef}
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    placeholder="O que está em sua mente?"
-                    className="w-full h-32 p-3 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
-                    required
-                  />
-                </div>
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-4 overflow-y-auto p-4"
+            >
+              <div className="relative">
+                <label htmlFor="quick-capture-content" className="sr-only">
+                  O que você quer registrar?
+                </label>
+                <textarea
+                  id="quick-capture-content"
+                  ref={inputRef}
+                  value={content}
+                  onChange={(event) => setContent(event.target.value)}
+                  onKeyDown={handleTextareaKeyDown}
+                  disabled={audioPhase !== 'idle' || isSubmitting}
+                  placeholder="Escreva livremente o que está pensando…"
+                  rows={7}
+                  className="w-full resize-none rounded-xl border border-gray-300 p-4 pb-14 text-base leading-relaxed outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+                />
+                <button
+                  type="button"
+                  onClick={toggleAudio}
+                  disabled={isSubmitting || audioPhase === 'processing'}
+                  className={`absolute bottom-3 right-3 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border transition ${
+                    audioPhase === 'recording'
+                      ? 'border-red-200 bg-red-50 text-red-700'
+                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                  } disabled:opacity-40`}
+                  aria-label={
+                    audioPhase === 'recording'
+                      ? 'Voltar para captura por texto'
+                      : 'Gravar captura por áudio'
+                  }
+                  aria-pressed={audioPhase === 'recording'}
+                >
+                  <Mic size={19} />
+                </button>
+              </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="qc-title" className="block text-xs font-medium text-gray-600 mb-1">Título (Opcional)</label>
-                    <input
-                      id="qc-title"
-                      type="text"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      placeholder="Título curto..."
-                      className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="qc-project" className="block text-xs font-medium text-gray-600 mb-1">Projeto (Opcional)</label>
-                    <select
-                      id="qc-project"
-                      value={projectId}
-                      onChange={(e) => setProjectId(e.target.value)}
-                      className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
-                    >
-                      <option value="">Nenhum (Inbox)</option>
-                      {projects.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="qc-type" className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
-                    <select
-                      id="qc-type"
-                      value={type}
-                      onChange={(e) => setType(e.target.value as ItemType)}
-                      className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
-                    >
-                      <option value="note">Nota livre</option>
-                      <option value="task">Tarefa</option>
-                      <option value="idea">Ideia</option>
-                      <option value="insight">Insight</option>
-                      <option value="decision">Decisão</option>
-                      <option value="reference">Referência</option>
-                      <option value="reminder">Lembrete</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label htmlFor="qc-priority" className="block text-xs font-medium text-gray-600 mb-1">Prioridade</label>
-                    <select
-                      id="qc-priority"
-                      value={priority}
-                      onChange={(e) => setPriority(e.target.value as ItemPriority)}
-                      className="w-full p-2 text-sm border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
-                    >
-                      <option value="low">Baixa</option>
-                      <option value="normal">Normal</option>
-                      <option value="high">Alta</option>
-                      <option value="critical">Crítica</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || !content.trim()}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                  >
-                    {isSubmitting ? 'Salvando...' : 'Salvar'}
-                  </button>
-                </div>
-              </>
-            )}
-          </form>
-        )}
-
-        {mode === 'audio' && (
-          <div className="overflow-y-auto p-4 space-y-4">
-            <p className="flex items-start gap-2 rounded-md bg-gray-50 p-2 text-[11px] text-gray-500">
-              <AlertCircle size={14} className="mt-0.5 shrink-0" />
-              O áudio é enviado a um serviço de IA (OpenAI) só para transcrição, no servidor. Não é
-              armazenado — é descartado assim que a transcrição termina.
-            </p>
-
-            {(audioPhase === 'idle') && (
-              <>
-                <AudioRecorder onSend={sendForTranscription} />
-                {audioError && (
-                  <div className="space-y-2">
-                    <p role="alert" className="flex items-center gap-2 text-sm text-red-700">
-                      <AlertCircle size={16} /> {audioError}
-                    </p>
-                    {hasPendingAudio && (
-                      <button
-                        type="button"
-                        onClick={handleRetryTranscription}
-                        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              {audioPhase === 'recording' && (
+                <div className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/40 p-3">
+                  <AudioRecorder onSend={sendForTranscription} />
+                  <p className="flex items-start gap-1.5 text-[11px] text-gray-500">
+                    <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                    O áudio é enviado à OpenAI somente para transcrição. O
+                    arquivo é descartado e apenas o texto fica salvo.
+                  </p>
+                  {audioError && (
+                    <div className="space-y-2">
+                      <p
+                        role="alert"
+                        className="flex items-center gap-1.5 text-sm text-red-700"
                       >
-                        Tentar novamente (sem regravar)
-                      </button>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
+                        <AlertCircle size={15} /> {audioError}
+                      </p>
+                      {hasPendingAudio && (
+                        <button
+                          type="button"
+                          onClick={retryTranscription}
+                          className="min-h-[44px] rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          Tentar novamente sem regravar
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
-            {audioPhase === 'processing' && (
-              <p className="flex items-center justify-center gap-2 py-8 text-sm text-gray-600" role="status">
-                <Loader2 size={16} className="animate-spin" /> Enviando e transcrevendo o áudio…
+              {audioPhase === 'processing' && (
+                <p
+                  role="status"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-blue-50 py-6 text-sm text-blue-800"
+                >
+                  <Loader2 size={16} className="animate-spin" />
+                  Transcrevendo e salvando a captura…
+                </p>
+              )}
+
+              {error && (
+                <p
+                  role="alert"
+                  className="flex items-center gap-1.5 rounded-md bg-red-50 p-2 text-sm text-red-700"
+                >
+                  <AlertCircle size={15} /> {error}
+                </p>
+              )}
+
+              <p className="text-xs text-gray-500">
+                A captura aparece imediatamente na Caixa de Entrada. A IA
+                sugere título, destino, projeto, prioridade e datas em segundo
+                plano; nada é aplicado sem sua confirmação.
               </p>
-            )}
 
-            {(audioPhase === 'saved' || audioPhase === 'analyzing') && (
-              <div className="space-y-3">
-                <div className="rounded-md bg-green-50 p-3 text-sm text-green-800" role="status">
-                  Captura salva na Caixa de Entrada ({savedDurationSeconds}s de áudio).
-                </div>
-                <div>
-                  <label htmlFor="qc-transcript" className="mb-1 block text-xs font-medium text-gray-600">
-                    Revisar transcrição
-                  </label>
-                  <textarea
-                    id="qc-transcript"
-                    value={transcript}
-                    onChange={(e) => setTranscript(e.target.value)}
-                    disabled={audioPhase === 'analyzing' || isSavingWithoutAnalysis}
-                    rows={5}
-                    className="w-full resize-none rounded-md border bg-white p-3 text-base leading-relaxed text-gray-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">Corrija nomes, datas ou horários, se necessário.</p>
-                </div>
-                {persistError && (
-                  <p role="alert" className="flex items-center gap-2 text-xs text-red-600">
-                    <AlertCircle size={12} /> {persistError}
-                  </p>
-                )}
-                {analyzeError && (
-                  <p role="alert" className="flex items-center gap-2 text-xs text-red-600">
-                    <AlertCircle size={12} /> {analyzeError}
-                  </p>
-                )}
-                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap">
-                  <button
-                    type="button"
-                    onClick={handleSaveWithoutAnalysis}
-                    disabled={audioPhase === 'analyzing' || isSavingWithoutAnalysis}
-                    className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSavingWithoutAnalysis && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
-                    Salvar sem analisar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleAnalyzeWithAI}
-                    disabled={audioPhase === 'analyzing' || isSavingWithoutAnalysis || !transcript.trim()}
-                    aria-describedby="qc-analyze-hint"
-                    className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {audioPhase === 'analyzing' ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" /> Analisando com IA…
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={14} /> Analisar com IA
-                      </>
-                    )}
-                  </button>
-                  <span id="qc-analyze-hint" className="sr-only">
-                    Abre uma etapa de revisão das ações propostas antes de aplicar qualquer uma delas.
-                  </span>
-                </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  disabled={isSubmitting || audioPhase === 'processing'}
+                  className="min-h-[44px] rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isSubmitting ||
+                    audioPhase !== 'idle' ||
+                    !content.trim()
+                  }
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin" />
+                      Salvando…
+                    </>
+                  ) : (
+                    <>
+                      <Send size={15} />
+                      Enviar para análise
+                    </>
+                  )}
+                </button>
               </div>
-            )}
-
-            {audioPhase === 'reviewing' && triageProposal && savedItemId && triageAiRunId && (
-              <AudioCaptureReview
-                itemId={savedItemId}
-                aiRunId={triageAiRunId}
-                proposal={triageProposal}
-                availableProjects={projects.map((p) => ({ id: p.id, name: p.name }))}
-                onClose={closeModal}
-              />
-            )}
+            </form>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   );
 }

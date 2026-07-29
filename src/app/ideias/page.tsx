@@ -6,7 +6,7 @@ import { useCommands, useQueries } from '@/providers/repository.provider';
 import { ItemType, UpdateItemDTO } from '@/modules/items/domain/item.schema';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import { openItemDetail } from '@/lib/ui-events';
-import { Lightbulb, Target, BookOpen, Search, Archive, AlertTriangle, Maximize2 } from 'lucide-react';
+import { Lightbulb, Target, BookOpen, Search, Archive, AlertTriangle, Maximize2, StickyNote } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 
@@ -14,7 +14,7 @@ const KNOWLEDGE_TYPES: ItemType[] = ['idea', 'insight', 'decision', 'reference',
 
 type TypeFilter = ItemType | 'all';
 
-export default function IdeiasPage() {
+export default function NotasPage() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
 
@@ -45,7 +45,14 @@ export default function IdeiasPage() {
   const filteredItems = useMemo(() => {
     if (!items) return [];
 
-    let filtered = items.filter(i => KNOWLEDGE_TYPES.includes(i.type) && i.status !== 'archived');
+    // Capturas ainda em processamento têm `type: note` apenas como valor
+    // técnico provisório. Elas só entram em Notas depois de saírem da Inbox.
+    let filtered = items.filter(
+      i =>
+        KNOWLEDGE_TYPES.includes(i.type) &&
+        i.status !== 'inbox' &&
+        i.status !== 'archived'
+    );
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -85,7 +92,7 @@ export default function IdeiasPage() {
     return (
       <div className="p-4 md:p-8 max-w-5xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2 mb-6">
-          <Lightbulb className="text-yellow-500" /> Ideias e Insights
+          <StickyNote className="text-blue-500" /> Notas
         </h1>
         <DataErrorNotice isOffline={isOffline} onRetry={refetch} />
       </div>
@@ -96,9 +103,11 @@ export default function IdeiasPage() {
     <div className="p-4 md:p-8 max-w-5xl mx-auto h-full flex flex-col">
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-          <Lightbulb className="text-yellow-500" /> Ideias e Insights
+          <StickyNote className="text-blue-500" /> Notas
         </h1>
-        <p className="text-gray-600 mt-1">Conhecimento, referências e banco de decisões.</p>
+        <p className="text-gray-600 mt-1">
+          Informações, ideias, referências e decisões que você escolheu guardar.
+        </p>
       </div>
 
       <div className="bg-white p-4 rounded-lg shadow-sm border mb-6 flex gap-4 items-end flex-wrap">
@@ -130,7 +139,7 @@ export default function IdeiasPage() {
             <option value="idea">Ideias</option>
             <option value="insight">Insights</option>
             <option value="reference">Referências</option>
-            <option value="note">Notas Livres</option>
+            <option value="note">Notas</option>
           </select>
         </div>
 

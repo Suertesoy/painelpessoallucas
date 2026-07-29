@@ -1,6 +1,6 @@
 # Painel Pessoal Lucas
 
-Central operacional pessoal do Lucas: capturar primeiro, organizar depois. Um cockpit para tarefas, ideias, insights, decisões, projetos, foco diário e revisão — desenhado para reduzir carga mental, não para virar mais uma ferramenta que exige organização prévia.
+Central operacional pessoal do Lucas: capturar primeiro, organizar depois. Um cockpit para tarefas, notas, projetos, foco diário e revisão — desenhado para reduzir carga mental, não para virar mais uma ferramenta que exige organização prévia.
 
 **Produção:** https://painelpessoallucas.vercel.app
 
@@ -10,6 +10,8 @@ Aplicação sincronizada: os dados vivem no Supabase (Postgres + RLS), com login
 Google via Supabase Auth (SSR por cookies). Desktop, celular e navegadores
 diferentes compartilham o mesmo workspace. Dados da Fase 1 (localStorage) são
 migrados por um assistente idempotente em `/migracao`, com backup JSON.
+Telas abertas recebem mudanças de outros dispositivos por Supabase Realtime e
+fazem uma reconciliação completa ao reconectar.
 
 Novidades da fase:
 - **Planos** (`/planos`): importar documento (.md/.txt ou texto colado),
@@ -26,16 +28,16 @@ Novidades da fase:
   compromissos do Calendar, fonte de cada item, aguardando e próxima revisão.
 
 ### Funcionalidades
-- **Captura rápida** de qualquer lugar: `Ctrl/Cmd+Shift+Espaço`, botão "Capturar" na sidebar ou botão flutuante no celular.
+- **Captura livre** por texto ou áudio de qualquer lugar: `Ctrl/Cmd+Shift+Espaço`, botão "Capturar" na sidebar ou botão flutuante no celular. A captura é salva antes da análise; áudio não é armazenado depois da transcrição.
 - **Busca global**: `Ctrl/Cmd+K` ou ícone de busca.
 - **Hoje**: foco diário (máx. 3 itens), próximas ações, agendados, alertas e pulso dos projetos.
-- **Caixa de Entrada**: processamento de capturas (tipo, projeto, próxima ação, agendamento).
+- **Caixa de Entrada**: estados de análise visíveis e revisão humana das sugestões. Uma captura pode gerar tarefas, agendamentos, notas e itens de compra separados.
 - **Projetos**: lista com filtros por status e página de detalhe (tarefas, decisões, ideias, referências).
-- **Ideias e Insights**: base de conhecimento e banco de decisões, com edição inline.
+- **Notas**: informações, ideias, referências e decisões preservadas, com edição inline.
 - **Agenda**: semana navegável separando *agendamentos* de *prazos* (fuso horário local correto).
 - **Revisão**: prazos estourados, bloqueados, inbox estagnada, itens sem projeto e projetos sem marco.
 - **Aprendizado** (`/aprendizado`): Learning Engine genérico — meta diária (padrão 15 min, configurável), sessões de estudo, progresso estrutural honesto. Japonês é o primeiro curso cadastrado; sem IA, áudio, listening ou speaking nesta fase.
-- Interface responsiva (mobile com menu e captura por botão flutuante) e reativa (sem refresh).
+- Interface responsiva (mobile com menu e captura por botão flutuante) e sincronizada em tempo real (sem refresh).
 
 ## Stack
 

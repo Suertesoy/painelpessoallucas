@@ -1,7 +1,16 @@
 import { z } from 'zod';
 import { isoDateTimeSchema } from '@/lib/zod-datetime';
 
-export const ItemTypeSchema = z.enum(['task', 'idea', 'insight', 'decision', 'reminder', 'reference', 'note']);
+export const ItemTypeSchema = z.enum([
+  'task',
+  'shopping_item',
+  'idea',
+  'insight',
+  'decision',
+  'reminder',
+  'reference',
+  'note',
+]);
 export const ItemStatusSchema = z.enum(['inbox', 'organized', 'planned', 'in_progress', 'blocked', 'completed', 'archived']);
 export const ItemPrioritySchema = z.enum(['low', 'normal', 'high', 'critical']);
 export const ItemSourceSchema = z.enum(['quick_capture', 'manual', 'import', 'ai', 'integration', 'mcp', 'automation', 'audio_capture']);

@@ -1,6 +1,13 @@
 'use client';
 
-import React, { createContext, useContext, useMemo, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+  ReactNode,
+} from 'react';
 import { usePathname } from 'next/navigation';
 import { ItemRepository } from '@/modules/items/application/item.repository';
 import { ProjectRepository } from '@/modules/projects/application/project.repository';
@@ -72,6 +79,7 @@ interface RepositoryContextType {
   lessonProgressRepository: LessonProgressRepository;
   learningCommands: LearningCommands;
   learningQueries: LearningQueries;
+  changeNotifier: ChangeNotifier;
 }
 
 const RepositoryContext = createContext<RepositoryContextType | null>(null);
@@ -91,7 +99,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     if (status !== 'authenticated' || !workspaceId) return null;
 
     const supabase = getSupabaseBrowserClient();
-    const notifier = new ChangeNotifier();
+    const notifier = new ChangeNotifier(supabase, workspaceId);
 
     const itemRepo = new SupabaseItemRepository(supabase, workspaceId, notifier);
     const projectRepo = new SupabaseProjectRepository(supabase, workspaceId, notifier);
@@ -136,8 +144,15 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       lessonProgressRepository: lessonProgressRepo,
       learningCommands: new LearningCommands(learningContentRepo, studySessionRepo, eventRepo, lessonProgressRepo),
       learningQueries: new LearningQueries(learningContentRepo, studySessionRepo, lessonProgressRepo),
+      changeNotifier: notifier,
     };
   }, [status, workspaceId]);
+
+  useEffect(() => {
+    if (!value) return;
+    value.changeNotifier.startRealtime();
+    return () => value.changeNotifier.dispose();
+  }, [value]);
 
   // Rotas públicas (login/callback) não precisam de repositórios.
   if (isPublic(pathname)) {
@@ -217,4 +232,13 @@ export function useQueries() {
     calendarEvent: context.calendarEventQueries,
     learning: context.learningQueries
   };
+}
+
+export function useRealtimeStatus() {
+  const { changeNotifier } = useRepositories();
+  return useSyncExternalStore(
+    changeNotifier.subscribeStatus,
+    changeNotifier.getStatus,
+    () => 'connecting'
+  );
 }

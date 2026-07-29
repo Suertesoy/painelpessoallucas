@@ -58,23 +58,25 @@ export function useReactiveQuery<T>(
 
   useEffect(() => {
     let mounted = true;
+    let requestVersion = 0;
 
     const runFetch = async () => {
+      const version = ++requestVersion;
       try {
         const result = await queryFnRef.current();
-        if (mounted) {
+        if (mounted && version === requestVersion) {
           setData(result);
           setError(null);
         }
       } catch (e) {
         console.error('Erro na query reativa', e);
-        if (mounted) {
+        if (mounted && version === requestVersion) {
           setError(
             e instanceof Error ? e.message : 'Erro ao carregar os dados. Tente novamente.'
           );
         }
       } finally {
-        if (mounted) setIsLoading(false);
+        if (mounted && version === requestVersion) setIsLoading(false);
       }
     };
 

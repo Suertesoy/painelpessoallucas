@@ -14,7 +14,7 @@ import { sha256Hex } from '@/lib/text-hash';
 
 /**
  * POST /api/ai/triage-capture  { itemId, idempotencyKey? }
- * Analisa a transcrição de uma captura (já salva na Caixa de Entrada) e
+ * Analisa o texto de uma captura (digitada ou transcrita, já salva na Caixa de Entrada) e
  * devolve uma PROPOSTA — nunca cria, edita, conclui, arquiva ou agenda nada.
  * A captura já existe antes desta rota rodar; se a IA falhar, a captura
  * continua intacta (esta rota nunca apaga nem altera o item).
@@ -149,7 +149,7 @@ export async function POST(request: Request) {
       item_id: body.itemId,
       provider: 'openai',
       model: getTriageModel(),
-      operation: 'audio_capture_triage',
+      operation: 'capture_triage',
       prompt_version: AUDIO_TRIAGE_PROMPT_VERSION,
       input_hash: inputHash,
       status: 'queued',

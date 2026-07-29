@@ -1,10 +1,10 @@
 # Arquitetura — Painel Pessoal Lucas
 
-> Este documento descreve a arquitetura **realmente implementada** (Fase 1), não a aspiração.
+> Este documento descreve a arquitetura realmente implementada, incluindo a persistência remota, IA e sincronização em tempo real.
 
 ## Visão geral
 
-Monólito modular em Next.js (App Router). A UI nunca acessa persistência diretamente: tudo passa por **Commands** (escrita) e **Queries** (leitura), que usam **Repositories** (interfaces) implementados por adaptadores de **localStorage** na Fase 1.
+Monólito modular em Next.js (App Router). A UI nunca acessa persistência diretamente: tudo passa por **Commands** (escrita) e **Queries** (leitura), que usam **Repositories** (interfaces). Em produção, os adaptadores usam Supabase; os adaptadores de localStorage permanecem apenas para a migração da Fase 1.
 
 ```
 src/
@@ -15,12 +15,12 @@ src/
     items|projects|planning/
       domain/             # Zod schemas + tipos (fonte única de verdade)
       application/        # Commands, Queries e interfaces de Repository
-      infrastructure/     # Adaptadores localStorage
+      infrastructure/     # Adaptadores Supabase e legado localStorage
     global/application/   # Busca global (composição de queries)
   platform/
-    storage/              # LocalStorageAdapter<T> (observável, seguro em SSR)
+    storage/              # Adaptadores legados e infraestrutura compartilhada
     events/               # DomainEvent + repositório de eventos (append-only)
-    ai/, integrations/, mcp/  # SOMENTE contratos (interfaces) para fases futuras
+    ai/, integrations/, mcp/  # IA server-only, integrações e contratos
   providers/              # RepositoryProvider (composition root / DI via Context)
   test/                   # Vitest (domínio, queries, datas)
 ```
@@ -29,11 +29,12 @@ src/
 
 1. Componente chama `useCommands()` / `useQueries()` (Context).
 2. Command valida o payload com Zod (`domain/*.schema.ts`), persiste via Repository e grava um `DomainEvent` no repositório de eventos.
-3. O adaptador de storage notifica os inscritos (`subscribe`); `useReactiveQuery` reexecuta a query e a UI atualiza sem refresh.
-4. Mudanças em outra aba chegam pelo evento `storage` do navegador.
+3. O repositório notifica o `ChangeNotifier`; `useReactiveQuery` reexecuta a query e a UI atualiza sem refresh.
+4. Mudanças de outro dispositivo chegam por uma única assinatura Supabase Realtime do workspace.
+5. Após perda de conexão, `online`, foco, visibilidade e a confirmação `SUBSCRIBED` disparam uma consulta completa para reconciliar qualquer evento perdido.
 
 ### Reatividade — decisão registrada
-Queries são assíncronas (retornam `Promise`), então a UI usa o padrão **effect + subscribe** (`useReactiveQuery`), e não `useSyncExternalStore` (que exige snapshot síncrono). `useSyncExternalStore` é usado apenas no `useMounted()` (detecção de hidratação). Documentações anteriores afirmavam o contrário; este documento reflete o código.
+Queries são assíncronas (retornam `Promise`), então a UI usa o padrão **effect + subscribe** (`useReactiveQuery`). O hook descarta respostas antigas quando consultas sobrepostas terminam fora de ordem. `useSyncExternalStore` é usado para snapshots síncronos, como o status da conexão Realtime.
 
 ## Commands e Queries
 
@@ -80,13 +81,22 @@ Vitest em ambiente `node` (proposital: prova que os módulos não dependem de `w
   gmail.send.
 - **Cron**: `/api/cron/automation-tick` (CRON_SECRET, hora em hora) com
   `automation_runs` únicos por (workspace, tipo, idempotency_key) e retries.
+- **Realtime**: `ChangeNotifier` mantém uma assinatura de mudanças do
+  workspace, atualiza todas as queries abertas e expõe
+  `connected/reconnecting/offline` para a interface. A publicação das tabelas
+  é configurada por migration idempotente.
+- **Captura inteligente**: texto ou áudio é persistido imediatamente como
+  captura; o áudio existe apenas em memória até a transcrição. A triagem
+  server-only registra `ai_runs`, pode separar múltiplas intenções e só cria
+  tarefa, agendamento, nota ou item de compra após confirmação individual.
 
 ### Limitações registradas
 - Entidade + evento de domínio são gravados em duas operações (sem transação
   client-side no PostgREST); o evento é auditoria, não fonte de verdade. A
   outbox transacional (RPC) permanece como evolução futura.
-- Sem realtime (decisão do ROADMAP): mudanças de outro dispositivo chegam por
-  refetch em foco/visibilidade da aba.
+- Realtime avisa que algo mudou, mas a fonte de verdade continua sendo uma
+  nova query ao Supabase. Assim, reconexões não dependem de reproduzir cada
+  evento intermediário.
 
 ## Learning Engine (módulo Aprendizado)
 

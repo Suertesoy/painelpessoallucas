@@ -7,10 +7,10 @@ import { SupabaseAudioProvenanceRepository } from '@/platform/ai/supabase-audio-
  * ações aprovadas/rejeitadas). Sem Supabase real — cliente mockado.
  */
 
-/** Chain genérica: aceita qualquer sequência de .eq()/.order()/.limit() antes de .maybeSingle(). */
+/** Chain genérica: aceita filtros e ordenação antes de .maybeSingle(). */
 function selectChain(data: unknown, error: unknown = null) {
   const obj: Record<string, unknown> = {};
-  for (const m of ['eq', 'order', 'limit']) obj[m] = () => obj;
+  for (const m of ['eq', 'in', 'order', 'limit']) obj[m] = () => obj;
   obj.maybeSingle = async () => ({ data, error });
   return obj;
 }
@@ -75,6 +75,39 @@ describe('SupabaseAudioProvenanceRepository.findLatestTriageRun', () => {
     expect(result?.proposal?.suggestedTitle).toBe('Ligar para o cliente');
     expect(result?.actionsOutcome).toEqual([{ index: 0, status: 'done' }]);
     expect(result?.calendarOutcome).toBe('error');
+  });
+
+  it('reconhece sugestões ignoradas como resultado de revisão', async () => {
+    const row = {
+      id: 'run-2',
+      model: 'gpt-4.1-mini',
+      status: 'completed',
+      created_at: '2026-07-24T10:00:00.000Z',
+      completed_at: '2026-07-24T10:00:05.000Z',
+      error_message: null,
+      response_metadata: {
+        intent: 'note',
+        suggestedTitle: 'Nota',
+        summary: 'resumo',
+        projectCandidates: [],
+        proposedActions: [],
+        calendarProposal: null,
+        missingInformation: [],
+        overallConfidence: 0.9,
+        actionsOutcome: [{ index: 0, status: 'dismissed' }],
+        calendarOutcome: 'dismissed',
+      },
+    };
+    const repo = new SupabaseAudioProvenanceRepository(
+      fakeSupabase({ aiRunRow: row }) as never,
+      'ws-1'
+    );
+
+    const result = await repo.findLatestTriageRun('item-1');
+    expect(result?.actionsOutcome).toEqual([
+      { index: 0, status: 'dismissed' },
+    ]);
+    expect(result?.calendarOutcome).toBe('dismissed');
   });
 
   it('proposal fica null quando response_metadata não bate com o schema (execução antiga/corrompida)', async () => {

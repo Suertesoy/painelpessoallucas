@@ -25,8 +25,9 @@ Entregue na branch `feat/cloud-sync-ai-automations`:
 - Google Calendar (scopes mínimos, calendário "Painel Lucas") e Gmail (somente
   envio de resumos, opt-in).
 - Cron horário idempotente (`automation_runs`).
-- Sem realtime nesta fase (single user); outbox transacional adiada
-  (limitação registrada em docs/ARCHITECTURE.md).
+- Sincronização instantânea entre dispositivos por Supabase Realtime, com
+  reconciliação ao reconectar; outbox transacional adiada (limitação
+  registrada em docs/ARCHITECTURE.md).
 
 **Critério de saída:** login em 2 dispositivos com os mesmos dados, um plano
 importado/aprovado gerando ocorrências, digest recebido, cron estável por 1 semana.
@@ -125,11 +126,16 @@ Explicitamente fora desta fase (igual à Fase 2): áudio, TTS, reconhecimento
 de voz, IA, SRS, editor visual, novo curso, katakana, kanji, gramática
 extensa, desbloqueio de módulos por conclusão de lições.
 
-## Fase 3 — Triagem com IA
-- Primeira função: triagem de capturas (título, tipo, projeto, prioridade, prazo, próxima ação, confiança, justificativa) com **confirmação humana**.
+## Fase 3 — Captura livre e triagem com IA ✅
+- Captura por texto ou áudio sem classificação prévia.
 - Captura salva antes da análise; falha de IA nunca perde captura.
-- Prompts versionados; execuções logadas (modelo, duração, tokens, custo, erro).
-- Chave somente no servidor (rota/api), nunca `NEXT_PUBLIC_OPENAI_API_KEY`.
+- Áudio temporário: depois da transcrição confirmada, somente o texto permanece.
+- Uma captura pode gerar múltiplas propostas com quatro destinos principais:
+  tarefa, agendamento, nota e item de compra.
+- Caixa de Entrada mostra recebida, em análise, pronta para revisão,
+  parcialmente organizada, concluída ou falha.
+- Confirmação, edição ou descarte individual; nada é aplicado silenciosamente.
+- Prompts versionados; execuções registradas em `ai_runs`; chave somente no servidor.
 
 ## Fase 4 — Agenda e e-mail
 - Google Calendar (leitura primeiro; escrita depois) e Gmail → item na Entrada.
@@ -143,9 +149,8 @@ extensa, desbloqueio de módulos por conclusão de lições.
 ## Fase 6 — MCP
 - Servidor MCP expondo `capture_item`, `list_today`, `search_items`, `search_decisions`, `get_project_context`, `complete_task`, `schedule_task`, `register_insight`, `register_decision`, `get_waiting_items` — todos delegando aos Commands/Queries existentes (auditoria via `source: 'mcp'`).
 
-## Fase 7 — Busca semântica, áudio e expansão
+## Fase 7 — Busca semântica e expansão
 - Embeddings para ideias/decisões ("perguntas ao meu contexto").
-- Captura por áudio (transcrição + triagem).
 - Pipelines leves (leads, vagas) como visões derivadas.
 - Colaboração leve (se ainda fizer sentido).
 

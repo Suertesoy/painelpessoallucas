@@ -22,12 +22,12 @@ Lucas (Product Designer / Design Engineer) não sofre de falta de ferramentas �
 
 ## 4. Estrutura de navegação
 
-`Hoje` (cockpit) · `Entrada` (inbox universal) · `Projetos` (lista + detalhe com tarefas/decisões/ideias/referências) · `Ideias e Insights` (base de conhecimento e decisões) · `Agenda` (agendado vs. prazo — conceitos distintos) · `Revisão` (higiene do sistema). Busca global (`Ctrl+K`) e captura rápida disponíveis em todo lugar.
+`Hoje` (cockpit) · `Entrada` (capturas e revisão) · `Projetos` (lista + detalhe) · `Notas` (informações, ideias, referências e decisões) · `Agenda` (agendado vs. prazo — conceitos distintos) · `Revisão` (higiene do sistema). Busca global (`Ctrl+K`) e captura livre disponíveis em todo lugar.
 
 ## 5. Priorização de funcionalidades (candidatas da visão)
 
-### Essencial agora (implementado nesta fase)
-Caixa de entrada universal · captura com texto livre · foco do dia (máx. 3) · próxima ação por item · registro de decisões (tipo `decision`) · revisão determinística (prazos, bloqueados, inbox velha, projetos sem marco) · busca global · agenda separando agendamento de prazo.
+### Essencial agora (implementado)
+Caixa de entrada universal · captura livre por texto/áudio · triagem com confirmação humana · sincronização instantânea entre dispositivos · foco do dia (máx. 3) · próxima ação por item · notas e decisões · revisão determinística · busca global · agenda separando agendamento de prazo.
 
 ### Próxima fase (Fase 1.5 — ainda local)
 - Área **"Aguardando"** (itens esperando terceiros, com "quem" e "desde quando") — dor direta do Grupo Almeida (respostas da Priscila etc.).
@@ -44,7 +44,7 @@ Captura por áudio · anexos (imagem/PDF/link) · triagem por IA · replanejamen
 ### Desnecessária (nesta visão de produto)
 - Chat genérico com IA (a primeira função de IA é triagem de captura, não conversa).
 - Transformar o painel num CRM completo (pipelines devem ser visões leves).
-- Realtime/colaboração multiusuário na fase pessoal.
+- Colaboração multiusuário na fase pessoal.
 
 ### Precisa de validação com uso real
 - Capacidade do dia (pode virar burocracia se exigir estimativa em tudo).

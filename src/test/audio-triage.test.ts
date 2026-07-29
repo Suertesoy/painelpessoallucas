@@ -119,6 +119,18 @@ describe('buildTriagePrompt', () => {
     expect(system).toContain('Nunca use "meeting" ou "event" como itemType');
   });
 
+  it('preserva a captura original e cria destinos separados', () => {
+    const { system } = buildTriagePrompt({
+      transcript: 'uma nota',
+      nowIso: '2026-07-30T12:00:00.000Z',
+      timezone: 'America/Sao_Paulo',
+      projects: [],
+      recentItems: [],
+    });
+    expect(system).toContain('use actionType create_item');
+    expect(system).toContain('não use update_capture em novas propostas');
+  });
+
   it('envia a transcrição, projetos e itens recentes como dado estruturado no payload do usuário', () => {
     const { user } = buildTriagePrompt({
       transcript: 'Preciso ligar para o cliente amanhã',

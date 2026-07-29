@@ -1,6 +1,6 @@
 import type { AudioTriageProposal } from './audio-triage.schema';
 
-export type TriageActionOutcomeStatus = 'done' | 'error';
+export type TriageActionOutcomeStatus = 'done' | 'dismissed' | 'error';
 
 export interface TriageActionOutcome {
   index: number;
@@ -34,6 +34,7 @@ export interface CalendarEventLinkSummary {
  */
 export interface AudioProvenanceRepository {
   findLatestTriageRun(itemId: string): Promise<AudioTriageRunSummary | null>;
+  findLatestTriageRuns(itemIds: string[]): Promise<Record<string, AudioTriageRunSummary>>;
   findCalendarEventLink(itemId: string): Promise<CalendarEventLinkSummary | null>;
   recordActionOutcome(aiRunId: string, index: number, status: TriageActionOutcomeStatus): Promise<void>;
   recordCalendarOutcome(aiRunId: string, status: TriageActionOutcomeStatus): Promise<void>;

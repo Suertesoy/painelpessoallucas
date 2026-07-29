@@ -2,31 +2,55 @@
 
 import React, { useState, useMemo } from 'react';
 import { useReactiveQuery } from '@/lib/hooks';
-import { useCommands, useQueries } from '@/providers/repository.provider';
+import { useCommands, useQueries, useRepositories } from '@/providers/repository.provider';
 import { Item, ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
 import { Project } from '@/modules/projects/domain/project.schema';
+import {
+  CAPTURE_PROCESSING_LABEL,
+  deriveCaptureProcessingState,
+  isAnalyzableCapture,
+  type CaptureProcessingState,
+} from '@/platform/ai/capture-processing';
 import { dateInputToISO, isoToDateInput } from '@/lib/dates';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import { ItemCompleteButton } from '@/components/item-complete-button';
 import { openItemDetail } from '@/lib/ui-events';
-import { Search, Archive, CheckCircle, AlertCircle, Maximize2 } from 'lucide-react';
+import { Search, Archive, CheckCircle, AlertCircle, Maximize2, Sparkles } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 
 type TypeFilter = ItemType | 'all';
 type PriorityFilter = ItemPriority | 'all';
 
+const PROCESSING_BADGE_CLASS: Record<CaptureProcessingState, string> = {
+  received: 'bg-gray-100 text-gray-700',
+  analyzing: 'bg-blue-50 text-blue-700',
+  ready_for_review: 'bg-violet-50 text-violet-700',
+  partially_organized: 'bg-amber-50 text-amber-800',
+  completed: 'bg-green-50 text-green-700',
+  failed: 'bg-red-50 text-red-700',
+};
+
 export default function EntradaPage() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
+  const { audioProvenanceRepository } = useRepositories();
   const {
-    data: inboxItems,
+    data: inboxData,
     isLoading,
     error,
     isOffline,
     refetch,
-  } = useReactiveQuery(() => itemQueries.listInboxItems(), []);
+  } = useReactiveQuery(async () => {
+    const items = await itemQueries.listInboxItems();
+    const captureIds = items.filter(isAnalyzableCapture).map((item) => item.id);
+    const triageRuns =
+      await audioProvenanceRepository.findLatestTriageRuns(captureIds);
+    return { items, triageRuns };
+  }, []);
   const { data: projects } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const inboxItems = inboxData?.items;
+  const triageRuns = inboxData?.triageRuns ?? {};
 
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<TypeFilter>('all');
@@ -86,7 +110,7 @@ export default function EntradaPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Caixa de Entrada</h1>
-          <p className="text-gray-600">Processe ideias, tarefas e referências recém-capturadas.</p>
+          <p className="text-gray-600">Revise capturas e confirme somente o que quiser organizar.</p>
         </div>
       </div>
 
@@ -121,6 +145,7 @@ export default function EntradaPage() {
             <option value="all">Todos os tipos</option>
             <option value="note">Nota livre</option>
             <option value="task">Tarefa</option>
+            <option value="shopping_item">Item de compra</option>
             <option value="idea">Ideia</option>
             <option value="insight">Insight</option>
             <option value="decision">Decisão</option>
@@ -157,6 +182,39 @@ export default function EntradaPage() {
           <div className="divide-y">
             {filteredItems.map(item => (
               <div key={item.id} className="p-4 hover:bg-gray-50 flex flex-col gap-3">
+                {(() => {
+                  const captureState = isAnalyzableCapture(item)
+                    ? deriveCaptureProcessingState(
+                        item,
+                        triageRuns[item.id] ?? null
+                      )
+                    : null;
+                  return captureState ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${PROCESSING_BADGE_CLASS[captureState]}`}
+                      >
+                        <Sparkles size={12} />
+                        {CAPTURE_PROCESSING_LABEL[captureState]}
+                      </span>
+                      {(captureState === 'ready_for_review' ||
+                        captureState === 'partially_organized' ||
+                        captureState === 'failed' ||
+                        captureState === 'received') && (
+                        <button
+                          type="button"
+                          onClick={() => openItemDetail(item.id)}
+                          className="text-xs font-medium text-blue-600 hover:underline"
+                        >
+                          {captureState === 'ready_for_review' ||
+                          captureState === 'partially_organized'
+                            ? 'Revisar sugestões'
+                            : 'Abrir captura'}
+                        </button>
+                      )}
+                    </div>
+                  ) : null;
+                })()}
                 <div className="flex justify-between items-start gap-2">
                   <div className="flex-1 min-w-0">
                     {editingId === item.id ? (
@@ -173,7 +231,7 @@ export default function EntradaPage() {
                       />
                     ) : (
                       <h3 className="font-medium text-lg text-gray-900 cursor-text" onClick={() => setEditingId(item.id)} title="Clique para editar o título">
-                        {item.title}
+                        {item.title || 'Captura sem título'}
                       </h3>
                     )}
                     <div className="mt-1 flex items-center gap-3 text-xs text-gray-500 flex-wrap">

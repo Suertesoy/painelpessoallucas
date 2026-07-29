@@ -3,6 +3,13 @@
 Data: 2026-07-28
 Branch: `main` (commit base: `996a83d`)
 
+> Atualização de 2026-07-30: este diagnóstico registra o comportamento
+> histórico anterior à fase de sincronização instantânea. Após o usuário
+> observar telas abertas desatualizadas entre celular e computador, foi
+> implementado Supabase Realtime com reconciliação em reconexão. A descrição
+> “Sem Realtime” abaixo continua apenas como evidência do estado daquela
+> homologação.
+
 ## Diagnóstico do fluxo (antes das alterações)
 
 - **Notificação local**: `RepositoryProvider` cria uma única instância de

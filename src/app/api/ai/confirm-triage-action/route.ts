@@ -8,8 +8,8 @@ import { checkTriageFreshness, STALE_ANALYSIS_MESSAGE } from '@/platform/ai/tria
 /**
  * POST /api/ai/confirm-triage-action
  * Aplica UMA ação (nova tarefa/item ou atualização da própria captura)
- * aprovada explicitamente na revisão da triagem por IA de uma captura por
- * áudio. Existe como rota de servidor — em vez de o cliente gravar direto no
+ * aprovada explicitamente na revisão da triagem por IA de uma captura livre.
+ * Existe como rota de servidor — em vez de o cliente gravar direto no
  * Supabase — porque só aqui é possível garantir, de forma que o cliente não
  * consiga contornar, que a proposta confirmada ainda corresponde ao texto
  * que foi analisado (ver checkTriageFreshness). Uma proposta desatualizada
@@ -91,7 +91,9 @@ export async function POST(request: Request) {
       title: body.action.title,
       content: body.action.description,
       type: body.action.itemType ?? 'task',
-      status: 'inbox' as const,
+      // O usuário acabou de revisar e confirmar todos os campos desta ação;
+      // o destino criado não volta para a fila de capturas.
+      status: 'organized' as const,
       priority: body.action.priority ?? 'normal',
       projectId: body.action.projectId,
       dueAt: body.action.dueAt,

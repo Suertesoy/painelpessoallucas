@@ -210,7 +210,7 @@ describe('POST /api/ai/confirm-triage-action', () => {
       title: 'Preparar a nova proposta',
       content: 'detalhes',
       type: 'task',
-      status: 'inbox',
+      status: 'organized',
       priority: 'high',
       source: 'ai',
     });
