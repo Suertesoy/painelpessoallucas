@@ -35,6 +35,7 @@ const findByEntityId = vi.fn();
 const findLatestTriageRun = vi.fn();
 const findCalendarEventLink = vi.fn();
 const notifyChanged = vi.fn();
+const getPendingPushReminderForItem = vi.fn();
 
 const fakeRepo = { subscribe: () => () => {} };
 
@@ -50,9 +51,11 @@ vi.mock('@/providers/repository.provider', () => ({
   useQueries: () => ({
     item: { getItemById },
     project: { listProjects },
+    reminder: { getPendingPushReminderForItem },
   }),
   useCommands: () => ({
     item: { updateItem: vi.fn(), completeItem: vi.fn(), archiveItem: vi.fn(), reopenItem: vi.fn(), unarchiveItem: vi.fn() },
+    reminder: { setTaskReminder: vi.fn(), cancelReminder: vi.fn() },
   }),
 }));
 
@@ -69,6 +72,7 @@ async function openModal() {
   listProjects.mockResolvedValue(PROJECTS);
   findMigrationCompletedAt.mockResolvedValue(null);
   findCalendarEventLink.mockResolvedValue(null);
+  getPendingPushReminderForItem.mockResolvedValue(null);
 
   render(<ItemDetailModal />);
   openItemDetail(TEXT_ITEM.id);
@@ -127,10 +131,12 @@ describe('ItemDetailModal — evento de calendário para item comum (não-áudio
       googleCalendarId: 'cal-1',
       googleEventId: 'evt-existente',
       syncStatus: 'synced',
+      remindersMinutes: [],
     });
     getItemById.mockResolvedValue(TEXT_ITEM);
     listProjects.mockResolvedValue(PROJECTS);
     findMigrationCompletedAt.mockResolvedValue(null);
+    getPendingPushReminderForItem.mockResolvedValue(null);
 
     render(<ItemDetailModal />);
     openItemDetail(TEXT_ITEM.id);

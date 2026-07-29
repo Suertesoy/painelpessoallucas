@@ -95,7 +95,7 @@ export class SupabaseAudioProvenanceRepository implements AudioProvenanceReposit
   async findCalendarEventLink(itemId: string): Promise<CalendarEventLinkSummary | null> {
     const { data, error } = await this.supabase
       .from('calendar_event_links')
-      .select('google_calendar_id, google_event_id, sync_status')
+      .select('google_calendar_id, google_event_id, sync_status, reminders_minutes')
       .eq('workspace_id', this.workspaceId)
       .eq('item_id', itemId)
       .maybeSingle();
@@ -107,6 +107,7 @@ export class SupabaseAudioProvenanceRepository implements AudioProvenanceReposit
       googleCalendarId: data.google_calendar_id,
       googleEventId: data.google_event_id,
       syncStatus: data.sync_status,
+      remindersMinutes: data.reminders_minutes ?? [],
     };
   }
 

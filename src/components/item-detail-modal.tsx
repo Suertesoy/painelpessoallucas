@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
-import { X, CheckCircle, RotateCcw, Archive, ArchiveRestore, Loader2, Mic, ExternalLink, Sparkles, AlertCircle, Calendar, Plus } from 'lucide-react';
+import { X, CheckCircle, RotateCcw, Archive, ArchiveRestore, Loader2, Mic, ExternalLink, Sparkles, AlertCircle, Calendar, Plus, Bell, BellOff } from 'lucide-react';
 import { useCommands, useQueries, useRepositories } from '@/providers/repository.provider';
 import { ITEM_DETAIL_EVENT } from '@/lib/ui-events';
 import { datetimeLocalToISO, isoToDatetimeLocalInput } from '@/lib/dates';
@@ -18,6 +18,7 @@ import type { Project } from '@/modules/projects/domain/project.schema';
 import type { AudioTriageRunSummary, CalendarEventLinkSummary } from '@/platform/ai/audio-provenance.repository';
 import type { AudioTriageProposal } from '@/platform/ai/audio-triage.schema';
 import type { DomainEvent } from '@/platform/events/event.schema';
+import type { Reminder } from '@/modules/reminders/domain/reminder.schema';
 
 /**
  * Uma análise fica desatualizada quando a transcrição (item.content) muda
@@ -74,8 +75,8 @@ function formatDateTime(iso: string): string {
  * gravado diretamente no Supabase pela UI.
  */
 export function ItemDetailModal() {
-  const { item: itemQueries, project: projectQueries } = useQueries();
-  const { item: itemCmds } = useCommands();
+  const { item: itemQueries, project: projectQueries, reminder: reminderQueries } = useQueries();
+  const { item: itemCmds, reminder: reminderCmds } = useCommands();
   const { eventRepository, audioProvenanceRepository } = useRepositories();
 
   const [itemId, setItemId] = useState<string | null>(null);
@@ -85,6 +86,10 @@ export function ItemDetailModal() {
   const [originalTranscript, setOriginalTranscript] = useState<string | null>(null);
   const [triageRun, setTriageRun] = useState<AudioTriageRunSummary | null>(null);
   const [calendarLink, setCalendarLink] = useState<CalendarEventLinkSummary | null>(null);
+  const [reminder, setReminder] = useState<Reminder | null>(null);
+  const [reminderInput, setReminderInput] = useState('');
+  const [reminderSaving, setReminderSaving] = useState(false);
+  const [reminderError, setReminderError] = useState<string | null>(null);
   const [isTriageStale, setIsTriageStale] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
@@ -151,6 +156,9 @@ export function ItemDetailModal() {
     setTriageProposal(null);
     setTriageAiRunId(null);
     setShowCalendarCreator(false);
+    setReminder(null);
+    setReminderInput('');
+    setReminderError(null);
     if (previousFocusRef.current) previousFocusRef.current.focus();
   }, []);
 
@@ -227,6 +235,17 @@ export function ItemDetailModal() {
           })
           .catch((e: unknown) => {
             console.error('Falha ao carregar o vínculo de calendário', e);
+          });
+
+        // Lembrete push pendente (se houver) — falha aqui também nunca
+        // impede a exibição/edição do item.
+        reminderQueries
+          .getPendingPushReminderForItem(itemId)
+          .then((pending) => {
+            if (!cancelled) setReminder(pending);
+          })
+          .catch((e: unknown) => {
+            console.error('Falha ao carregar o lembrete', e);
           });
 
         setOriginalTranscript(null);
@@ -380,7 +399,40 @@ export function ItemDetailModal() {
     }
   };
 
+  const handleSetReminder = async () => {
+    if (!itemId || !item || !reminderInput) return;
+    setReminderSaving(true);
+    setReminderError(null);
+    try {
+      const iso = datetimeLocalToISO(reminderInput);
+      if (!iso) throw new Error('Informe uma data e horário para o lembrete.');
+      const saved = await reminderCmds.setTaskReminder(itemId, item.workspaceId, iso);
+      setReminder(saved);
+      setReminderInput('');
+    } catch (e) {
+      setReminderError(e instanceof Error ? e.message : 'Não foi possível definir o lembrete.');
+    } finally {
+      setReminderSaving(false);
+    }
+  };
+
+  const handleCancelReminder = async () => {
+    if (!reminder) return;
+    setReminderSaving(true);
+    setReminderError(null);
+    try {
+      const cancelled = await reminderCmds.cancelReminder(reminder.id);
+      setReminder(cancelled.status === 'cancelled' ? null : cancelled);
+    } catch (e) {
+      setReminderError(e instanceof Error ? e.message : 'Não foi possível cancelar o lembrete.');
+    } finally {
+      setReminderSaving(false);
+    }
+  };
+
   const origin = item ? resolveItemOrigin(item, migrationCompletedAt) : null;
+  const reminderCoveredByCalendar =
+    calendarLink?.syncStatus === 'synced' && calendarLink.remindersMinutes.length > 0;
 
   return (
     <div
@@ -704,6 +756,85 @@ export function ItemDetailModal() {
                   >
                     <Plus size={12} /> Adicionar evento no Calendar
                   </button>
+                )}
+              </div>
+
+              {/* Lembrete push — diferente de prazo, agendamento e do
+                  lembrete nativo do Google Calendar (ver docs/ARCHITECTURE.md
+                  § Web Push). No máximo um lembrete pendente por item. */}
+              <div className="rounded-lg border border-gray-200 bg-white p-3">
+                <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <Bell size={14} className="text-blue-500" /> Lembrete
+                </h3>
+
+                {reminderCoveredByCalendar && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Este agendamento já possui lembretes pelo Google Calendar.
+                  </p>
+                )}
+
+                {reminder ? (
+                  <div className="mt-2 space-y-2">
+                    <p className="text-xs text-gray-700">
+                      Será enviado em {formatDateTime(reminder.remindAt)}.
+                    </p>
+                    {reminderError && (
+                      <p role="alert" className="text-xs text-red-600">
+                        {reminderError}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="datetime-local"
+                        value={reminderInput || isoToDatetimeLocalInput(reminder.remindAt)}
+                        onChange={(e) => setReminderInput(e.target.value)}
+                        className="rounded-md border p-1.5 text-xs outline-none focus:border-blue-500"
+                        aria-label="Novo horário do lembrete"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleSetReminder()}
+                        disabled={reminderSaving || !reminderInput}
+                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleCancelReminder()}
+                        disabled={reminderSaving}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                      >
+                        <BellOff size={12} /> Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {reminderError && (
+                      <p role="alert" className="text-xs text-red-600">
+                        {reminderError}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="datetime-local"
+                        value={reminderInput}
+                        min={isoToDatetimeLocalInput(new Date().toISOString())}
+                        onChange={(e) => setReminderInput(e.target.value)}
+                        className="rounded-md border p-1.5 text-xs outline-none focus:border-blue-500"
+                        aria-label="Data e horário do lembrete"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleSetReminder()}
+                        disabled={reminderSaving || !reminderInput}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Bell size={12} /> Definir lembrete
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
 

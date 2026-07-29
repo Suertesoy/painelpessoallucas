@@ -152,16 +152,16 @@ describe('service worker — política de cache (public/sw.js)', () => {
 
   it('na ativação, remove só caches antigos do próprio Painel Lucas — nunca de outra origem', async () => {
     const sw = loadServiceWorker();
-    sw.cacheStores.set('painel-lucas-v0-static', new Map());
     sw.cacheStores.set('painel-lucas-v1-static', new Map());
+    sw.cacheStores.set('painel-lucas-v2-static', new Map());
     sw.cacheStores.set('some-other-app-cache', new Map());
 
     const waits: Promise<unknown>[] = [];
     await sw.emit('activate', { waitUntil: (p: Promise<unknown>) => waits.push(p) });
     await Promise.all(waits);
 
-    expect(sw.cachesMock.delete).toHaveBeenCalledWith('painel-lucas-v0-static');
-    expect(sw.cachesMock.delete).not.toHaveBeenCalledWith('painel-lucas-v1-static');
+    expect(sw.cachesMock.delete).toHaveBeenCalledWith('painel-lucas-v1-static');
+    expect(sw.cachesMock.delete).not.toHaveBeenCalledWith('painel-lucas-v2-static');
     expect(sw.cachesMock.delete).not.toHaveBeenCalledWith('some-other-app-cache');
   });
 

@@ -178,12 +178,40 @@ representação normalizada (não direto da API do Google a cada carregamento).
 - Não amplia os escopos OAuth atuais (`calendar.app.created` + `calendar.freebusy`) enquanto esta fase não for iniciada.
 
 ## Fase 9 — PWA e Web Push
-Fase futura, sem alterar a prioridade central atual.
-- Transformar o painel em PWA (manifest, ícones, instalação).
-- Adicionar service worker.
-- Registrar push subscriptions por dispositivo.
-- Permitir Web Push no celular e no computador.
-- No iPhone, orientar a adição do painel à Tela de Início e a autorização das notificações (limitação do Safari/iOS para push web).
-- Usar push próprio para: mudança de atividade, avisos de capacidade, projetos parados, falhas de automação, lembretes internos.
-- Continuar usando o Google Calendar (lembretes nativos) para notificações de compromissos com horário — não substituído pelo push próprio.
-- Não migra para aplicativo nativo.
+
+### Fase 2.1 — PWA instalável ✅
+- Manifest, ícones, instalação (`InstallAppCard`), service worker com
+  política de cache conservadora (`public/sw.js`), página offline,
+  atualização controlada pelo usuário ("Nova versão disponível" → "Atualizar
+  agora").
+
+### Fase 2.2 — Web Push ✅ (código; migration remota pendente de aplicação — ver abaixo)
+Web Push padrão (Service Worker + Push API + Notification API + VAPID,
+`userVisibleOnly: true`), reaproveitando o service worker e o cron
+existentes — ver `docs/ARCHITECTURE.md` § Web Push para a arquitetura
+completa.
+- Categorias: lembrete de tarefa (data/horário explícitos, no detalhe do
+  item), aviso diário ("Organize seu dia"), revisão semanal, falha de
+  captura inteligente.
+- Preferências e assinatura por dispositivo (`push_subscriptions`),
+  independentes entre si — ativar no celular não ativa no computador.
+- Não duplica com o Google Calendar (regra server-side,
+  `isCoveredByGoogleCalendarReminder`); Google Calendar continua sendo o
+  canal de compromissos com horário.
+- Outbox (`push_deliveries`) com retries (backoff, máx. 3 tentativas) e
+  desativação automática em 404/410.
+- Novo cron `/api/cron/push-tick` (5 em 5 minutos, plano Pro) — separado do
+  `automation-tick` horário, que permanece inalterado.
+- No iPhone/iPad, exige o app adicionado à Tela de Início (limitação do
+  Safari/iOS); a UI nunca oferece um botão de ativação que não funcionaria
+  nesse estado.
+- Permissão nunca solicitada automaticamente — sempre por ação explícita em
+  Configurações → "Notificações neste dispositivo".
+- **Pendência real**: a migration `20260730120000_web_push.sql` foi criada
+  no repositório mas **não foi aplicada** no Supabase remoto nesta entrega
+  (ver relatório da tarefa). Até ser aplicada, as rotas de push falham de
+  forma segura e compreensível — não derrubam Configurações nem o resto do
+  painel.
+- Fora do escopo desta fase: aplicativo nativo, push de terceiros (FCM),
+  ações interativas na notificação (concluir/adiar), fila offline de
+  alterações, badge numérico.

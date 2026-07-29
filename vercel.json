@@ -5,6 +5,10 @@
     {
       "path": "/api/cron/automation-tick",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/push-tick",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

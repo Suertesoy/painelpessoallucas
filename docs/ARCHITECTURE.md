@@ -12,7 +12,7 @@ src/
   components/             # Componentes client (modais, navegação)
   lib/                    # hooks reativos, datas (fuso local), constantes, eventos de UI
   modules/
-    items|projects|planning/
+    items|projects|planning|reminders/
       domain/             # Zod schemas + tipos (fonte única de verdade)
       application/        # Commands, Queries e interfaces de Repository
       infrastructure/     # Adaptadores Supabase e legado localStorage
@@ -20,7 +20,7 @@ src/
   platform/
     storage/              # Adaptadores legados e infraestrutura compartilhada
     events/               # DomainEvent + repositório de eventos (append-only)
-    ai/, integrations/, mcp/  # IA server-only, integrações e contratos
+    ai/, integrations/, mcp/, push/  # IA, integrações, contratos e Web Push (tudo server-only)
   providers/              # RepositoryProvider (composition root / DI via Context)
   test/                   # Vitest (domínio, queries, datas)
 ```
@@ -286,6 +286,177 @@ concluída, mostra "Próxima lição" (se houver) ou "Voltar ao módulo" (na
 última). A página do módulo faz o mesmo cálculo — primeira lição da lista
 ordenada sem progresso `completed` — para destacar um selo "Recomendada";
 sem destaque quando todas as lições já estão concluídas.
+
+## Web Push (Fase 2.2)
+
+Notificações push nativas do navegador (Web Push padrão: Service Worker +
+Push API + Notification API + VAPID), por dispositivo — não confundir com
+Firebase Cloud Messaging (não usado) nem com os lembretes nativos do Google
+Calendar (que continuam sendo o canal para compromissos com horário).
+
+### Arquitetura
+
+- `platform/push/vapid.ts` (server-only): configura o par VAPID e envia via
+  [`web-push`](https://www.npmjs.com/package/web-push) (biblioteca de
+  referência para o protocolo Web Push — nunca implementamos a criptografia
+  manualmente). Categoriza erros do serviço de push em
+  `expired_subscription | rate_limited | payload_too_large | network_error |
+  server_error | unknown_error`, nunca propagando a mensagem crua.
+- `platform/push/push-content.ts` (puro): conteúdo genérico vs. detalhado por
+  categoria — ver "Privacidade do conteúdo" abaixo.
+- `platform/push/calendar-coverage.ts` (puro): regra de não duplicidade com o
+  Google Calendar — ver seção própria.
+- `platform/push/push-dispatch.ts` (server-only): outbox — cria
+  `notifications` (idempotente por `dedup_key`) + uma `push_deliveries` por
+  assinatura elegível, e despacha as pendentes com retries.
+- `platform/push/push-tick.ts` (server-only): os quatro trabalhos do cron de
+  5 minutos (lembretes vencidos, aviso diário, aviso semanal, recuperação de
+  falha de captura).
+- `platform/push/push-subscription.controller.ts` (`'use client'`): único
+  ponto que toca `Notification`, `PushManager` e `navigator.serviceWorker` —
+  representa os 10 estados possíveis (sem suporte, iOS fora do modo
+  instalado, VAPID ausente, permissão default/negada/concedida sem
+  assinatura, assinatura ativa, assinatura perdida, erro recuperável). Usa o
+  **mesmo** service worker já registrado por `ServiceWorkerController` —
+  nunca registra um segundo.
+- `lib/use-push-notifications.ts`: hook que combina o controller acima com as
+  rotas server-side (preferências, dispositivos, teste). Nenhum componente
+  chama `fetch('/api/push/...')` diretamente.
+- `components/push/push-notifications-card.tsx`: card "Notificações neste
+  dispositivo" em Configurações.
+- `modules/reminders/`: domínio do lembrete de tarefa (`ReminderCommands.
+  setTaskReminder/cancelReminder`), reaproveitando a tabela `reminders`
+  existente com `channel = 'push'`.
+
+### Tabelas e outbox
+
+- `push_subscriptions`: uma linha por dispositivo (`endpoint` único
+  globalmente), com `user_id` + `workspace_id` (nunca gerenciável por outro
+  usuário), preferências por categoria (todas começam **desativadas**),
+  fuso IANA do dispositivo e `last_seen_at`/`disabled_at`. Sem policy de RLS
+  para `authenticated` (mesmo padrão de `integration_tokens`): leitura e
+  escrita só pelo servidor, depois de validar sessão + workspace + user_id.
+- `push_deliveries`: outbox de envio — uma linha por
+  (`notification_id`, `subscription_id`), única (nunca envia a mesma
+  notificação duas vezes ao mesmo dispositivo). Estados `pending | sent |
+  failed | cancelled`, `attempt`, `next_attempt_at`, `error_category`
+  sanitizado.
+- `notifications` ganhou `dedup_key` (único por workspace, índice parcial),
+  `target_url` (deep link interno) e `metadata` jsonb mínimo (só o título da
+  tarefa para lembretes, quando aplicável — nunca transcrição, resposta de
+  IA ou erro técnico).
+- `reminders.channel` ganhou o valor `'push'` (mantendo `'app'`/`'email'`
+  existentes).
+
+### Categorias
+
+1. **Lembrete de tarefa** — data/horário definidos explicitamente pelo
+   usuário no detalhe do item (`ReminderCommands.setTaskReminder`), máximo
+   um lembrete push pendente por item. Diferente de prazo, agendamento e do
+   lembrete nativo do Google Calendar.
+2. **Aviso diário** ("Organize seu dia") — horário e fuso configuráveis por
+   dispositivo, destino `/hoje`.
+3. **Revisão semanal** ("Hora da revisão semanal") — dia, horário e fuso por
+   dispositivo, destino `/revisao`.
+4. **Falha de captura** — só quando o item é uma captura analisável
+   (`source` `quick_capture`/`audio_capture`) e a execução de triagem
+   correspondente (`ai_runs.operation = 'capture_triage'`) terminou
+   `failed`; nunca para falha de outra operação de IA. Criada no caminho
+   principal (`/api/ai/triage-capture`, best-effort) e recuperada
+   idempotentemente pelo `push-tick` (janela de 14 dias).
+
+### Não duplicidade com o Google Calendar
+
+Antes de criar uma entrega de lembrete de tarefa, `push-tick` consulta
+`calendar_event_links` do item. Um lembrete só é considerado "já coberto"
+(`isCoveredByGoogleCalendarReminder`, `platform/push/calendar-coverage.ts`)
+quando **todas** as condições são verdadeiras:
+`items.calendar_sync === 'sync_reminder'` **e** o vínculo existe com
+`sync_status === 'synced'` **e** `reminders_minutes` não está vazio (é
+exatamente o que `upsertItemEvent` envia ao Google quando `sync_reminder`
+está ativo). Qualquer outro estado (`pending`, `error`, `deleted`,
+`calendar_sync = 'sync'` sem lembrete, ou ausência de vínculo) significa que
+o Google não está de fato avisando — o push é permitido como garantia. A
+regra roda no servidor (nunca só escondida na UI); a UI mostra um aviso
+informativo quando aplicável.
+
+### Privacidade do conteúdo
+
+`push_subscriptions.show_details_enabled` começa **desativado**. Desativado:
+título genérico ("Painel Lucas") e corpo genérico ("Você tem um lembrete
+para revisar."/textos fixos por categoria). Ativado: o lembrete de tarefa
+mostra o título da tarefa (truncado em 140 caracteres) — as demais
+categorias já são genéricas por natureza. Nunca: transcrição, resposta de
+IA, tokens, credenciais ou mensagem técnica de erro (`platform/push/
+push-content.ts`, puro e testado isoladamente).
+
+### Idempotência e retries
+
+- Criação de notificação: `insert` em `notifications` com `dedup_key` único
+  por workspace; conflito (23505) busca a existente — nunca duas
+  notificações para a mesma ocorrência.
+- Criação de entrega: `insert` em `push_deliveries` único por (notificação,
+  assinatura); conflito é ignorado.
+- Envio: sucesso confirmado pelo `web-push` antes de marcar `sent`. HTTP 404
+  ou 410 desativa a assinatura permanentemente (`disableSubscription`) e
+  cancela outras entregas pendentes do mesmo dispositivo (efeito visível a
+  partir da próxima leva do cron — duas notificações vencidas no mesmo
+  lote ainda tentam enviar independentemente, best-effort). Erros
+  temporários (rede, 5xx, 429) reagendam com backoff (5 min na 1ª
+  tentativa, 15 min na 2ª) até `PUSH_MAX_ATTEMPTS = 3`; depois, `failed`
+  permanente. Uma falha num dispositivo nunca impede o envio aos demais; uma
+  falha num workspace nunca aborta os demais (loop por workspace, try/catch
+  isolado, mesmo padrão do `automation-tick`).
+- Cron: chave de idempotência em blocos de 5 minutos
+  (`fiveMinuteBucketKey`), nunca a chave horária do `automation-tick` — um
+  lembrete criado às 14:07 e outro às 14:22 são processados em blocos
+  distintos, sem competir pela mesma chave.
+
+### Cron
+
+`/api/cron/push-tick` (`runtime = 'nodejs'`, obrigatório porque depende de
+`web-push`), a cada 5 minutos (`vercel.json`) — plano Vercel Pro do projeto
+(confirmado por `vercel usage`), que permite frequência de até 1x/minuto e
+precisão por minuto (Hobby só permite 1x/dia). Cuida somente de: lembretes
+push vencidos, avisos diário/semanal, recuperação de falha de captura e
+despacho da outbox. Recorrências, Google Calendar e resumos por e-mail
+continuam exclusivamente no `automation-tick` horário, inalterado.
+
+**Achado crítico corrigido nesta entrega**: o projeto nunca teve
+`CRON_SECRET` configurado na Vercel — sem essa variável, `isAuthorized()`
+(em ambos os crons) sempre retorna `false`, então toda invocação do
+`automation-tick` retornava 401 desde o deploy original. Um `CRON_SECRET`
+foi gerado e configurado (Production + Preview) como parte desta entrega.
+
+### Limitações do iPhone/iPad
+
+Safari/iOS só entrega Web Push a partir do app **adicionado à Tela de
+Início** (modo standalone) — nunca no navegador aberto normalmente. Antes
+disso, o card de Configurações explica a instalação e não oferece nenhum
+botão de ativação que não funcionaria (`ios_not_installed`).
+
+### Variáveis de ambiente
+
+`NEXT_PUBLIC_VAPID_PUBLIC_KEY` (pode chegar ao navegador), `VAPID_PRIVATE_KEY`
+(somente servidor), `VAPID_SUBJECT` (`mailto:` ou URL HTTPS do app).
+
+### Renovar o par VAPID
+
+Gerar um novo par com `webpush.generateVAPIDKeys()` (ou
+`npx web-push generate-vapid-keys`) invalida **todas** as assinaturas
+existentes (o navegador rejeita `applicationServerKey` diferente da usada na
+assinatura original) — todo usuário precisaria reativar manualmente.
+Preferir não trocar a menos que a chave privada tenha vazado. Ao trocar:
+gerar um único par novo, atualizar `NEXT_PUBLIC_VAPID_PUBLIC_KEY` e
+`VAPID_PRIVATE_KEY` na Vercel (nunca versionar a privada) e comunicar aos
+usuários que precisarão clicar em "Ativar notificações" novamente.
+
+### Desativar uma assinatura expirada manualmente
+
+Normalmente automático (404/410 do serviço de push). Para forçar: usar
+"Desativar neste dispositivo" (o próprio) ou revogar pela lista de
+dispositivos em Configurações (`POST /api/push/devices/[id]/revoke`) — nunca
+DELETE direto na tabela (preserva histórico/auditoria via `disabled_at`).
 
 ## Evolução planejada
 

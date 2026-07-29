@@ -137,12 +137,22 @@ describe('SupabaseAudioProvenanceRepository.findCalendarEventLink', () => {
   it('retorna o vínculo quando existe', async () => {
     const repo = new SupabaseAudioProvenanceRepository(
       fakeSupabase({
-        calendarLinkRow: { google_calendar_id: 'cal-1', google_event_id: 'evt-1', sync_status: 'synced' },
+        calendarLinkRow: {
+          google_calendar_id: 'cal-1',
+          google_event_id: 'evt-1',
+          sync_status: 'synced',
+          reminders_minutes: [15],
+        },
       }) as never,
       'ws-1'
     );
     const link = await repo.findCalendarEventLink('item-1');
-    expect(link).toEqual({ googleCalendarId: 'cal-1', googleEventId: 'evt-1', syncStatus: 'synced' });
+    expect(link).toEqual({
+      googleCalendarId: 'cal-1',
+      googleEventId: 'evt-1',
+      syncStatus: 'synced',
+      remindersMinutes: [15],
+    });
   });
 });
 

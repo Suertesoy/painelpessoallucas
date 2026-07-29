@@ -8,6 +8,7 @@ import { GoogleIntegrationCard } from '@/components/google-integration-card';
 import { DigestSettingsCard } from '@/components/digest-settings-card';
 import { AutomationHealthCard } from '@/components/automation-health-card';
 import { InstallAppCard } from '@/components/pwa/install-app-card';
+import { PushNotificationsCard } from '@/components/push/push-notifications-card';
 
 function ConfiguracoesContent() {
   const { user } = useAuth();
@@ -57,6 +58,10 @@ function ConfiguracoesContent() {
 
       <section className="mt-6">
         <InstallAppCard />
+      </section>
+
+      <section className="mt-6">
+        <PushNotificationsCard />
       </section>
     </div>
   );

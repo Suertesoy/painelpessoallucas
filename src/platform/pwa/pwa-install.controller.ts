@@ -28,14 +28,14 @@ const UNSUPPORTED_SNAPSHOT: PwaInstallSnapshot = {
   canPromptInstall: false,
 };
 
-function detectStandalone(): boolean {
+export function detectStandalone(): boolean {
   if (typeof window === 'undefined') return false;
   const navigatorStandalone = (window.navigator as Navigator & { standalone?: boolean })
     .standalone;
   return window.matchMedia('(display-mode: standalone)').matches || navigatorStandalone === true;
 }
 
-function detectIOS(): boolean {
+export function detectIOS(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !('MSStream' in window);
 }

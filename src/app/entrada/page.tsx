@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { Suspense, useEffect, useState, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries, useRepositories } from '@/providers/repository.provider';
 import { Item, ItemType, ItemPriority } from '@/modules/items/domain/item.schema';
@@ -31,10 +32,20 @@ const PROCESSING_BADGE_CLASS: Record<CaptureProcessingState, string> = {
   failed: 'bg-red-50 text-red-700',
 };
 
-export default function EntradaPage() {
+function EntradaContent() {
   const { item: itemQueries, project: projectQueries } = useQueries();
   const { item: itemCmds } = useCommands();
   const { audioProvenanceRepository } = useRepositories();
+  const searchParams = useSearchParams();
+
+  // Deep link mínimo (notificações push): ?item=<id> abre o detalhe direto
+  // ao carregar a página, sem precisar que o item esteja na lista filtrada.
+  useEffect(() => {
+    const targetItemId = searchParams.get('item');
+    if (targetItemId) openItemDetail(targetItemId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const {
     data: inboxData,
     isLoading,
@@ -320,5 +331,13 @@ export default function EntradaPage() {
       </>
       )}
     </div>
+  );
+}
+
+export default function EntradaPage() {
+  return (
+    <Suspense>
+      <EntradaContent />
+    </Suspense>
   );
 }

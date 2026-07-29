@@ -52,6 +52,10 @@ import { StudySessionRepository } from '@/modules/learning/application/study-ses
 import { LessonProgressRepository } from '@/modules/learning/application/lesson-progress.repository';
 import { LearningCommands } from '@/modules/learning/application/learning.commands';
 import { LearningQueries } from '@/modules/learning/application/learning.queries';
+import { SupabaseReminderRepository } from '@/modules/reminders/infrastructure/supabase-reminder.repository';
+import { ReminderRepository } from '@/modules/reminders/application/reminder.repository';
+import { ReminderCommands } from '@/modules/reminders/application/reminder.commands';
+import { ReminderQueries } from '@/modules/reminders/application/reminder.queries';
 import { useAuth } from './auth.provider';
 
 interface RepositoryContextType {
@@ -79,6 +83,9 @@ interface RepositoryContextType {
   lessonProgressRepository: LessonProgressRepository;
   learningCommands: LearningCommands;
   learningQueries: LearningQueries;
+  reminderRepository: ReminderRepository;
+  reminderCommands: ReminderCommands;
+  reminderQueries: ReminderQueries;
   changeNotifier: ChangeNotifier;
 }
 
@@ -116,6 +123,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     const learningContentRepo = new SupabaseLearningContentRepository(supabase, workspaceId, notifier);
     const studySessionRepo = new SupabaseStudySessionRepository(supabase, workspaceId, notifier);
     const lessonProgressRepo = new SupabaseLessonProgressRepository(supabase, workspaceId, notifier);
+    const reminderRepo = new SupabaseReminderRepository(supabase, workspaceId);
 
     return {
       itemRepository: itemRepo,
@@ -144,6 +152,9 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       lessonProgressRepository: lessonProgressRepo,
       learningCommands: new LearningCommands(learningContentRepo, studySessionRepo, eventRepo, lessonProgressRepo),
       learningQueries: new LearningQueries(learningContentRepo, studySessionRepo, lessonProgressRepo),
+      reminderRepository: reminderRepo,
+      reminderCommands: new ReminderCommands(reminderRepo, eventRepo),
+      reminderQueries: new ReminderQueries(reminderRepo),
       changeNotifier: notifier,
     };
   }, [status, workspaceId]);
@@ -216,7 +227,8 @@ export function useCommands() {
     project: context.projectCommands,
     dailyPlan: context.dailyPlanCommands,
     plan: context.planCommands,
-    learning: context.learningCommands
+    learning: context.learningCommands,
+    reminder: context.reminderCommands
   };
 }
 
@@ -230,7 +242,8 @@ export function useQueries() {
     global: context.globalQueries,
     plan: context.planQueries,
     calendarEvent: context.calendarEventQueries,
-    learning: context.learningQueries
+    learning: context.learningQueries,
+    reminder: context.reminderQueries
   };
 }
 

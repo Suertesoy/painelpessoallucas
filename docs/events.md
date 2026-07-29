@@ -58,6 +58,13 @@ Todo evento respeita uma estrutura mínima:
   "Concluir lição" — nunca por visualização nem por todos os exercícios
   resolvidos. Idempotente: concluir de novo não reemite)
 
+## Eventos de Web Push (Fase 2.2)
+- `reminder.created` (lembrete push de tarefa criado)
+- `reminder.rescheduled` (payload: `previousRemindAt`, `newRemindAt` — no
+  máximo um lembrete push pendente por item, então uma segunda chamada
+  reagenda em vez de criar outro)
+- `reminder.cancelled`
+
 ## Persistência (Fase 2)
 Os eventos vivem na tabela `domain_events` do Supabase (append-only, RLS por
 workspace, imutáveis para o cliente). O `LocalStorageEventRepository` permanece

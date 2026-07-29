@@ -24,6 +24,8 @@ export interface CalendarEventLinkSummary {
   googleCalendarId: string;
   googleEventId: string;
   syncStatus: string;
+  /** Minutos de lembrete configurados no evento do Google (vazio = sem lembrete customizado). */
+  remindersMinutes: number[];
 }
 
 /**

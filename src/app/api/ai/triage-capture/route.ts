@@ -11,6 +11,9 @@ import { checkRateLimit } from '@/platform/ai/rate-limit';
 import { estimateCostUsd } from '@/platform/ai/openai-plan-structurer';
 import type { AudioTriageProposal } from '@/platform/ai/audio-triage.schema';
 import { sha256Hex } from '@/lib/text-hash';
+import { getSupabaseAdminClient } from '@/platform/supabase/admin-client';
+import { createDeliveriesForWorkspace } from '@/platform/push/push-dispatch';
+import { targetUrlForCategory } from '@/platform/push/push-content';
 
 /**
  * POST /api/ai/triage-capture  { itemId, idempotencyKey? }
@@ -97,7 +100,7 @@ export async function POST(request: Request) {
   // Item sob RLS: só encontra se pertencer ao workspace do usuário.
   const { data: item, error: itemError } = await session.supabase
     .from('items')
-    .select('id, workspace_id, content, title')
+    .select('id, workspace_id, content, title, source')
     .eq('id', body.itemId)
     .is('deleted_at', null)
     .maybeSingle();
@@ -195,6 +198,27 @@ export async function POST(request: Request) {
       })
       .eq('id', aiRun.id);
     // A captura (item) nunca é tocada aqui — continua intacta na Caixa de Entrada.
+
+    // Caminho principal do aviso de falha de captura (push-tick faz a
+    // recuperação idempotente para o caso raro desta chamada falhar). Só
+    // para capturas realmente analisáveis (texto/áudio); nunca para
+    // qualquer outra falha de IA. Best-effort: nunca altera a resposta ao
+    // usuário nem a captura original.
+    if (item.source === 'quick_capture' || item.source === 'audio_capture') {
+      try {
+        await createDeliveriesForWorkspace(getSupabaseAdminClient(), {
+          workspaceId: session.workspaceId,
+          category: 'capture_failure',
+          dedupKey: `capture_failure:${aiRun.id}`,
+          targetUrl: targetUrlForCategory('capture_failure', item.id),
+          entityType: 'item',
+          entityId: item.id,
+        });
+      } catch (notifyError) {
+        console.error('Falha ao criar notificação push de captura', notifyError);
+      }
+    }
+
     return NextResponse.json(
       { error: `A análise por IA falhou: ${message}. Sua captura continua salva.` },
       { status: 502 }

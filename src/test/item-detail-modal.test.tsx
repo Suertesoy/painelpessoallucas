@@ -49,6 +49,9 @@ const completeItem = vi.fn();
 const archiveItem = vi.fn();
 const reopenItem = vi.fn();
 const unarchiveItem = vi.fn();
+const getPendingPushReminderForItem = vi.fn();
+const setTaskReminder = vi.fn();
+const cancelReminder = vi.fn();
 
 const fakeRepo = { subscribe: () => () => {} };
 
@@ -63,9 +66,11 @@ vi.mock('@/providers/repository.provider', () => ({
   useQueries: () => ({
     item: { getItemById },
     project: { listProjects },
+    reminder: { getPendingPushReminderForItem },
   }),
   useCommands: () => ({
     item: { updateItem, completeItem, archiveItem, reopenItem, unarchiveItem },
+    reminder: { setTaskReminder, cancelReminder },
   }),
 }));
 
@@ -99,6 +104,7 @@ beforeEach(() => {
   findByEntityId.mockResolvedValue([]);
   findLatestTriageRun.mockResolvedValue(null);
   findCalendarEventLink.mockResolvedValue(null);
+  getPendingPushReminderForItem.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -377,6 +383,7 @@ describe('ItemDetailModal — proveniência de captura por áudio (Etapa 7)', ()
       googleCalendarId: 'cal-1',
       googleEventId: 'evt-1',
       syncStatus: 'synced',
+      remindersMinutes: [],
     });
 
     await openModalWith(AUDIO_ITEM);
