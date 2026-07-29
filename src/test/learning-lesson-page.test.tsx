@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Suspense } from 'react';
-import { render, screen, waitFor, cleanup, act } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, act, fireEvent } from '@testing-library/react';
 import LicaoDetalhePage from '@/app/aprendizado/[courseId]/modulos/[moduleId]/licoes/[lessonId]/page';
 
 /**
@@ -49,6 +49,8 @@ const baseLesson = {
 const getModuleById = vi.fn();
 const getLessonById = vi.fn();
 const getLessonProgress = vi.fn();
+const getCoursePreferences = vi.fn();
+const listLessonsByModule = vi.fn();
 const recordLessonViewed = vi.fn().mockResolvedValue(undefined);
 const recordExerciseResult = vi.fn().mockResolvedValue(undefined);
 const completeLesson = vi.fn().mockResolvedValue(undefined);
@@ -64,7 +66,7 @@ vi.mock('@/providers/repository.provider', () => ({
     lessonProgressRepository: fakeRepo,
   }),
   useQueries: () => ({
-    learning: { getModuleById, getLessonById, getLessonProgress },
+    learning: { getModuleById, getLessonById, getLessonProgress, getCoursePreferences, listLessonsByModule },
   }),
   useCommands: () => ({
     learning: { recordLessonViewed, recordExerciseResult, completeLesson },
@@ -101,6 +103,123 @@ describe('LicaoDetalhePage — carregamento e renderização', () => {
       moduleId: MODULE_ID,
       lessonId: LESSON_ID,
     });
+  });
+});
+
+const NEXT_LESSON_ID = '11111111-1111-4111-8111-111111111112';
+
+describe('LicaoDetalhePage — navegação sequencial por posição, nunca por título', () => {
+  it('após concluir, oferece link para a próxima lição pela posição', async () => {
+    getModuleById.mockResolvedValue(baseModule);
+    getLessonById.mockResolvedValue(baseLesson);
+    getLessonProgress.mockResolvedValue(null);
+    getCoursePreferences.mockResolvedValue(null);
+    listLessonsByModule.mockResolvedValue([
+      baseLesson,
+      { ...baseLesson, id: NEXT_LESSON_ID, contentKey: 'hiragana-vogais', title: 'Zzz — vem por título depois, mas por posição antes', position: 1 },
+    ]);
+    completeLesson.mockResolvedValue(undefined);
+
+    await renderPage({ courseId: COURSE_ID, moduleId: MODULE_ID, lessonId: LESSON_ID });
+    await waitFor(() => expect(screen.getByText('Introdução ao curso')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: /Concluir lição/ }));
+
+    await waitFor(() => expect(screen.getByRole('link', { name: /Próxima lição/ })).toBeTruthy());
+    const link = screen.getByRole('link', { name: /Próxima lição/ }) as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe(`/aprendizado/${COURSE_ID}/modulos/${MODULE_ID}/licoes/${NEXT_LESSON_ID}`);
+  });
+
+  it('na última lição do módulo, oferece "Voltar ao módulo" em vez de "Próxima lição"', async () => {
+    getModuleById.mockResolvedValue(baseModule);
+    getLessonById.mockResolvedValue(baseLesson);
+    getLessonProgress.mockResolvedValue({
+      id: 'p1',
+      workspaceId: 'ws-1',
+      courseId: COURSE_ID,
+      moduleId: MODULE_ID,
+      lessonId: LESSON_ID,
+      totalExercises: 0,
+      answeredCount: 0,
+      resolvedCount: 0,
+      attempts: {},
+      status: 'completed',
+      startedAt: '2026-07-29T10:00:00.000Z',
+      lastActivityAt: '2026-07-29T10:00:00.000Z',
+      completedAt: '2026-07-29T10:00:00.000Z',
+      createdAt: '2026-07-29T10:00:00.000Z',
+      updatedAt: '2026-07-29T10:00:00.000Z',
+    });
+    getCoursePreferences.mockResolvedValue(null);
+    listLessonsByModule.mockResolvedValue([baseLesson]); // única lição do módulo
+
+    await renderPage({ courseId: COURSE_ID, moduleId: MODULE_ID, lessonId: LESSON_ID });
+
+    await waitFor(() => expect(screen.getByRole('link', { name: /Voltar ao módulo/ })).toBeTruthy());
+    expect(screen.queryByRole('link', { name: /Próxima lição/ })).toBeNull();
+    const link = screen.getByRole('link', { name: /Voltar ao módulo/ }) as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe(`/aprendizado/${COURSE_ID}/modulos/${MODULE_ID}`);
+  });
+});
+
+const LESSON_WITH_KANA_ID = '11111111-1111-4111-8111-111111111113';
+const lessonWithKana = {
+  ...baseLesson,
+  id: LESSON_WITH_KANA_ID,
+  contentKey: 'hiragana-vogais',
+  title: 'Hiragana — Vogais',
+  content: {
+    blocks: [
+      { id: 'obj', type: 'objective' as const, text: 'Objetivo.' },
+      { id: 'kana', type: 'kana' as const, characters: [{ character: 'あ', romaji: 'a' }] },
+      { id: 'sum', type: 'summary' as const, points: ['Ponto.'] },
+    ],
+  },
+};
+
+describe('LicaoDetalhePage — preferência de romaji do curso', () => {
+  it('oculta romaji quando CoursePreferences.showRomaji é false', async () => {
+    getModuleById.mockResolvedValue(baseModule);
+    getLessonById.mockResolvedValue(lessonWithKana);
+    getLessonProgress.mockResolvedValue(null);
+    getCoursePreferences.mockResolvedValue({
+      workspaceId: 'ws-1',
+      courseId: COURSE_ID,
+      showRomaji: false,
+      showFurigana: true,
+      showTranslation: true,
+      autoPlayAudio: false,
+      createdAt: '2026-07-29T10:00:00.000Z',
+      updatedAt: '2026-07-29T10:00:00.000Z',
+    });
+    listLessonsByModule.mockResolvedValue([lessonWithKana]);
+
+    await renderPage({ courseId: COURSE_ID, moduleId: MODULE_ID, lessonId: LESSON_WITH_KANA_ID });
+
+    await waitFor(() => expect(screen.getByText('あ')).toBeTruthy());
+    expect(screen.queryByText('a')).toBeNull();
+  });
+
+  it('mostra romaji quando CoursePreferences.showRomaji é true', async () => {
+    getModuleById.mockResolvedValue(baseModule);
+    getLessonById.mockResolvedValue(lessonWithKana);
+    getLessonProgress.mockResolvedValue(null);
+    getCoursePreferences.mockResolvedValue({
+      workspaceId: 'ws-1',
+      courseId: COURSE_ID,
+      showRomaji: true,
+      showFurigana: true,
+      showTranslation: true,
+      autoPlayAudio: false,
+      createdAt: '2026-07-29T10:00:00.000Z',
+      updatedAt: '2026-07-29T10:00:00.000Z',
+    });
+    listLessonsByModule.mockResolvedValue([lessonWithKana]);
+
+    await renderPage({ courseId: COURSE_ID, moduleId: MODULE_ID, lessonId: LESSON_WITH_KANA_ID });
+
+    await waitFor(() => expect(screen.getByText('あ')).toBeTruthy());
+    expect(screen.getByText('a')).toBeTruthy();
   });
 });
 

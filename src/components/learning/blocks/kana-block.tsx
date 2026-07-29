@@ -1,7 +1,7 @@
 import type { LessonBlockViewProps } from './types';
 import type { KanaBlock } from '@/modules/learning/domain/lesson-content.schema';
 
-export function KanaBlockView({ block }: LessonBlockViewProps<KanaBlock>) {
+export function KanaBlockView({ block, showRomaji = true }: LessonBlockViewProps<KanaBlock>) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 md:p-5">
       {block.heading && <h3 className="text-sm font-semibold text-gray-900">{block.heading}</h3>}
@@ -12,7 +12,7 @@ export function KanaBlockView({ block }: LessonBlockViewProps<KanaBlock>) {
             className="flex flex-col items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 py-3"
           >
             <span className="text-3xl font-medium text-gray-900">{c.character}</span>
-            <span className="text-xs text-gray-500">{c.romaji}</span>
+            {showRomaji && <span className="text-xs text-gray-500">{c.romaji}</span>}
           </div>
         ))}
       </div>

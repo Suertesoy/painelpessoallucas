@@ -39,7 +39,7 @@ function buildLesson(): Lesson {
           { character: 'え', romaji: 'e' },
         ],
       },
-      { id: 'ex', type: 'example', items: [{ text: 'あい', translation: 'amor' }] },
+      { id: 'ex', type: 'example', items: [{ text: 'あい', romaji: 'ai', translation: 'amor' }] },
       { id: 'note', type: 'note', tone: 'tip', text: 'Dica de estudo.' },
       {
         id: 'mc',
@@ -121,6 +121,48 @@ describe('LessonRenderer — renderiza blocos em sequência sem conhecer a liç�
       moduleId: MODULE_ID,
       lessonId: lesson.id,
     });
+  });
+});
+
+describe('LessonRenderer — preferência de romaji (CoursePreferences.showRomaji)', () => {
+  it('mostra romaji por padrão quando showRomaji não é informado', () => {
+    render(<LessonRenderer lesson={buildLesson()} courseId={COURSE_ID} moduleId={MODULE_ID} progress={null} />);
+
+    expect(screen.getByText('u')).toBeTruthy(); // romaji do kana う
+    expect(screen.getByText('ai')).toBeTruthy(); // romaji do exemplo あい
+  });
+
+  it('oculta romaji quando showRomaji é false, sem esconder o kana nem a tradução', () => {
+    render(
+      <LessonRenderer
+        lesson={buildLesson()}
+        courseId={COURSE_ID}
+        moduleId={MODULE_ID}
+        progress={null}
+        showRomaji={false}
+      />
+    );
+
+    expect(screen.queryByText('u')).toBeNull();
+    expect(screen.queryByText('ai')).toBeNull();
+    expect(screen.getByText('う')).toBeTruthy(); // kana continua visível
+    expect(screen.getByText('amor')).toBeTruthy(); // tradução continua visível
+  });
+
+  it('exercícios continuam mostrando romaji mesmo com showRomaji false (romaji é o próprio conteúdo testado)', () => {
+    render(
+      <LessonRenderer
+        lesson={buildLesson()}
+        courseId={COURSE_ID}
+        moduleId={MODULE_ID}
+        progress={null}
+        showRomaji={false}
+      />
+    );
+
+    // matching pareia あ/い com "a"/"i" — não é decorativo, é o exercício.
+    expect(screen.getByText('a')).toBeTruthy();
+    expect(screen.getByText('i')).toBeTruthy();
   });
 });
 

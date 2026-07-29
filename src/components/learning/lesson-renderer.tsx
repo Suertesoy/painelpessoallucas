@@ -39,6 +39,8 @@ export function LessonRenderer({
   courseId,
   moduleId,
   progress,
+  showRomaji = true,
+  onCompleted,
 }: {
   lesson: Lesson;
   courseId: string;
@@ -48,6 +50,11 @@ export function LessonRenderer({
    * (resolvido trava; incorreto continua respondível), sem apagar progresso
    * ao atualizar a página. */
   progress: LessonProgress | null | undefined;
+  /** `CoursePreferences.showRomaji` — repassado aos blocos `kana`/`example`. */
+  showRomaji?: boolean;
+  /** Chamado após `completeLesson` ter sucesso — usado pela página da lição
+   * para oferecer a navegação para a próxima lição sem esperar um refetch. */
+  onCompleted?: () => void;
 }) {
   const { learning: learningCmds } = useCommands();
   // Tentativas feitas NESTA montagem — o progresso persistido (via prop,
@@ -134,6 +141,7 @@ export function LessonRenderer({
     try {
       await learningCmds.completeLesson(lesson.workspaceId, { courseId, moduleId, lessonId: lesson.id });
       setJustCompleted(true);
+      onCompleted?.();
     } catch {
       setCompleteError('Não foi possível concluir a lição. Tente novamente.');
     } finally {
@@ -149,7 +157,15 @@ export function LessonRenderer({
       {lesson.content.blocks.map((block) => {
         const Component = LESSON_BLOCK_COMPONENTS[block.type] as ComponentType<LessonBlockViewProps>;
         const key = `${block.id}:${retryNonce[block.id] ?? 0}`;
-        return <Component key={key} block={block} onExerciseResult={handleExerciseResult} attempt={attempts[block.id]} />;
+        return (
+          <Component
+            key={key}
+            block={block}
+            onExerciseResult={handleExerciseResult}
+            attempt={attempts[block.id]}
+            showRomaji={showRomaji}
+          />
+        );
       })}
 
       {exerciseBlockIds.length > 0 && (

@@ -16,4 +16,9 @@ export interface LessonBlockViewProps<B extends LessonBlock = LessonBlock> {
   block: B;
   onExerciseResult?: (result: ExerciseResult) => void;
   attempt?: ExerciseAttempt;
+  /** Preferência `CoursePreferences.showRomaji` do curso — só usada pelos
+   * blocos `kana` e `example`, que têm romaji como apoio de leitura.
+   * `undefined`/`true` mostra romaji (apoio visível por padrão); só `false`
+   * oculta. Os demais blocos ignoram esta prop. */
+  showRomaji?: boolean;
 }

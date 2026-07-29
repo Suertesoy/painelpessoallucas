@@ -39,8 +39,8 @@ const content: LessonContent = LessonContentSchema.parse({
       type: 'example',
       heading: 'Em contexto',
       items: [
-        { text: 'あい', translation: 'amor', note: 'a + i' },
-        { text: 'うえ', translation: 'em cima', note: 'u + e' },
+        { text: 'あい', romaji: 'ai', translation: 'amor', note: 'a + i' },
+        { text: 'うえ', romaji: 'ue', translation: 'em cima', note: 'u + e' },
       ],
     },
     {
@@ -68,7 +68,9 @@ const content: LessonContent = LessonContentSchema.parse({
       pairs: [
         { id: 'a', left: 'あ', right: 'a' },
         { id: 'i', left: 'い', right: 'i' },
+        { id: 'u', left: 'う', right: 'u' },
         { id: 'e', left: 'え', right: 'e' },
+        { id: 'o', left: 'お', right: 'o' },
       ],
     },
     {

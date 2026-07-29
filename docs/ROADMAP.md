@@ -91,6 +91,40 @@ módulos por conclusão de lições. `attempts` por `blockId` já tem o formato
 que uma fase futura de SRS consumiria, mas nenhuma tentativa de revisão é
 persistida ainda — só a primeira exposição.
 
+## Aprendizado — Percurso Hiragana ✅ (Fase 3 do módulo)
+Primeiro percurso pedagógico completo do curso Japonês — conteúdo real,
+sem nenhuma mudança de arquitetura no Learning Content Engine.
+
+Entregue:
+- 19 lições novas em `modules/learning/content/*.ts`, registradas no seed
+  (`DEFAULT_MODULES` em `learning.commands.ts`), completando o módulo
+  Fundamentos com 21 lições: Introdução, Hiragana — Vogais (Fase 2) e o
+  percurso completo do hiragana básico — linhas K/S/T/N/H/M/Y/R/W+ん,
+  três revisões cumulativas intermediárias, dakuten/handakuten (G/Z, D/B/P),
+  sons combinados (yōon), っ pequeno, vogais longas, leitura de palavras
+  frequentes e uma revisão final.
+- Convenção editorial: cada lição normal introduz no máximo cinco símbolos
+  novos (exceto lições de dakuten/handakuten, que tratam が/ざ/だ/ば/ぱ como
+  transformação sistemática de K/S/T/H já conhecidos, não como alfabetos
+  independentes); toda lição de conteúdo tem `objective` → explicação →
+  exemplos → pelo menos dois exercícios → `summary`; a cada bloco de linhas
+  novas segue uma lição de revisão cumulativa sem símbolos novos.
+- `CoursePreferences.showRomaji` (já existente desde a Fase 1, mas nunca
+  consumida na renderização) agora chega até `KanaBlockView`/
+  `ExampleBlockView` via `LessonRenderer` → `LessonBlockViewProps.showRomaji`,
+  lido pela página da lição com `getCoursePreferences`. `ExampleItemSchema`
+  ganhou um campo opcional `romaji` (leitura da palavra/frase inteira,
+  distinto de `note`, que é comentário pedagógico sempre visível) para que
+  os exemplos também respeitem a preferência.
+- Navegação sequencial: a página da lição oferece "Próxima lição" (por
+  `Lesson.position`, nunca por título) após a conclusão, e "Voltar ao
+  módulo" na última lição do módulo. A página do módulo destaca com o selo
+  "Recomendada" a primeira lição ainda não concluída, também por posição.
+
+Explicitamente fora desta fase (igual à Fase 2): áudio, TTS, reconhecimento
+de voz, IA, SRS, editor visual, novo curso, katakana, kanji, gramática
+extensa, desbloqueio de módulos por conclusão de lições.
+
 ## Fase 3 — Triagem com IA
 - Primeira função: triagem de capturas (título, tipo, projeto, prioridade, prazo, próxima ação, confiança, justificativa) com **confirmação humana**.
 - Captura salva antes da análise; falha de IA nunca perde captura.

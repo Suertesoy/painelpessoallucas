@@ -1,7 +1,7 @@
 import type { LessonBlockViewProps } from './types';
 import type { ExampleBlock } from '@/modules/learning/domain/lesson-content.schema';
 
-export function ExampleBlockView({ block }: LessonBlockViewProps<ExampleBlock>) {
+export function ExampleBlockView({ block, showRomaji = true }: LessonBlockViewProps<ExampleBlock>) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 md:p-5">
       {block.heading && <h3 className="text-sm font-semibold text-gray-900">{block.heading}</h3>}
@@ -9,6 +9,7 @@ export function ExampleBlockView({ block }: LessonBlockViewProps<ExampleBlock>) 
         {block.items.map((item, index) => (
           <li key={index} className="rounded-lg bg-gray-50 p-3">
             <p className="text-sm font-medium text-gray-900">{item.text}</p>
+            {showRomaji && item.romaji && <p className="mt-0.5 text-sm text-gray-500">{item.romaji}</p>}
             {item.translation && <p className="mt-0.5 text-sm text-gray-600">{item.translation}</p>}
             {item.note && <p className="mt-0.5 text-xs text-gray-400">{item.note}</p>}
           </li>

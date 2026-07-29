@@ -254,8 +254,8 @@ describe('LearningCommands — módulos e lições reais', () => {
 
     const lessons = await contentRepo.listLessonsByModule(fundamentos.id);
     expect(lessons).toHaveLength(fundamentos.lessonsCount);
-    expect(lessons).toHaveLength(2);
-    expect(lessons.map((l) => l.title)).toEqual(['Introdução ao curso', 'Hiragana — Vogais']);
+    expect(lessons).toHaveLength(21);
+    expect(lessons.slice(0, 2).map((l) => l.title)).toEqual(['Introdução ao curso', 'Hiragana — Vogais']);
     for (const lesson of lessons) {
       expect(lesson.content.blocks.length).toBeGreaterThan(0);
       expect(lesson.content.blocks[0].type).toBe('objective');
@@ -309,8 +309,8 @@ describe('LearningCommands — módulos e lições reais', () => {
     await commands.initializeDefaultLearningContent(WORKSPACE_A);
 
     const repaired = (await contentRepo.listModulesByCourse(course.id)).find((m) => m.id === fundamentos.id)!;
-    expect(repaired.lessonsCount).toBe(2);
-    expect(await contentRepo.listLessonsByModule(fundamentos.id)).toHaveLength(2);
+    expect(repaired.lessonsCount).toBe(21);
+    expect(await contentRepo.listLessonsByModule(fundamentos.id)).toHaveLength(21);
   });
 });
 
@@ -324,7 +324,7 @@ describe('LearningCommands — identidade estável da lição (contentKey, não 
     await commands.initializeDefaultLearningContent(WORKSPACE_A);
     await commands.initializeDefaultLearningContent(WORKSPACE_A);
 
-    expect(await contentRepo.listLessonsByModule(fundamentos.id)).toHaveLength(2);
+    expect(await contentRepo.listLessonsByModule(fundamentos.id)).toHaveLength(21);
   });
 
   it('renomear o título de uma lição não cria uma lição nova nem perde o id', async () => {
@@ -342,7 +342,7 @@ describe('LearningCommands — identidade estável da lição (contentKey, não 
     await commands.initializeDefaultLearningContent(WORKSPACE_A);
 
     const afterSeed = await contentRepo.listLessonsByModule(fundamentos.id);
-    expect(afterSeed).toHaveLength(2);
+    expect(afterSeed).toHaveLength(21);
     const reconciled = afterSeed.find((l) => l.contentKey === 'introducao-ao-curso')!;
     // O seed é a fonte de verdade para o título — reescreve de volta, mas o
     // id (identidade real da linha, é o que progresso referencia) não muda.

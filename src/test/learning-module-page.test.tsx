@@ -117,6 +117,38 @@ describe('ModuloDetalhePage — conclusão de lições derivada de progresso rea
     expect(screen.getByLabelText('Concluída')).toBeTruthy();
   });
 
+  it('destaca com "Recomendada" a primeira lição ainda não concluída, pela posição', async () => {
+    await act(async () => {
+      render(
+        <Suspense fallback={null}>
+          <ModuloDetalhePage params={Promise.resolve({ courseId: COURSE_ID, moduleId: MODULE_ID })} />
+        </Suspense>
+      );
+    });
+
+    await waitFor(() => expect(screen.getByText('Introdução ao curso', { exact: false })).toBeTruthy());
+    // LESSON_DONE_ID (posição 0) está concluída; LESSON_PENDING_ID (posição 1) é a recomendada.
+    expect(screen.getAllByText('Recomendada')).toHaveLength(1);
+  });
+
+  it('sem destaque "Recomendada" quando todas as lições já estão concluídas', async () => {
+    listLessonProgressByModule.mockResolvedValueOnce([
+      { id: 'p1', workspaceId: 'ws-1', courseId: COURSE_ID, moduleId: MODULE_ID, lessonId: LESSON_DONE_ID, totalExercises: 0, answeredCount: 0, resolvedCount: 0, attempts: {}, status: 'completed', startedAt: '2026-07-29T10:00:00.000Z', lastActivityAt: '2026-07-29T10:00:00.000Z', completedAt: '2026-07-29T10:00:00.000Z', createdAt: '2026-07-29T10:00:00.000Z', updatedAt: '2026-07-29T10:00:00.000Z' },
+      { id: 'p2', workspaceId: 'ws-1', courseId: COURSE_ID, moduleId: MODULE_ID, lessonId: LESSON_PENDING_ID, totalExercises: 0, answeredCount: 0, resolvedCount: 0, attempts: {}, status: 'completed', startedAt: '2026-07-29T10:00:00.000Z', lastActivityAt: '2026-07-29T10:00:00.000Z', completedAt: '2026-07-29T10:00:00.000Z', createdAt: '2026-07-29T10:00:00.000Z', updatedAt: '2026-07-29T10:00:00.000Z' },
+    ]);
+
+    await act(async () => {
+      render(
+        <Suspense fallback={null}>
+          <ModuloDetalhePage params={Promise.resolve({ courseId: COURSE_ID, moduleId: MODULE_ID })} />
+        </Suspense>
+      );
+    });
+
+    await waitFor(() => expect(screen.getByText('2 de 2 concluída(s)')).toBeTruthy());
+    expect(screen.queryByText('Recomendada')).toBeNull();
+  });
+
   it('falha ao carregar módulo é apresentada como erro, nunca como lista vazia', async () => {
     getModuleById.mockRejectedValueOnce(new Error('permission denied for table learning_modules'));
 

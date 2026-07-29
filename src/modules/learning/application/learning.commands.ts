@@ -33,6 +33,25 @@ import {
 } from '../domain/lesson-progress.schema';
 import introducaoAoCursoContent from '../content/introducao-ao-curso';
 import hiraganaVogaisContent from '../content/hiragana-vogais';
+import hiraganaLinhaKContent from '../content/hiragana-linha-k';
+import hiraganaLinhaSContent from '../content/hiragana-linha-s';
+import hiraganaRevisao1Content from '../content/hiragana-revisao-1';
+import hiraganaLinhaTContent from '../content/hiragana-linha-t';
+import hiraganaLinhaNContent from '../content/hiragana-linha-n';
+import hiraganaLinhaHContent from '../content/hiragana-linha-h';
+import hiraganaRevisao2Content from '../content/hiragana-revisao-2';
+import hiraganaLinhaMContent from '../content/hiragana-linha-m';
+import hiraganaLinhaYContent from '../content/hiragana-linha-y';
+import hiraganaLinhaRContent from '../content/hiragana-linha-r';
+import hiraganaLinhaWNContent from '../content/hiragana-linha-w-n';
+import hiraganaRevisao3Content from '../content/hiragana-revisao-3';
+import hiraganaDakutenGZContent from '../content/hiragana-dakuten-g-z';
+import hiraganaDakutenDBPContent from '../content/hiragana-dakuten-d-b-p';
+import hiraganaSonsCombinadosContent from '../content/hiragana-sons-combinados';
+import hiraganaTsuPequenoContent from '../content/hiragana-tsu-pequeno';
+import hiraganaVogaisLongasContent from '../content/hiragana-vogais-longas';
+import hiraganaLeituraInicialContent from '../content/hiragana-leitura-inicial';
+import hiraganaRevisaoFinalContent from '../content/hiragana-revisao-final';
 
 /** Primeiro curso cadastrado — Japonês. Não é um caso especial no código: é
  * apenas o registro inicial do Learning Engine genérico. */
@@ -74,6 +93,120 @@ const DEFAULT_MODULES: DefaultModuleSeed[] = [
         title: 'Hiragana — Vogais',
         description: 'As cinco vogais do hiragana (あ・い・う・え・お): leitura, exemplos e prática.',
         content: hiraganaVogaisContent,
+      },
+      {
+        contentKey: 'hiragana-linha-k',
+        title: 'Hiragana — Linha K',
+        description: 'Os cinco sons da linha K (か・き・く・け・こ): leitura, exemplos e prática.',
+        content: hiraganaLinhaKContent,
+      },
+      {
+        contentKey: 'hiragana-linha-s',
+        title: 'Hiragana — Linha S',
+        description: 'Os cinco sons da linha S (さ・し・す・せ・そ), incluindo a exceção し (shi).',
+        content: hiraganaLinhaSContent,
+      },
+      {
+        contentKey: 'hiragana-revisao-1',
+        title: 'Revisão — Vogais, K e S',
+        description: 'Revisão cumulativa misturando vogais e as linhas K e S, sem símbolos novos.',
+        content: hiraganaRevisao1Content,
+      },
+      {
+        contentKey: 'hiragana-linha-t',
+        title: 'Hiragana — Linha T',
+        description: 'Os cinco sons da linha T (た・ち・つ・て・と), incluindo ち (chi) e つ (tsu).',
+        content: hiraganaLinhaTContent,
+      },
+      {
+        contentKey: 'hiragana-linha-n',
+        title: 'Hiragana — Linha N',
+        description: 'Os cinco sons da linha N (な・に・ぬ・ね・の): leitura, exemplos e prática.',
+        content: hiraganaLinhaNContent,
+      },
+      {
+        contentKey: 'hiragana-linha-h',
+        title: 'Hiragana — Linha H',
+        description: 'Os cinco sons da linha H (は・ひ・ふ・へ・ほ), incluindo a exceção ふ (fu).',
+        content: hiraganaLinhaHContent,
+      },
+      {
+        contentKey: 'hiragana-revisao-2',
+        title: 'Revisão — T, N e H',
+        description: 'Revisão cumulativa misturando T, N, H e o conteúdo anterior, sem símbolos novos.',
+        content: hiraganaRevisao2Content,
+      },
+      {
+        contentKey: 'hiragana-linha-m',
+        title: 'Hiragana — Linha M',
+        description: 'Os cinco sons da linha M (ま・み・む・め・も): leitura, exemplos e prática.',
+        content: hiraganaLinhaMContent,
+      },
+      {
+        contentKey: 'hiragana-linha-y',
+        title: 'Hiragana — Linha Y',
+        description: 'Os três sons da linha Y (や・ゆ・よ) no japonês moderno.',
+        content: hiraganaLinhaYContent,
+      },
+      {
+        contentKey: 'hiragana-linha-r',
+        title: 'Hiragana — Linha R',
+        description: 'Os cinco sons da linha R (ら・り・る・れ・ろ): leitura, exemplos e prática.',
+        content: hiraganaLinhaRContent,
+      },
+      {
+        contentKey: 'hiragana-linha-w-n',
+        title: 'Hiragana — Linha W e ん',
+        description: 'わ, を e ん — os últimos símbolos do hiragana básico.',
+        content: hiraganaLinhaWNContent,
+      },
+      {
+        contentKey: 'hiragana-revisao-3',
+        title: 'Revisão — Hiragana básico completo',
+        description: 'Revisão cumulativa dos 46 símbolos básicos do hiragana, sem símbolos novos.',
+        content: hiraganaRevisao3Content,
+      },
+      {
+        contentKey: 'hiragana-dakuten-g-z',
+        title: 'Sons marcados — G e Z',
+        description: 'O princípio do dakuten (゛) e as linhas G (が・ぎ・ぐ・げ・ご) e Z (ざ・じ・ず・ぜ・ぞ).',
+        content: hiraganaDakutenGZContent,
+      },
+      {
+        contentKey: 'hiragana-dakuten-d-b-p',
+        title: 'Sons marcados — D, B e P',
+        description: 'Dakuten nas linhas D (だ行) e B (ば行), e o handakuten da linha P (ぱ行).',
+        content: hiraganaDakutenDBPContent,
+      },
+      {
+        contentKey: 'hiragana-sons-combinados',
+        title: 'Sons combinados — ゃ, ゅ e ょ pequenos',
+        description: 'O princípio dos sons combinados (yōon) com きゃ・しゃ・ちゃ e famílias equivalentes.',
+        content: hiraganaSonsCombinadosContent,
+      },
+      {
+        contentKey: 'hiragana-tsu-pequeno',
+        title: 'Consoante duplicada — っ pequeno',
+        description: 'Como っ pequeno indica uma pausa e duplica a consoante seguinte.',
+        content: hiraganaTsuPequenoContent,
+      },
+      {
+        contentKey: 'hiragana-vogais-longas',
+        title: 'Vogais longas em Hiragana',
+        description: 'Padrões frequentes de som longo em hiragana, como おう e えい.',
+        content: hiraganaVogaisLongasContent,
+      },
+      {
+        contentKey: 'hiragana-leitura-inicial',
+        title: 'Leitura — Palavras e expressões frequentes',
+        description: 'Prática de leitura com palavras e expressões curtas do dia a dia.',
+        content: hiraganaLeituraInicialContent,
+      },
+      {
+        contentKey: 'hiragana-revisao-final',
+        title: 'Revisão final — Hiragana',
+        description: 'Revisão cumulativa de todo o hiragana básico estudado no módulo.',
+        content: hiraganaRevisaoFinalContent,
       },
     ],
   },

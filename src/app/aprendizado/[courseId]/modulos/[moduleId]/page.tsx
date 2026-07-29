@@ -113,21 +113,33 @@ export default function ModuloDetalhePage({
             <p className="mt-3 text-sm text-gray-500">Nenhuma lição cadastrada ainda.</p>
           ) : (
             <ul className="mt-3 space-y-2">
-              {(lessons ?? [])
-                .slice()
-                .sort((a, b) => a.position - b.position)
-                .map((lesson, index) => {
+              {(() => {
+                const sortedLessons = (lessons ?? []).slice().sort((a, b) => a.position - b.position);
+                // Primeira lição ainda não concluída, pela posição real —
+                // nunca pelo título. Sem destaque quando tudo já foi feito.
+                const recommendedLessonId = sortedLessons.find((l) => !completedLessonIds.has(l.id))?.id;
+                return sortedLessons.map((lesson, index) => {
                   const isCompleted = completedLessonIds.has(lesson.id);
+                  const isRecommended = lesson.id === recommendedLessonId;
                   return (
                     <li key={lesson.id}>
                       <Link
                         href={`/aprendizado/${course.id}/modulos/${mod.id}/licoes/${lesson.id}`}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
+                        className={`flex items-center justify-between gap-3 rounded-lg border bg-white p-4 transition-colors hover:bg-gray-50 ${
+                          isRecommended ? 'border-blue-300 ring-1 ring-blue-100' : 'border-gray-200'
+                        }`}
                       >
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900">
-                            {index + 1}. {lesson.title}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium text-gray-900">
+                              {index + 1}. {lesson.title}
+                            </p>
+                            {isRecommended && (
+                              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                                Recomendada
+                              </span>
+                            )}
+                          </div>
                           {lesson.description && (
                             <p className="mt-1 text-sm text-gray-600">{lesson.description}</p>
                           )}
@@ -138,7 +150,8 @@ export default function ModuloDetalhePage({
                       </Link>
                     </li>
                   );
-                })}
+                });
+              })()}
             </ul>
           )}
         </section>

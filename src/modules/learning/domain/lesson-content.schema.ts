@@ -54,6 +54,11 @@ export type KanaBlock = z.infer<typeof KanaBlockSchema>;
 
 const ExampleItemSchema = z.object({
   text: z.string().min(1),
+  /** Leitura em romaji da palavra/frase inteira — apoio temporário, gated
+   * pela preferência `showRomaji` do curso. Distinto de `note`, que é um
+   * comentário pedagógico livre (ex.: decomposição em sílabas) sempre
+   * visível, independente da preferência de romaji. */
+  romaji: z.string().optional(),
   translation: z.string().optional(),
   note: z.string().optional(),
 });

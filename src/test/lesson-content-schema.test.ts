@@ -100,3 +100,20 @@ describe('LessonBlockSchema — bloco note', () => {
     expect(block).toMatchObject({ tone: 'info' });
   });
 });
+
+describe('LessonBlockSchema — bloco example, campo romaji opcional', () => {
+  it('aceita um item de exemplo com romaji, distinto de note e translation', () => {
+    const block = LessonBlockSchema.parse({
+      id: 'ex',
+      type: 'example',
+      items: [{ text: 'すし', romaji: 'sushi', translation: 'sushi', note: 'su + shi' }],
+    });
+    expect(block).toMatchObject({ items: [{ text: 'すし', romaji: 'sushi', translation: 'sushi', note: 'su + shi' }] });
+  });
+
+  it('aceita um item de exemplo sem romaji (retrocompatível)', () => {
+    expect(() =>
+      LessonBlockSchema.parse({ id: 'ex', type: 'example', items: [{ text: 'あい', translation: 'amor' }] })
+    ).not.toThrow();
+  });
+});

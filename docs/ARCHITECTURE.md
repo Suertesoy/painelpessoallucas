@@ -221,6 +221,62 @@ selo por lição de `listLessonProgressByModule` — nunca um percentual
 fictício, e sem alterar `LearningModule.status`/desbloqueios (fora do
 escopo desta fase).
 
+### Percurso Hiragana e convenções editoriais (Fase 3 do módulo)
+
+O módulo Fundamentos tem hoje 21 lições — Introdução, Hiragana — Vogais e o
+percurso completo do hiragana básico (`modules/learning/content/hiragana-*.ts`),
+registradas em `DEFAULT_MODULES[0].lessons` (`learning.commands.ts`). Nenhuma
+mudança de arquitetura foi necessária: é só mais conteúdo declarativo,
+reconciliado pelo mesmo `ensureModulesAndLessons` por `contentKey`.
+
+Convenções seguidas por todo o conteúdo do curso (para orientar lições
+futuras, inclusive de outros cursos):
+- No máximo cinco símbolos novos por lição de conteúdo — **exceto** lições
+  de dakuten/handakuten (`hiragana-dakuten-*`), que introduzem mais porque
+  tratam が/ざ/だ/ば/ぱ como transformação sistemática de か/さ/た/は já
+  conhecidos (mesma forma + marca), não como símbolos independentes. Lições
+  de revisão (`hiragana-revisao-*`) nunca introduzem símbolo novo.
+  Devem sempre seguir a sequência `objective` → explicação → `kana` →
+  `example` → `note` (só quando útil) → pelo menos dois exercícios →
+  `summary`; para adicionar uma lição nova, ver as lições existentes como
+  padrão de estilo e criar o arquivo em `modules/learning/content/`,
+  reexportando `LessonContentSchema.parse({...})` como default.
+- A cada bloco de 2–3 linhas novas de kana, segue uma lição de revisão
+  cumulativa sem símbolos novos, misturando o conjunto recente com o
+  anterior — nunca testando algo ainda não ensinado.
+- Palavras de exemplo usam só kana já ensinados; quando isso não é possível
+  (ex.: がっこう antes da lição de vogais longas, だいじょうぶ antes de じょ
+  ser coberto), a parte não ensinada é sinalizada em `note`/comentário como
+  exposição, nunca cobrada em exercício.
+- `id` de bloco é estável e só precisa ser único **dentro** da lição —
+  lições diferentes reusam ids como `'objective'`/`'resumo'` livremente.
+  `contentKey` (não `title`) é o que precisa ser globalmente único e
+  imutável dentro do módulo (ver seção acima).
+
+**Romaji conectado à renderização**: `CoursePreferences.showRomaji` existia
+desde a Fase 1 mas não era lido em lugar nenhum. Agora `LessonBlockViewProps`
+(`components/learning/blocks/types.ts`) tem um campo opcional `showRomaji`
+(default `true` quando ausente), repassado por `LessonRenderer` a todo
+bloco. Só `KanaBlockView` e `ExampleBlockView` o usam, ocultando
+`character.romaji`/`item.romaji` quando `false` — tradução (`translation`)
+e o hiragana em si nunca somem, só o apoio em romaji. A página da lição
+busca a preferência com `getCoursePreferences(courseId)` e a repassa;
+exercícios (`multiple_choice`/`matching`) nunca leem `showRomaji` — quando
+romaji é o próprio conteúdo testado (ex.: parear kana↔romaji), ele precisa
+continuar visível independente da preferência de exibição passiva.
+`ExampleItemSchema` ganhou um campo opcional `romaji` (leitura da
+palavra/frase inteira), distinto de `note` (comentário pedagógico livre,
+ex.: decomposição em sílabas, sempre visível).
+
+**Navegação sequencial por posição, nunca por título**: a página da lição
+busca `listLessonsByModule(moduleId)`, ordena por `position` e calcula a
+lição seguinte à atual. Após `completeLesson` (via `onCompleted` do
+`LessonRenderer`, para não esperar um refetch) ou ao reabrir uma lição já
+concluída, mostra "Próxima lição" (se houver) ou "Voltar ao módulo" (na
+última). A página do módulo faz o mesmo cálculo — primeira lição da lista
+ordenada sem progresso `completed` — para destacar um selo "Recomendada";
+sem destaque quando todas as lições já estão concluídas.
+
 ## Evolução planejada
 
 - **Automações externas**: regras centrais vivem no painel (commands/endpoints); ferramentas externas (n8n etc.) apenas chamam essas portas.
