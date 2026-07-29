@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Painel Lucas — Sem conexão</title>
+<style>
+  :root {
+    color-scheme: light;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: #f9fafb;
+    color: #171717;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  .card {
+    max-width: 26rem;
+    width: 100%;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    padding: 2rem 1.75rem;
+    text-align: center;
+  }
+  .logo {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 1.25rem;
+    border-radius: 14px;
+    background: #2563eb;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 28px;
+  }
+  h1 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+  }
+  p {
+    font-size: 0.875rem;
+    color: #4b5563;
+    line-height: 1.5;
+    margin: 0 0 1.5rem;
+  }
+  button {
+    appearance: none;
+    border: none;
+    background: #2563eb;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.625rem 1.25rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #1d4ed8;
+  }
+  .status {
+    margin-top: 1rem;
+    font-size: 0.75rem;
+    color: #9ca3af;
+  }
+</style>
+</head>
+<body>
+  <main class="card" role="main">
+    <div class="logo" aria-hidden="true">P</div>
+    <h1>Sem conexão com a internet</h1>
+    <p>
+      O Painel Lucas precisa de conexão para sincronizar seus dados com
+      segurança. Nenhuma informação pessoal fica salva neste dispositivo
+      enquanto você está offline.
+    </p>
+    <button type="button" onclick="location.reload()">Tentar novamente</button>
+    <p class="status" id="status" aria-live="polite"></p>
+  </main>
+  <script>
+    function updateStatus() {
+      var el = document.getElementById('status');
+      if (!el) return;
+      el.textContent = navigator.onLine
+        ? 'Conexão detectada — toque em "Tentar novamente".'
+        : 'Aguardando conexão…';
+    }
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
+    updateStatus();
+  </script>
+</body>
+</html>
