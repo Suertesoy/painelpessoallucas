@@ -25,6 +25,7 @@ export interface LearningContentRepository {
   listModulesByCourse(courseId: string): Promise<LearningModule[]>;
   saveModules(modules: LearningModule[]): Promise<void>;
 
+  findLessonById(id: string): Promise<Lesson | null>;
   listLessonsByModule(moduleId: string): Promise<Lesson[]>;
   saveLessons(lessons: Lesson[]): Promise<void>;
 

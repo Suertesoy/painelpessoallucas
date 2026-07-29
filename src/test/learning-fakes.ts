@@ -1,5 +1,6 @@
 import type { LearningContentRepository } from '@/modules/learning/application/learning-content.repository';
 import type { StudySessionRepository } from '@/modules/learning/application/study-session.repository';
+import type { LessonProgressRepository } from '@/modules/learning/application/lesson-progress.repository';
 import type { EventRepository } from '@/platform/events/event.repository';
 import type {
   Course,
@@ -9,6 +10,7 @@ import type {
   CoursePreferences,
   StudySession,
 } from '@/modules/learning/domain/learning.schema';
+import type { LessonProgress } from '@/modules/learning/domain/lesson-progress.schema';
 import type { DomainEvent } from '@/platform/events/event.schema';
 
 /** Repositórios em memória — mesmo papel que os adapters LocalStorage cumprem
@@ -42,6 +44,9 @@ export class FakeLearningContentRepository implements LearningContentRepository 
   }
   async saveModules(modules: LearningModule[]): Promise<void> {
     modules.forEach((m) => this.modules.set(m.id, m));
+  }
+  async findLessonById(id: string): Promise<Lesson | null> {
+    return this.lessons.get(id) ?? null;
   }
   async listLessonsByModule(moduleId: string): Promise<Lesson[]> {
     return [...this.lessons.values()]
@@ -89,6 +94,25 @@ export class FakeStudySessionRepository implements StudySessionRepository {
     return [...this.sessions.values()]
       .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))
       .slice(0, limit);
+  }
+  subscribe(): () => void {
+    return () => {};
+  }
+}
+
+export class FakeLessonProgressRepository implements LessonProgressRepository {
+  progress = new Map<string, LessonProgress>();
+
+  async findByLesson(workspaceId: string, lessonId: string): Promise<LessonProgress | null> {
+    return (
+      [...this.progress.values()].find((p) => p.workspaceId === workspaceId && p.lessonId === lessonId) ?? null
+    );
+  }
+  async listByModule(moduleId: string): Promise<LessonProgress[]> {
+    return [...this.progress.values()].filter((p) => p.moduleId === moduleId);
+  }
+  async save(progress: LessonProgress): Promise<void> {
+    this.progress.set(progress.id, progress);
   }
   subscribe(): () => void {
     return () => {};

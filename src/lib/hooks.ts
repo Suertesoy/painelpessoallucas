@@ -40,6 +40,7 @@ export function useReactiveQuery<T>(
     calendarEventLinkRepository,
     learningContentRepository,
     studySessionRepository,
+    lessonProgressRepository,
   } = useRepositories();
   const [data, setData] = useState<T | undefined>(initialData);
   const [isLoading, setIsLoading] = useState(true);
@@ -86,6 +87,7 @@ export function useReactiveQuery<T>(
     const unsub4 = calendarEventLinkRepository.subscribe(runFetch);
     const unsub5 = learningContentRepository.subscribe(runFetch);
     const unsub6 = studySessionRepository.subscribe(runFetch);
+    const unsub7 = lessonProgressRepository.subscribe(runFetch);
 
     return () => {
       mounted = false;
@@ -95,6 +97,7 @@ export function useReactiveQuery<T>(
       unsub4();
       unsub5();
       unsub6();
+      unsub7();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

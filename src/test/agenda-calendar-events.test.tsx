@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import type { CalendarEventLink } from '@/platform/integrations/calendar-event-link.repository';
+import AgendaPage from '@/app/agenda/page';
 
 /**
  * Cobre diretamente o bug confirmado: um evento criado pelo painel (Google
@@ -25,6 +26,7 @@ vi.mock('@/providers/repository.provider', () => ({
     calendarEventLinkRepository: fakeRepo,
     learningContentRepository: fakeRepo,
     studySessionRepository: fakeRepo,
+    lessonProgressRepository: fakeRepo,
   }),
   useQueries: () => ({
     item: { listItems },
@@ -65,7 +67,6 @@ describe('AgendaPage — eventos de calendário criados pelo painel', () => {
     listProjects.mockResolvedValue([]);
     listInRange.mockResolvedValue([TODAY_EVENT]);
 
-    const { default: AgendaPage } = await import('@/app/agenda/page');
     render(<AgendaPage />);
 
     await waitFor(() => expect(screen.getByText('Reunião com a Priscila')).toBeTruthy());
@@ -81,7 +82,6 @@ describe('AgendaPage — eventos de calendário criados pelo painel', () => {
       { ...TODAY_EVENT, id: 'link-2', modality: 'online', location: null, meetingLink: 'https://meet.google.com/abc' },
     ]);
 
-    const { default: AgendaPage } = await import('@/app/agenda/page');
     render(<AgendaPage />);
 
     await waitFor(() => expect(screen.getByText('Reunião')).toBeTruthy());
@@ -93,7 +93,6 @@ describe('AgendaPage — eventos de calendário criados pelo painel', () => {
     listProjects.mockResolvedValue([]);
     listInRange.mockResolvedValue([]);
 
-    const { default: AgendaPage } = await import('@/app/agenda/page');
     render(<AgendaPage />);
 
     await waitFor(() => expect(screen.getByText('Nenhum compromisso.')).toBeTruthy());
@@ -104,7 +103,6 @@ describe('AgendaPage — eventos de calendário criados pelo painel', () => {
     listProjects.mockResolvedValue([]);
     listInRange.mockRejectedValue(new Error('rede indisponível'));
 
-    const { default: AgendaPage } = await import('@/app/agenda/page');
     render(<AgendaPage />);
 
     await waitFor(() => expect(screen.getByText(/Não foi possível carregar os eventos de calendário/)).toBeTruthy());

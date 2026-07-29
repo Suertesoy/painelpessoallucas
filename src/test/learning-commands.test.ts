@@ -3,6 +3,7 @@ import { LearningCommands, JAPANESE_COURSE_SLUG } from '@/modules/learning/appli
 import {
   FakeLearningContentRepository,
   FakeStudySessionRepository,
+  FakeLessonProgressRepository,
   FakeEventRepository,
 } from './learning-fakes';
 
@@ -12,9 +13,10 @@ const WORKSPACE_B = '8d2facfc-27bf-4736-97c9-b30e70fecfb6';
 function setup() {
   const contentRepo = new FakeLearningContentRepository();
   const sessionRepo = new FakeStudySessionRepository();
+  const progressRepo = new FakeLessonProgressRepository();
   const eventRepo = new FakeEventRepository();
-  const commands = new LearningCommands(contentRepo, sessionRepo, eventRepo);
-  return { contentRepo, sessionRepo, eventRepo, commands };
+  const commands = new LearningCommands(contentRepo, sessionRepo, eventRepo, progressRepo);
+  return { contentRepo, sessionRepo, progressRepo, eventRepo, commands };
 }
 
 describe('LearningCommands — validação da meta diária', () => {
@@ -128,8 +130,9 @@ describe('LearningCommands — sessões de estudo', () => {
     const { commands, sessionRepo } = setup();
     const contentRepoB = new FakeLearningContentRepository();
     const sessionRepoB = new FakeStudySessionRepository();
+    const progressRepoB = new FakeLessonProgressRepository();
     const eventRepoB = new FakeEventRepository();
-    const commandsB = new LearningCommands(contentRepoB, sessionRepoB, eventRepoB);
+    const commandsB = new LearningCommands(contentRepoB, sessionRepoB, eventRepoB, progressRepoB);
 
     const courseA = await commands.initializeDefaultLearningContent(WORKSPACE_A);
     const courseB = await commandsB.initializeDefaultLearningContent(WORKSPACE_B);
@@ -243,7 +246,7 @@ describe('LearningCommands — meta diária vigente na sessão', () => {
 });
 
 describe('LearningCommands — módulos e lições reais', () => {
-  it('cria a lição real de Fundamentos e o contador reflete a entidade existente', async () => {
+  it('cria as lições reais de Fundamentos, com conteúdo em blocos válido, e o contador reflete as entidades existentes', async () => {
     const { commands, contentRepo } = setup();
     const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
     const modules = await contentRepo.listModulesByCourse(course.id);
@@ -251,8 +254,31 @@ describe('LearningCommands — módulos e lições reais', () => {
 
     const lessons = await contentRepo.listLessonsByModule(fundamentos.id);
     expect(lessons).toHaveLength(fundamentos.lessonsCount);
-    expect(lessons).toHaveLength(1);
-    expect(lessons[0].title).toBe('Introdução ao curso');
+    expect(lessons).toHaveLength(2);
+    expect(lessons.map((l) => l.title)).toEqual(['Introdução ao curso', 'Hiragana — Vogais']);
+    for (const lesson of lessons) {
+      expect(lesson.content.blocks.length).toBeGreaterThan(0);
+      expect(lesson.content.blocks[0].type).toBe('objective');
+      expect(lesson.content.blocks[lesson.content.blocks.length - 1].type).toBe('summary');
+    }
+  });
+
+  it('repara o conteúdo de uma lição existente cujo content ficou em estado inválido (reparo idempotente)', async () => {
+    const { commands, contentRepo } = setup();
+    const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    const modules = await contentRepo.listModulesByCourse(course.id);
+    const fundamentos = modules.find((m) => m.title === 'Fundamentos')!;
+    const lessons = await contentRepo.listLessonsByModule(fundamentos.id);
+    const intro = lessons.find((l) => l.title === 'Introdução ao curso')!;
+
+    // Simula uma lição criada antes do Content Engine existir (sem blocos).
+    await contentRepo.saveLessons([{ ...intro, content: { blocks: [] } as unknown as typeof intro.content }]);
+
+    await commands.initializeDefaultLearningContent(WORKSPACE_A);
+
+    const repaired = (await contentRepo.listLessonsByModule(fundamentos.id)).find((l) => l.id === intro.id)!;
+    expect(repaired.content.blocks.length).toBeGreaterThan(0);
+    expect(repaired.content.blocks[0].type).toBe('objective');
   });
 
   it('módulos bloqueados não têm lições e o contador reflete essa ausência (0, não fictício)', async () => {
@@ -283,8 +309,61 @@ describe('LearningCommands — módulos e lições reais', () => {
     await commands.initializeDefaultLearningContent(WORKSPACE_A);
 
     const repaired = (await contentRepo.listModulesByCourse(course.id)).find((m) => m.id === fundamentos.id)!;
-    expect(repaired.lessonsCount).toBe(1);
-    expect(await contentRepo.listLessonsByModule(fundamentos.id)).toHaveLength(1);
+    expect(repaired.lessonsCount).toBe(2);
+    expect(await contentRepo.listLessonsByModule(fundamentos.id)).toHaveLength(2);
+  });
+});
+
+describe('LearningCommands — identidade estável da lição (contentKey, não título)', () => {
+  it('executar o seed repetidamente não duplica lições', async () => {
+    const { commands, contentRepo } = setup();
+    const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    const modules = await contentRepo.listModulesByCourse(course.id);
+    const fundamentos = modules.find((m) => m.title === 'Fundamentos')!;
+
+    await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    await commands.initializeDefaultLearningContent(WORKSPACE_A);
+
+    expect(await contentRepo.listLessonsByModule(fundamentos.id)).toHaveLength(2);
+  });
+
+  it('renomear o título de uma lição não cria uma lição nova nem perde o id', async () => {
+    const { commands, contentRepo } = setup();
+    const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    const modules = await contentRepo.listModulesByCourse(course.id);
+    const fundamentos = modules.find((m) => m.title === 'Fundamentos')!;
+    const lessons = await contentRepo.listLessonsByModule(fundamentos.id);
+    const intro = lessons.find((l) => l.contentKey === 'introducao-ao-curso')!;
+
+    // Simula uma edição editorial do título feita fora do seed (ex.: futura
+    // tela de edição) — o contentKey permanece o mesmo.
+    await contentRepo.saveLessons([{ ...intro, title: 'Título editado manualmente' }]);
+
+    await commands.initializeDefaultLearningContent(WORKSPACE_A);
+
+    const afterSeed = await contentRepo.listLessonsByModule(fundamentos.id);
+    expect(afterSeed).toHaveLength(2);
+    const reconciled = afterSeed.find((l) => l.contentKey === 'introducao-ao-curso')!;
+    // O seed é a fonte de verdade para o título — reescreve de volta, mas o
+    // id (identidade real da linha, é o que progresso referencia) não muda.
+    expect(reconciled.id).toBe(intro.id);
+    expect(reconciled.title).toBe('Introdução ao curso');
+  });
+
+  it('atualizar o conteúdo de uma lição existente preserva o id', async () => {
+    const { commands, contentRepo } = setup();
+    const course = await commands.initializeDefaultLearningContent(WORKSPACE_A);
+    const modules = await contentRepo.listModulesByCourse(course.id);
+    const fundamentos = modules.find((m) => m.title === 'Fundamentos')!;
+    const lessons = await contentRepo.listLessonsByModule(fundamentos.id);
+    const intro = lessons.find((l) => l.contentKey === 'introducao-ao-curso')!;
+
+    await contentRepo.saveLessons([{ ...intro, content: { blocks: [] } as unknown as typeof intro.content }]);
+    await commands.initializeDefaultLearningContent(WORKSPACE_A);
+
+    const repaired = (await contentRepo.listLessonsByModule(fundamentos.id)).find((l) => l.contentKey === 'introducao-ao-curso')!;
+    expect(repaired.id).toBe(intro.id);
+    expect(repaired.content.blocks.length).toBeGreaterThan(0);
   });
 });
 

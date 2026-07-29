@@ -39,8 +39,10 @@ import {
 } from '@/modules/plans/application/plan.repository';
 import { SupabaseLearningContentRepository } from '@/modules/learning/infrastructure/supabase-learning-content.repository';
 import { SupabaseStudySessionRepository } from '@/modules/learning/infrastructure/supabase-study-session.repository';
+import { SupabaseLessonProgressRepository } from '@/modules/learning/infrastructure/supabase-lesson-progress.repository';
 import { LearningContentRepository } from '@/modules/learning/application/learning-content.repository';
 import { StudySessionRepository } from '@/modules/learning/application/study-session.repository';
+import { LessonProgressRepository } from '@/modules/learning/application/lesson-progress.repository';
 import { LearningCommands } from '@/modules/learning/application/learning.commands';
 import { LearningQueries } from '@/modules/learning/application/learning.queries';
 import { useAuth } from './auth.provider';
@@ -67,6 +69,7 @@ interface RepositoryContextType {
   planQueries: PlanQueries;
   learningContentRepository: LearningContentRepository;
   studySessionRepository: StudySessionRepository;
+  lessonProgressRepository: LessonProgressRepository;
   learningCommands: LearningCommands;
   learningQueries: LearningQueries;
 }
@@ -104,6 +107,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     const planRepo = new SupabaseExecutionPlanRepository(supabase, workspaceId, notifier);
     const learningContentRepo = new SupabaseLearningContentRepository(supabase, workspaceId, notifier);
     const studySessionRepo = new SupabaseStudySessionRepository(supabase, workspaceId, notifier);
+    const lessonProgressRepo = new SupabaseLessonProgressRepository(supabase, workspaceId, notifier);
 
     return {
       itemRepository: itemRepo,
@@ -129,8 +133,9 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       planQueries: new PlanQueries(docRepo, planRepo),
       learningContentRepository: learningContentRepo,
       studySessionRepository: studySessionRepo,
-      learningCommands: new LearningCommands(learningContentRepo, studySessionRepo, eventRepo),
-      learningQueries: new LearningQueries(learningContentRepo, studySessionRepo),
+      lessonProgressRepository: lessonProgressRepo,
+      learningCommands: new LearningCommands(learningContentRepo, studySessionRepo, eventRepo, lessonProgressRepo),
+      learningQueries: new LearningQueries(learningContentRepo, studySessionRepo, lessonProgressRepo),
     };
   }, [status, workspaceId]);
 

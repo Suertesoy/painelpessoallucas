@@ -2,6 +2,7 @@ import { format, addDays, parseISO } from 'date-fns';
 import { dateInputToISO, isoToDateInput } from '@/lib/dates';
 import { LearningContentRepository } from './learning-content.repository';
 import { StudySessionRepository } from './study-session.repository';
+import { LessonProgressRepository } from './lesson-progress.repository';
 import {
   Course,
   LearningModule,
@@ -13,6 +14,7 @@ import {
   computeStudiedMinutes,
   isDailyGoalMet,
 } from '../domain/learning.schema';
+import { LessonProgress } from '../domain/lesson-progress.schema';
 
 const RECENT_SESSIONS_LIMIT = 10;
 const DEFAULT_GOAL_MINUTES_FALLBACK = 15;
@@ -28,7 +30,8 @@ function localDayRangeISO(today: string): { startISO: string; endISO: string } {
 export class LearningQueries {
   constructor(
     private contentRepo: LearningContentRepository,
-    private sessionRepo: StudySessionRepository
+    private sessionRepo: StudySessionRepository,
+    private progressRepo: LessonProgressRepository
   ) {}
 
   listCourses(): Promise<Course[]> {
@@ -49,6 +52,19 @@ export class LearningQueries {
 
   listLessonsByModule(moduleId: string): Promise<Lesson[]> {
     return this.contentRepo.listLessonsByModule(moduleId);
+  }
+
+  getLessonById(lessonId: string): Promise<Lesson | null> {
+    return this.contentRepo.findLessonById(lessonId);
+  }
+
+  getLessonProgress(workspaceId: string, lessonId: string): Promise<LessonProgress | null> {
+    return this.progressRepo.findByLesson(workspaceId, lessonId);
+  }
+
+  /** Usada pela página do módulo para refletir conclusão sem N+1 queries. */
+  listLessonProgressByModule(moduleId: string): Promise<LessonProgress[]> {
+    return this.progressRepo.listByModule(moduleId);
   }
 
   getLearningPreferences(): Promise<LearningPreferences | null> {

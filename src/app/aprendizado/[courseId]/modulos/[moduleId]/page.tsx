@@ -2,7 +2,7 @@
 
 import { use } from 'react';
 import Link from 'next/link';
-import { Lock, BookOpen } from 'lucide-react';
+import { Lock, BookOpen, CheckCircle2 } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useQueries } from '@/providers/repository.provider';
 import { DataErrorNotice } from '@/components/data-error-notice';
@@ -32,6 +32,14 @@ export default function ModuloDetalhePage({
   const { data: lessons, error: lessonsError, refetch: refetchLessons } = useReactiveQuery(
     () => learningQueries.listLessonsByModule(moduleId),
     [moduleId]
+  );
+  const { data: lessonProgressList } = useReactiveQuery(
+    () => learningQueries.listLessonProgressByModule(moduleId),
+    [moduleId],
+    []
+  );
+  const completedLessonIds = new Set(
+    (lessonProgressList ?? []).filter((p) => p.status === 'completed').map((p) => p.lessonId)
   );
 
   const isLoading = (loadingCourse && !course) || (loadingModule && !mod);
@@ -87,9 +95,16 @@ export default function ModuloDetalhePage({
         </div>
       ) : (
         <section className="mt-6">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-            <BookOpen size={18} /> Lições
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+              <BookOpen size={18} /> Lições
+            </h2>
+            {(lessons ?? []).length > 0 && (
+              <span className="text-xs text-gray-500">
+                {completedLessonIds.size} de {(lessons ?? []).length} concluída(s)
+              </span>
+            )}
+          </div>
           {lessonsError ? (
             <div className="mt-3">
               <DataErrorNotice isOffline={isOffline} onRetry={refetchLessons} />
@@ -101,16 +116,29 @@ export default function ModuloDetalhePage({
               {(lessons ?? [])
                 .slice()
                 .sort((a, b) => a.position - b.position)
-                .map((lesson, index) => (
-                  <li key={lesson.id} className="rounded-lg border border-gray-200 bg-white p-4">
-                    <p className="text-sm font-medium text-gray-900">
-                      {index + 1}. {lesson.title}
-                    </p>
-                    {lesson.description && (
-                      <p className="mt-1 text-sm text-gray-600">{lesson.description}</p>
-                    )}
-                  </li>
-                ))}
+                .map((lesson, index) => {
+                  const isCompleted = completedLessonIds.has(lesson.id);
+                  return (
+                    <li key={lesson.id}>
+                      <Link
+                        href={`/aprendizado/${course.id}/modulos/${mod.id}/licoes/${lesson.id}`}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900">
+                            {index + 1}. {lesson.title}
+                          </p>
+                          {lesson.description && (
+                            <p className="mt-1 text-sm text-gray-600">{lesson.description}</p>
+                          )}
+                        </div>
+                        {isCompleted && (
+                          <CheckCircle2 size={18} className="shrink-0 text-green-500" aria-label="Concluída" />
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
             </ul>
           )}
         </section>

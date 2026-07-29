@@ -5,6 +5,7 @@ import { datetimeLocalToISO, todayDateStr } from '@/lib/dates';
 import {
   FakeLearningContentRepository,
   FakeStudySessionRepository,
+  FakeLessonProgressRepository,
   FakeEventRepository,
 } from './learning-fakes';
 
@@ -14,10 +15,11 @@ const COURSE_ID = 'a00df540-da81-4195-af8e-9b0e1115bc03';
 function setup() {
   const contentRepo = new FakeLearningContentRepository();
   const sessionRepo = new FakeStudySessionRepository();
+  const progressRepo = new FakeLessonProgressRepository();
   const eventRepo = new FakeEventRepository();
-  const commands = new LearningCommands(contentRepo, sessionRepo, eventRepo);
-  const queries = new LearningQueries(contentRepo, sessionRepo);
-  return { commands, queries, sessionRepo };
+  const commands = new LearningCommands(contentRepo, sessionRepo, eventRepo, progressRepo);
+  const queries = new LearningQueries(contentRepo, sessionRepo, progressRepo);
+  return { commands, queries, sessionRepo, progressRepo };
 }
 
 describe('LearningQueries — dashboard', () => {

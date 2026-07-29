@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isoDateTimeSchema } from '@/lib/zod-datetime';
+import { LessonContentSchema } from './lesson-content.schema';
 
 /**
  * Learning Engine — domínio genérico de aprendizado (Fase 1).
@@ -64,13 +65,26 @@ export type LearningModule = z.infer<typeof LearningModuleSchema>;
  * corresponder à quantidade de linhas aqui — nunca um contador arbitrário
  * (bug corrigido: Fundamentos anunciava "1 lição" sem nenhuma entidade real).
  */
+/** Identidade editorial estável: kebab-case, única dentro do módulo,
+ * imutável após a criação (nunca alterada pelas Commands). Título e
+ * descrição são conteúdo editorial e podem mudar livremente — é
+ * `contentKey`, não `title`, que o seed usa para reconciliar uma lição. */
+const lessonContentKeySchema = z
+  .string()
+  .min(1)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'contentKey deve ser kebab-case (ex.: "hiragana-vogais")');
+
 export const LessonSchema = z.object({
   id: z.string().uuid(),
   workspaceId: z.string().uuid(),
   moduleId: z.string().uuid(),
+  contentKey: lessonContentKeySchema,
   title: z.string().min(1),
   description: z.string().optional(),
   position: z.number().int().min(0),
+  /** Conteúdo declarativo em blocos (Learning Content Engine, Fase 2 do
+   * módulo) — ver `modules/learning/domain/lesson-content.schema.ts`. */
+  content: LessonContentSchema,
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });

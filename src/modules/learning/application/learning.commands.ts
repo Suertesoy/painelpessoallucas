@@ -1,6 +1,7 @@
 import { EventRepository } from '@/platform/events/event.repository';
 import { LearningContentRepository } from './learning-content.repository';
 import { StudySessionRepository } from './study-session.repository';
+import { LessonProgressRepository } from './lesson-progress.repository';
 import {
   Course,
   CourseSchema,
@@ -22,18 +23,37 @@ import {
   CompleteStudySessionSchema,
   isDailyGoalMet,
 } from '../domain/learning.schema';
+import { EXERCISE_BLOCK_TYPES, type LessonContent } from '../domain/lesson-content.schema';
+import {
+  ExerciseAttempt,
+  LessonProgress,
+  LessonProgressSchema,
+  RecordExerciseResultDTO,
+  RecordExerciseResultSchema,
+} from '../domain/lesson-progress.schema';
+import introducaoAoCursoContent from '../content/introducao-ao-curso';
+import hiraganaVogaisContent from '../content/hiragana-vogais';
 
 /** Primeiro curso cadastrado — Japonês. Não é um caso especial no código: é
  * apenas o registro inicial do Learning Engine genérico. */
 export const JAPANESE_COURSE_SLUG = 'japones';
 const DEFAULT_DAILY_GOAL_MINUTES = 15;
 
+interface DefaultLessonSeed {
+  /** Identidade estável usada para reconciliar — nunca o título (editorial,
+   * pode mudar sem criar uma lição nova nem perder o progresso associado). */
+  contentKey: string;
+  title: string;
+  description?: string;
+  content: LessonContent;
+}
+
 interface DefaultModuleSeed {
   title: string;
   description: string;
   status: 'available' | 'locked';
   /** Lições reais criadas junto com o módulo — nunca um contador artificial. */
-  lessons: Array<{ title: string; description?: string }>;
+  lessons: DefaultLessonSeed[];
 }
 
 const DEFAULT_MODULES: DefaultModuleSeed[] = [
@@ -43,9 +63,17 @@ const DEFAULT_MODULES: DefaultModuleSeed[] = [
     status: 'available',
     lessons: [
       {
+        contentKey: 'introducao-ao-curso',
         title: 'Introdução ao curso',
         description:
           'Objetivo do curso, estrutura dos módulos, a meta diária (ajustável em Configurações), como as revisões vão funcionar nas próximas fases e o uso de romaji e furigana como apoio de leitura.',
+        content: introducaoAoCursoContent,
+      },
+      {
+        contentKey: 'hiragana-vogais',
+        title: 'Hiragana — Vogais',
+        description: 'As cinco vogais do hiragana (あ・い・う・え・お): leitura, exemplos e prática.',
+        content: hiraganaVogaisContent,
       },
     ],
   },
@@ -59,7 +87,8 @@ export class LearningCommands {
   constructor(
     private contentRepo: LearningContentRepository,
     private sessionRepo: StudySessionRepository,
-    private eventRepo: EventRepository
+    private eventRepo: EventRepository,
+    private progressRepo: LessonProgressRepository
   ) {}
 
   /**
@@ -140,23 +169,49 @@ export class LearningCommands {
         };
       const isNewModule = !found;
 
+      // Lições são reconciliadas por `contentKey` — nunca por título, que é
+      // editorial e pode mudar sem criar uma lição nova nem perder o `id`
+      // (e o progresso associado a ele). O seed é a fonte de verdade para
+      // título/descrição/posição/conteúdo: qualquer divergência é reparada
+      // idempotentemente, não só conteúdo estruturalmente inválido.
       const existingLessons = await this.contentRepo.listLessonsByModule(mod.id);
-      let realLessonCount = existingLessons.length;
+      const newLessons: Lesson[] = [];
+      def.lessons.forEach((lessonDef, lessonIndex) => {
+        const existingLesson = existingLessons.find((l) => l.contentKey === lessonDef.contentKey);
+        if (!existingLesson) {
+          newLessons.push({
+            id: crypto.randomUUID(),
+            workspaceId,
+            moduleId: mod.id,
+            contentKey: lessonDef.contentKey,
+            title: lessonDef.title,
+            description: lessonDef.description,
+            position: lessonIndex,
+            content: lessonDef.content,
+            createdAt: now,
+            updatedAt: now,
+          });
+          return;
+        }
 
-      if (existingLessons.length === 0 && def.lessons.length > 0) {
-        const newLessons: Lesson[] = def.lessons.map((lesson, lessonIndex) => ({
-          id: crypto.randomUUID(),
-          workspaceId,
-          moduleId: mod.id,
-          title: lesson.title,
-          description: lesson.description,
-          position: lessonIndex,
-          createdAt: now,
-          updatedAt: now,
-        }));
-        lessonsToSave.push(...newLessons);
-        realLessonCount = newLessons.length;
-      }
+        const isDrifted =
+          existingLesson.title !== lessonDef.title ||
+          existingLesson.description !== lessonDef.description ||
+          existingLesson.position !== lessonIndex ||
+          JSON.stringify(existingLesson.content) !== JSON.stringify(lessonDef.content);
+        if (isDrifted) {
+          lessonsToSave.push({
+            ...existingLesson,
+            title: lessonDef.title,
+            description: lessonDef.description,
+            position: lessonIndex,
+            content: lessonDef.content,
+            updatedAt: now,
+          });
+        }
+      });
+      lessonsToSave.push(...newLessons);
+      const realLessonCount = existingLessons.length + newLessons.length;
 
       if (isNewModule || mod.lessonsCount !== realLessonCount) {
         mod = { ...mod, lessonsCount: realLessonCount, updatedAt: now };
@@ -366,6 +421,220 @@ export class LearningCommands {
       workspaceId: updated.workspaceId,
       source: 'manual',
       payload: {},
+      createdAt: now,
+    });
+
+    return updated;
+  }
+
+  /** Blocos que produzem `ExerciseResult` ao serem respondidos — mesma
+   * definição usada pelo `LessonRenderer` para o contador de progresso. */
+  private countExerciseBlocks(lesson: Lesson): number {
+    return lesson.content.blocks.filter((b) => (EXERCISE_BLOCK_TYPES as readonly string[]).includes(b.type)).length;
+  }
+
+  /** Valida que a lição pertence ao módulo, e o módulo ao curso — nunca
+   * confia apenas no que o chamador (a página) já validou para exibição. */
+  private async loadLessonForProgress(courseId: string, moduleId: string, lessonId: string): Promise<Lesson> {
+    const lesson = await this.contentRepo.findLessonById(lessonId);
+    if (!lesson || lesson.moduleId !== moduleId) throw new Error('Lição não encontrada neste módulo');
+    const mod = await this.contentRepo.findModuleById(moduleId);
+    if (!mod || mod.courseId !== courseId) throw new Error('Módulo não encontrado neste curso');
+    return lesson;
+  }
+
+  /**
+   * Registra a primeira visualização de uma lição, criando o progresso (a
+   * ausência de linha É o estado not_started, que passa a in_progress).
+   * Idempotente: chamadas repetidas só atualizam `lastActivityAt`, nunca
+   * recriam a linha. NUNCA conclui a lição — mount de componente não é
+   * conclusão; conclusão é sempre a ação explícita `completeLesson`, mesmo
+   * para lições sem exercícios.
+   */
+  async recordLessonViewed(
+    workspaceId: string,
+    { courseId, moduleId, lessonId }: { courseId: string; moduleId: string; lessonId: string }
+  ): Promise<LessonProgress> {
+    const lesson = await this.loadLessonForProgress(courseId, moduleId, lessonId);
+    const existing = await this.progressRepo.findByLesson(workspaceId, lessonId);
+    const now = new Date().toISOString();
+
+    if (existing) {
+      const updated: LessonProgress = { ...existing, lastActivityAt: now, updatedAt: now };
+      LessonProgressSchema.parse(updated);
+      await this.progressRepo.save(updated);
+      return updated;
+    }
+
+    const totalExercises = this.countExerciseBlocks(lesson);
+    const progress: LessonProgress = {
+      id: crypto.randomUUID(),
+      workspaceId,
+      courseId,
+      moduleId,
+      lessonId,
+      totalExercises,
+      answeredCount: 0,
+      resolvedCount: 0,
+      attempts: {},
+      status: 'in_progress',
+      startedAt: now,
+      lastActivityAt: now,
+      completedAt: undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+    LessonProgressSchema.parse(progress);
+    await this.progressRepo.save(progress);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'learning.lesson.viewed',
+      entityId: lessonId,
+      workspaceId,
+      source: 'manual',
+      payload: { courseId, moduleId, totalExercises },
+      createdAt: now,
+    });
+
+    return progress;
+  }
+
+  /**
+   * Registra uma tentativa de exercício. Aprendizagem, não avaliação: uma
+   * resposta incorreta não trava o exercício — ele permanece respondível
+   * até ser resolvido (acertado). `firstOutcome` é imutável (preservado
+   * para análise futura, ex.: uma fase de SRS); `latestOutcome` e
+   * `attemptCount` acompanham cada tentativa real. Uma vez resolvido
+   * (`resolvedAt` definido), novas chamadas para o mesmo `blockId` são
+   * idempotentes — não reabrem o exercício nem alteram o registro.
+   */
+  async recordExerciseResult(
+    workspaceId: string,
+    params: { courseId: string; moduleId: string; lessonId: string } & RecordExerciseResultDTO
+  ): Promise<LessonProgress> {
+    const { courseId, moduleId, lessonId } = params;
+    const parsed = RecordExerciseResultSchema.parse({ blockId: params.blockId, outcome: params.outcome });
+
+    const lesson = await this.loadLessonForProgress(courseId, moduleId, lessonId);
+    const exerciseBlockIds = new Set(
+      lesson.content.blocks
+        .filter((b) => (EXERCISE_BLOCK_TYPES as readonly string[]).includes(b.type))
+        .map((b) => b.id)
+    );
+    if (!exerciseBlockIds.has(parsed.blockId)) {
+      throw new Error('Bloco de exercício não encontrado nesta lição');
+    }
+
+    const existing =
+      (await this.progressRepo.findByLesson(workspaceId, lessonId)) ??
+      (await this.recordLessonViewed(workspaceId, { courseId, moduleId, lessonId }));
+
+    const priorAttempt = existing.attempts[parsed.blockId];
+    // Idempotente: um exercício já resolvido nunca reabre para nova tentativa.
+    if (priorAttempt?.resolvedAt) {
+      return existing;
+    }
+
+    const now = new Date().toISOString();
+    const nextAttempt: ExerciseAttempt = priorAttempt
+      ? {
+          firstOutcome: priorAttempt.firstOutcome,
+          latestOutcome: parsed.outcome,
+          attemptCount: priorAttempt.attemptCount + 1,
+          resolvedAt: parsed.outcome === 'correct' ? now : undefined,
+        }
+      : {
+          firstOutcome: parsed.outcome,
+          latestOutcome: parsed.outcome,
+          attemptCount: 1,
+          resolvedAt: parsed.outcome === 'correct' ? now : undefined,
+        };
+
+    const attempts = { ...existing.attempts, [parsed.blockId]: nextAttempt };
+    const answeredCount = Object.keys(attempts).length;
+    const resolvedCount = Object.values(attempts).filter((a) => a.resolvedAt != null).length;
+
+    const updated: LessonProgress = {
+      ...existing,
+      attempts,
+      answeredCount,
+      resolvedCount,
+      lastActivityAt: now,
+      updatedAt: now,
+    };
+    LessonProgressSchema.parse(updated);
+    await this.progressRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'learning.lesson.exercise_answered',
+      entityId: lessonId,
+      workspaceId,
+      source: 'manual',
+      payload: { blockId: parsed.blockId, outcome: parsed.outcome, attemptCount: nextAttempt.attemptCount },
+      createdAt: now,
+    });
+    if (nextAttempt.resolvedAt && !priorAttempt?.resolvedAt) {
+      await this.eventRepo.save({
+        id: crypto.randomUUID(),
+        type: 'learning.lesson.exercise_resolved',
+        entityId: lessonId,
+        workspaceId,
+        source: 'manual',
+        payload: { blockId: parsed.blockId, attemptCount: nextAttempt.attemptCount },
+        createdAt: now,
+      });
+    }
+
+    return updated;
+  }
+
+  /**
+   * Conclusão consciente: sempre uma ação explícita do usuário — nunca
+   * inferida do mount da lição nem de todos os exercícios estarem
+   * resolvidos. Sempre permitida, mesmo com exercícios pendentes (a
+   * confirmação de pendências é responsabilidade da UI, não deste Command).
+   * Idempotente: concluir uma lição já concluída não reemite o evento nem
+   * altera `completedAt`.
+   */
+  async completeLesson(
+    workspaceId: string,
+    { courseId, moduleId, lessonId }: { courseId: string; moduleId: string; lessonId: string }
+  ): Promise<LessonProgress> {
+    await this.loadLessonForProgress(courseId, moduleId, lessonId);
+    const existing =
+      (await this.progressRepo.findByLesson(workspaceId, lessonId)) ??
+      (await this.recordLessonViewed(workspaceId, { courseId, moduleId, lessonId }));
+
+    if (existing.status === 'completed') {
+      return existing;
+    }
+
+    const now = new Date().toISOString();
+    const updated: LessonProgress = {
+      ...existing,
+      status: 'completed',
+      completedAt: now,
+      lastActivityAt: now,
+      updatedAt: now,
+    };
+    LessonProgressSchema.parse(updated);
+    await this.progressRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'learning.lesson.completed',
+      entityId: lessonId,
+      workspaceId,
+      source: 'manual',
+      payload: {
+        courseId,
+        moduleId,
+        totalExercises: existing.totalExercises,
+        answeredCount: existing.answeredCount,
+        resolvedCount: existing.resolvedCount,
+      },
       createdAt: now,
     });
 

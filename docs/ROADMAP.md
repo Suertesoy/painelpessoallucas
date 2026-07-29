@@ -53,6 +53,44 @@ Entregue:
 Explicitamente fora desta fase: IA, TTS/áudio, listening, speaking,
 gamificação, notificações. Progresso do curso nunca deriva de tempo estudado.
 
+## Aprendizado — Learning Content Engine ✅ (Fase 2 do módulo)
+Motor de conteúdo declarativo para lições, para que qualquer curso futuro
+seja só conteúdo — nunca um componente React novo.
+
+Entregue:
+- `Lesson.content` em blocos tipados (`objective`, `text`, `kana`, `example`,
+  `note`, `multiple_choice`, `matching`, `summary`), validados por
+  `LessonContentSchema`/`LessonBlockSchema` (Zod, `discriminatedUnion`).
+- `LessonRenderer` único, guiado por um registro tipo→componente
+  (`LESSON_BLOCK_COMPONENTS`); nenhuma lição tem componente próprio.
+- Página de lição (`/aprendizado/[courseId]/modulos/[moduleId]/licoes/[lessonId]`).
+- Blocos de exercício (`multiple_choice`, `matching`) produzem um
+  `ExerciseResult` padronizado (`{ blockId, outcome }`) ao serem
+  respondidos — hoje só alimenta o progresso exibido na própria lição.
+- Duas lições de exemplo validando a infraestrutura: "Introdução ao curso"
+  (adaptada ao novo modelo) e "Hiragana — Vogais" (あ・い・う・え・お).
+- `Lesson.contentKey`: identidade editorial estável (não `title`), única por
+  módulo e imutável — seed reconcilia por ela, nunca duplica, preserva `id`
+  e progresso ao editar título/descrição/conteúdo.
+- Progresso de lição persistido (`learning_lesson_progress`): estado
+  (`not_started`/`in_progress`/`completed`), total/respondidos/resolvidos,
+  início/última atividade/conclusão. Exercício errado é aprendizagem, não
+  avaliação — resposta incorreta não trava, permite nova tentativa;
+  `firstOutcome` por `blockId` é imutável, `attemptCount` cresce a cada
+  tentativa real sem inflar `answeredCount`, e um exercício resolvido é
+  idempotente (não reabre). Sobrevive a refresh.
+- Conclusão consciente: ação explícita ("Concluir lição"), nunca inferida
+  de visualização nem de exercícios resolvidos — sempre permitida, com
+  aviso da UI se houver pendências. Página do módulo deriva "X de Y
+  concluídas" e o selo por lição de progresso real, nunca um percentual
+  fictício.
+
+Explicitamente fora desta fase: flashcards, revisão espaçada (SRS), áudio,
+IA, reconhecimento de voz, editor visual de conteúdo, desbloqueio de
+módulos por conclusão de lições. `attempts` por `blockId` já tem o formato
+que uma fase futura de SRS consumiria, mas nenhuma tentativa de revisão é
+persistida ainda — só a primeira exposição.
+
 ## Fase 3 — Triagem com IA
 - Primeira função: triagem de capturas (título, tipo, projeto, prioridade, prazo, próxima ação, confiança, justificativa) com **confirmação humana**.
 - Captura salva antes da análise; falha de IA nunca perde captura.

@@ -52,9 +52,11 @@ function lessonRowToDomain(row: Row): Lesson {
     id: row.id,
     workspaceId: row.workspace_id,
     moduleId: row.module_id,
+    contentKey: row.content_key,
     title: row.title,
     description: row.description ?? undefined,
     position: row.position,
+    content: row.content,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
@@ -178,6 +180,16 @@ export class SupabaseLearningContentRepository implements LearningContentReposit
     this.notifier.notify();
   }
 
+  async findLessonById(id: string): Promise<Lesson | null> {
+    const { data, error } = await this.supabase
+      .from('learning_lessons')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw new Error(`Não foi possível carregar a lição: ${error.message}`);
+    return data ? lessonRowToDomain(data) : null;
+  }
+
   async listLessonsByModule(moduleId: string): Promise<Lesson[]> {
     const { data, error } = await this.supabase
       .from('learning_lessons')
@@ -195,9 +207,11 @@ export class SupabaseLearningContentRepository implements LearningContentReposit
         id: l.id,
         workspace_id: l.workspaceId,
         module_id: l.moduleId,
+        content_key: l.contentKey,
         title: l.title,
         description: l.description ?? null,
         position: l.position,
+        content: l.content,
         created_at: l.createdAt,
       })),
       { onConflict: 'id' }

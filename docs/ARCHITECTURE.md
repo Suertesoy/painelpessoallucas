@@ -113,6 +113,114 @@ para o workspace pessoal.
 de Aprendizado e o card em `/hoje` atualizem sem refresh ao iniciar/concluir
 sessões.
 
+### Learning Content Engine (Fase 2 do módulo)
+
+Conteúdo de lição é declarativo, nunca componente React. `Lesson.content`
+(`modules/learning/domain/lesson-content.schema.ts`) é `{ blocks: LessonBlock[] }`
+— uma sequência de blocos tipados, validada por `LessonContentSchema`
+(`z.discriminatedUnion` sobre `block.type`), que exige que toda lição comece
+com um bloco `objective` e termine com um bloco `summary`. "Objetivo",
+"conteúdo", "exercícios" e "resumo" não são campos separados: são só blocos
+diferentes na mesma sequência — a estrutura pedida vem de onde cada tipo
+aparece, não de um esquema paralelo.
+
+Tipos de bloco suportados: `objective`, `text`, `kana`, `example`, `note`,
+`multiple_choice`, `matching`, `summary`. `multiple_choice` e `matching` são
+os "blocos de exercício" (`EXERCISE_BLOCK_TYPES`): ao serem respondidos,
+produzem um `ExerciseResult` padronizado (`{ blockId, outcome }`) — o
+contrato que uma futura fase de revisão espaçada consumiria, hoje só usado
+para o contador de progresso local em `LessonRenderer`.
+
+`LessonRenderer` (`components/learning/lesson-renderer.tsx`) é o único
+renderer: recebe uma `Lesson` e percorre `content.blocks`, delegando cada um
+ao componente registrado em `LESSON_BLOCK_COMPONENTS`
+(`components/learning/blocks/index.tsx`) para `block.type`. Nunca existe
+`Lesson001.tsx`. Para adicionar um tipo de bloco novo: schema em
+`lesson-content.schema.ts` → componente em `components/learning/blocks/` →
+uma entrada no registro — `LessonRenderer` não muda.
+
+O conteúdo de cada lição vive em `modules/learning/content/*.ts`: objetos
+TypeScript validados por `LessonContentSchema.parse(...)` na importação
+(erro do Zod imediato, com o campo exato, se o conteúdo for inválido). São
+literais TS — não JSON solto nem carregados em runtime — porque a
+inicialização de conteúdo já é feita por seed idempotente em
+`LearningCommands.ensureModulesAndLessons`. Um curso novo é só: escrever o
+conteúdo das lições em `modules/learning/content/`, referenciá-lo no seed —
+nenhum componente React novo, nenhuma mudança no renderer.
+
+`learning_lessons.content` (jsonb) tem como default um placeholder mínimo
+porém válido (não `{}`), para que nenhuma linha fique num estado que
+`LessonContentSchema.parse` rejeite entre a migration e o próximo reparo
+idempotente.
+
+### Identidade da lição: `contentKey`, nunca `title`
+
+`title`/`description` são conteúdo editorial e podem mudar a qualquer
+momento; `Lesson.contentKey` (kebab-case, ex.: `"hiragana-vogais"`) é a
+identidade estável, única dentro do módulo (`unique (module_id,
+content_key)`) e imutável após a criação. `ensureModulesAndLessons`
+reconcilia lições por `contentKey` — nunca por `title`: encontra a lição
+pelo `contentKey` do seed e repara título/descrição/posição/conteúdo caso
+divirjam (o seed é a fonte de verdade), sem nunca criar uma linha nova nem
+trocar o `id` de uma lição existente. É esse `id` estável que
+`learning_lesson_progress.lesson_id` referencia — renomear uma lição no
+código de conteúdo nunca duplica a lição nem perde o progresso associado.
+
+### Progresso de lição (`learning_lesson_progress`)
+
+Uma linha por (workspace, lição) — nunca em `study_sessions`, que é sobre
+tempo estudado e nunca deriva progresso estrutural. A ausência de linha É o
+estado `not_started`; a linha só passa a existir na primeira visualização
+(`LearningCommands.recordLessonViewed`, chamado por `LessonRenderer` ao
+montar — idempotente, não recria a linha). **`recordLessonViewed` nunca
+conclui a lição** — leva no máximo a `in_progress`, mesmo para lições sem
+exercícios. Mount de componente nunca é conclusão.
+
+Exercício errado é aprendizagem, não avaliação: uma resposta incorreta
+**não trava o exercício** — ele continua respondível até ser resolvido
+(acertado). `attempts` (jsonb, `{ [blockId]: { firstOutcome, latestOutcome,
+attemptCount, resolvedAt? } }`) é a fonte de verdade por `blockId`:
+- `firstOutcome` — resultado da primeira tentativa, **imutável**, guardado
+  para análise futura (ex.: uma fase de SRS decidiria a partir dele quanto
+  um item precisa de repetição).
+- `latestOutcome`/`attemptCount` — acompanham cada tentativa real.
+- `resolvedAt` — preenchido na primeira vez em que a resposta é correta; a
+  partir daí o exercício trava, mostrando a resposta certa.
+
+`answeredCount`/`resolvedCount` são denormalizados, sempre recalculados a
+partir de `attempts` (mesmo princípio de `learning_modules.lessons_count`):
+uma nova tentativa no mesmo `blockId` nunca infla `answeredCount`, e uma
+chamada para um `blockId` já resolvido é idempotente (não reabre, não
+altera o registro). Decisão explícita sobre qual valor persistir ao mudar
+de resposta: preservar a **primeira** tentativa em `firstOutcome` — é o
+sinal mais honesto de domínio na exposição inicial; uma futura fase de SRS
+registraria tentativas de revisão à parte (tabela própria), sem
+sobrescrever este snapshot. O log de eventos (`learning.lesson.
+exercise_answered`, em toda tentativa real) já dá um rastro histórico leve
+sem precisar de uma tabela de tentativas completa nesta fase.
+
+**Conclusão consciente**: `status`/`completedAt` só mudam por
+`LearningCommands.completeLesson` — uma ação explícita do usuário
+("Concluir lição" em `LessonRenderer`), nunca inferida de visualização nem
+de todos os exercícios estarem resolvidos. Sempre permitida, mesmo com
+exercícios pendentes — o Command não valida nada sobre completude; é a UI
+(`LessonRenderer`) que mostra uma confirmação ("ainda há N pendentes —
+concluir mesmo assim?") antes de chamar o Command quando há exercícios não
+resolvidos. Idempotente: concluir de novo não reemite o evento nem move
+`completedAt`.
+
+`LessonRenderer` é o único ponto que chama `recordLessonViewed`/
+`recordExerciseResult`/`completeLesson` — mesmo papel que `StudySessionCard`
+cumpre para sessões de estudo. A página da lição só busca `Lesson` +
+`LessonProgress` via Queries e trata carregamento/erro; `LessonRenderer`
+restaura cada exercício a partir de `attempts[blockId]` (resolvido trava;
+incorreto continua respondível, mostrando o histórico — não a interação
+exata, já que só o resultado agregado é persistido) e nunca perde progresso
+ao atualizar a página. A página do módulo deriva "X de Y concluídas" e o
+selo por lição de `listLessonProgressByModule` — nunca um percentual
+fictício, e sem alterar `LearningModule.status`/desbloqueios (fora do
+escopo desta fase).
+
 ## Evolução planejada
 
 - **Automações externas**: regras centrais vivem no painel (commands/endpoints); ferramentas externas (n8n etc.) apenas chamam essas portas.

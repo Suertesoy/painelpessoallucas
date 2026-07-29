@@ -44,6 +44,19 @@ Todo evento respeita uma estrutura mínima:
 - `learning.session.started`
 - `learning.session.completed` (payload inclui `durationMinutes` e `goalMet`)
 - `learning.session.cancelled`
+- `learning.lesson.viewed` (emitido apenas na primeira visualização da
+  lição por workspace; chamadas seguintes são idempotentes e não reemitem.
+  Nunca implica conclusão)
+- `learning.lesson.exercise_answered` (payload: `blockId`, `outcome`,
+  `attemptCount`; emitido em toda tentativa real — inclusive retentativas
+  após erro, já que o exercício continua respondível até ser resolvido)
+- `learning.lesson.exercise_resolved` (payload: `blockId`, `attemptCount`;
+  emitido uma única vez, na tentativa em que o exercício é acertado pela
+  primeira vez)
+- `learning.lesson.completed` (payload inclui `totalExercises`,
+  `answeredCount` e `resolvedCount`; emitido só pela ação explícita
+  "Concluir lição" — nunca por visualização nem por todos os exercícios
+  resolvidos. Idempotente: concluir de novo não reemite)
 
 ## Persistência (Fase 2)
 Os eventos vivem na tabela `domain_events` do Supabase (append-only, RLS por
