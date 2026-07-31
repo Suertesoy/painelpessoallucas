@@ -15,7 +15,7 @@ export class ItemCommands {
       title: dto.title,
       content: dto.content,
       type: dto.type || 'note',
-      status: 'inbox', // Default inicial caso não organizado
+      status: dto.skipInbox ? 'organized' : 'inbox', // Default inicial caso não organizado
       priority: dto.priority || 'normal',
       projectId: dto.projectId,
       dueAt: dto.dueAt,
@@ -24,6 +24,7 @@ export class ItemCommands {
       nextAction: dto.nextAction,
       source: dto.source || 'manual',
       audioDurationSeconds: dto.audioDurationSeconds,
+      shoppingListId: dto.shoppingListId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

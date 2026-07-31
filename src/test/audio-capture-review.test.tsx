@@ -16,11 +16,15 @@ import type { AudioTriageProposal } from '@/platform/ai/audio-triage.schema';
 const recordActionOutcome = vi.fn();
 const recordCalendarOutcome = vi.fn();
 const notifyChanged = vi.fn();
+const ensureDefaultLists = vi.fn().mockResolvedValue([]);
 
 vi.mock('@/providers/repository.provider', () => ({
   useRepositories: () => ({
     audioProvenanceRepository: { recordActionOutcome, recordCalendarOutcome },
     calendarEventLinkRepository: { notifyChanged },
+  }),
+  useCommands: () => ({
+    shopping: { ensureDefaultLists },
   }),
 }));
 

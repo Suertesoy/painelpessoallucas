@@ -207,11 +207,41 @@ completa.
   nesse estado.
 - Permissão nunca solicitada automaticamente — sempre por ação explícita em
   Configurações → "Notificações neste dispositivo".
-- **Pendência real**: a migration `20260730120000_web_push.sql` foi criada
-  no repositório mas **não foi aplicada** no Supabase remoto nesta entrega
-  (ver relatório da tarefa). Até ser aplicada, as rotas de push falham de
-  forma segura e compreensível — não derrubam Configurações nem o resto do
-  painel.
+- A migration `20260730120000_web_push.sql` foi aplicada no Supabase remoto
+  e registrada no histórico (confirmado pelo usuário na entrega da Fase
+  5/Lista de Compras; não reverificado de forma independente nesta tarefa —
+  sem acesso a uma sessão Supabase autenticada neste ambiente).
 - Fora do escopo desta fase: aplicativo nativo, push de terceiros (FCM),
   ações interativas na notificação (concluir/adiar), fila offline de
   alterações, badge numérico.
+
+## Fase 10 — Lista de Compras (código; migration remota pendente de aplicação — ver abaixo)
+Experiência completa de compras — o tipo `shopping_item` já existia (Fase 3,
+captura inteligente) mas só era acessível como valor de filtro na Caixa de
+Entrada; não havia lista de fato. Ver `docs/ARCHITECTURE.md` § Lista de
+Compras para a arquitetura completa.
+- Rota `/compras` na navegação principal (desktop e mobile), listas
+  `Mercado`/`Internet` criadas idempotentemente na primeira visita.
+- Inclusão rápida (Enter, foco preservado), marcar/desmarcar comprado (linha
+  inteira como alvo), editar, mover entre listas, excluir (arquivamento) e
+  limpar comprados (com confirmação) — tudo via `ItemCommands` já existente,
+  sem Command novo para o conteúdo do item.
+- Pendentes primeiro, comprados depois e esmaecidos, ordenação estável
+  dentro de cada grupo.
+- Captura inteligente confirmada como `shopping_item` chega direto em
+  `/compras` (destino Mercado por padrão, lista escolhível na revisão);
+  confirmação idempotente (retry não duplica).
+- `shopping_item` antigos sem lista migrados deterministicamente para
+  Mercado (backfill idempotente, nenhum item desaparece).
+- Compartilhamento por WhatsApp (`https://wa.me/`, só itens pendentes, só
+  por clique explícito) — número configurável em Configurações → Compras,
+  nunca hardcoded.
+- Realtime entre dispositivos pelo mesmo `ChangeNotifier`/`useReactiveQuery`
+  já usado no resto do painel — nenhum canal novo.
+- **Pendência real**: a migration `20260731100000_shopping_lists.sql` foi
+  criada no repositório mas **não foi aplicada** no Supabase remoto nesta
+  entrega. Até ser aplicada, `/compras` e a confirmação de `shopping_item`
+  falham de forma tratada — não derrubam o restante do painel.
+- Fora do escopo desta fase: administração de listas (criar/renomear/excluir
+  lista pela UI), quantidade/unidade/categoria estruturadas por item,
+  reordenação manual, fila offline de alterações.

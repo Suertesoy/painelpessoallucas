@@ -6,6 +6,7 @@ import { CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/providers/auth.provider';
 import { GoogleIntegrationCard } from '@/components/google-integration-card';
 import { DigestSettingsCard } from '@/components/digest-settings-card';
+import { ShoppingWhatsappSettingsCard } from '@/components/shopping-whatsapp-settings-card';
 import { AutomationHealthCard } from '@/components/automation-health-card';
 import { InstallAppCard } from '@/components/pwa/install-app-card';
 import { PushNotificationsCard } from '@/components/push/push-notifications-card';
@@ -49,6 +50,13 @@ function ConfiguracoesContent() {
           <GoogleIntegrationCard service="calendar" />
           <GoogleIntegrationCard service="gmail" />
           <DigestSettingsCard />
+        </div>
+      </section>
+
+      <section id="compras" className="mt-6 scroll-mt-6">
+        <h2 className="text-lg font-semibold">Compras</h2>
+        <div className="mt-4">
+          <ShoppingWhatsappSettingsCard />
         </div>
       </section>
 

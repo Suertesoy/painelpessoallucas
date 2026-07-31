@@ -29,6 +29,7 @@ export type ItemRow = {
   recurrence_rule_id: string | null;
   occurrence_at: string | null;
   audio_duration_seconds: number | null;
+  shopping_list_id: string | null;
 };
 
 export function rowToItem(row: ItemRow): Item {
@@ -56,6 +57,7 @@ export function rowToItem(row: ItemRow): Item {
     recurrenceRuleId: row.recurrence_rule_id ?? undefined,
     occurrenceAt: row.occurrence_at ?? undefined,
     audioDurationSeconds: row.audio_duration_seconds ?? undefined,
+    shoppingListId: row.shopping_list_id ?? undefined,
   });
 }
 
@@ -85,6 +87,7 @@ function itemToRow(item: Item): Omit<ItemRow, 'created_at' | 'updated_at'> & {
     recurrence_rule_id: item.recurrenceRuleId ?? null,
     occurrence_at: item.occurrenceAt ?? null,
     audio_duration_seconds: item.audioDurationSeconds ?? null,
+    shopping_list_id: item.shoppingListId ?? null,
   };
 }
 

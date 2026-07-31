@@ -41,6 +41,7 @@ export function useReactiveQuery<T>(
     learningContentRepository,
     studySessionRepository,
     lessonProgressRepository,
+    shoppingListRepository,
   } = useRepositories();
   const [data, setData] = useState<T | undefined>(initialData);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,6 +91,7 @@ export function useReactiveQuery<T>(
     const unsub5 = learningContentRepository.subscribe(runFetch);
     const unsub6 = studySessionRepository.subscribe(runFetch);
     const unsub7 = lessonProgressRepository.subscribe(runFetch);
+    const unsub8 = shoppingListRepository.subscribe(runFetch);
 
     return () => {
       mounted = false;
@@ -100,6 +102,7 @@ export function useReactiveQuery<T>(
       unsub5();
       unsub6();
       unsub7();
+      unsub8();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

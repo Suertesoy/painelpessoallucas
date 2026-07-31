@@ -27,6 +27,7 @@ vi.mock('@/providers/repository.provider', () => ({
     learningContentRepository: fakeRepo,
     studySessionRepository: fakeRepo,
     lessonProgressRepository: fakeRepo,
+    shoppingListRepository: fakeRepo,
   }),
   useQueries: () => ({
     item: { listItems },

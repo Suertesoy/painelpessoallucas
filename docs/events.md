@@ -58,6 +58,18 @@ Todo evento respeita uma estrutura mínima:
   "Concluir lição" — nunca por visualização nem por todos os exercícios
   resolvidos. Idempotente: concluir de novo não reemite)
 
+## Eventos da Lista de Compras
+- `shopping_list.initialized` (emitido apenas quando `ShoppingCommands.
+  ensureDefaultLists` efetivamente cria Mercado/Internet pela primeira vez
+  no workspace; chamadas seguintes são idempotentes e não reemitem — mesmo
+  padrão de `learning.course.initialized`)
+
+Itens de compra (adicionar, editar, marcar/desmarcar, mover entre listas,
+excluir) reaproveitam os eventos já existentes de `items`
+(`item.created`/`item.updated`/`item.completed`/`item.archived`) — nenhum
+evento novo foi criado para o conteúdo do item, só para o ciclo de vida das
+listas.
+
 ## Eventos de Web Push (Fase 2.2)
 - `reminder.created` (lembrete push de tarefa criado)
 - `reminder.rescheduled` (payload: `previousRemindAt`, `newRemindAt` — no

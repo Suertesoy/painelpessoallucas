@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Search, Plus, Menu, X, Sun, Inbox, Folder, StickyNote, Calendar, Activity, Settings, LogOut, FileText, GraduationCap } from 'lucide-react';
+import { Search, Plus, Menu, X, Sun, Inbox, Folder, StickyNote, Calendar, Activity, Settings, LogOut, FileText, GraduationCap, ShoppingCart } from 'lucide-react';
 import { openGlobalSearch, openQuickCapture } from '@/lib/ui-events';
 import { useAuth } from '@/providers/auth.provider';
 
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   // A rota antiga é preservada para não quebrar links salvos.
   { href: '/ideias', label: 'Notas', icon: StickyNote },
   { href: '/agenda', label: 'Agenda', icon: Calendar },
+  { href: '/compras', label: 'Compras', icon: ShoppingCart },
   { href: '/planos', label: 'Planos', icon: FileText },
   { href: '/aprendizado', label: 'Aprendizado', icon: GraduationCap },
   { href: '/revisao', label: 'Revisão', icon: Activity },

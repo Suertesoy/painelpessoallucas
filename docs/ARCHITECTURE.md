@@ -458,6 +458,150 @@ Normalmente automático (404/410 do serviço de push). Para forçar: usar
 dispositivos em Configurações (`POST /api/push/devices/[id]/revoke`) — nunca
 DELETE direto na tabela (preserva histórico/auditoria via `disabled_at`).
 
+## Lista de Compras
+
+Reaproveita a entidade `items` existente (`type = 'shopping_item'`) para o
+conteúdo comprável — a Fase 3 (captura inteligente) já sabia reconhecer e
+armazenar esse tipo, mas não existia nenhuma experiência de lista utilizável
+(só um valor de filtro na Caixa de Entrada). Esta fase acrescenta o conceito
+de **lista** e o vínculo entre um item de compra e sua lista, sem criar uma
+segunda entidade de item concorrente com `items`.
+
+### Modelo de dados
+
+- `shopping_lists` (nova tabela): `id`, `workspace_id`, `slug`, `name`,
+  `created_at`, `updated_at`, `unique (workspace_id, slug)`. RLS por
+  `is_workspace_member`, mesmo padrão das demais tabelas de domínio.
+  Publicada no `supabase_realtime` (migration
+  `20260731100000_shopping_lists.sql`).
+- `items.shopping_list_id` (aditiva, nula): `uuid references shopping_lists
+  (id) on delete set null`. Só é relevante quando `type = 'shopping_item'`;
+  índice parcial `items_shopping_list_idx` (`where deleted_at is null and
+  type = 'shopping_item'`).
+- `workspace_settings.shopping_whatsapp_number` (aditiva, nula): número de
+  WhatsApp usado para compartilhar a lista — ver seção própria abaixo.
+
+"Comprado"/"pendente" reaproveita o `status` que `items` já tinha
+(`completed`/qualquer outro) e `ItemCommands.completeItem`/`reopenItem`
+existentes — nenhum campo novo de conclusão foi criado. "Editar", "mover
+entre listas" e "excluir" reaproveitam, respectivamente,
+`ItemCommands.updateItem({ title })`, `updateItem({ shoppingListId })`
+(atualiza só o vínculo com a lista) e `archiveItem` (soft delete/arquivamento,
+mesmo padrão já usado pelo resto do domínio — nunca exclusão física).
+
+### Listas iniciais (Mercado/Internet) — criação idempotente
+
+Como `shopping_lists` é uma tabela por workspace, uma migration só
+alcançaria os workspaces já existentes no momento em que ela roda (mesma
+razão pela qual `learning_courses` não é semeada por SQL — ver seção
+"Learning Engine" acima). `ShoppingCommands.ensureDefaultLists()`
+(`modules/shopping/application/shopping.commands.ts`) garante Mercado e
+Internet por `slug`, via `upsert(..., { onConflict: 'workspace_id,slug',
+ignoreDuplicates: true })` — abrir `/compras` duas vezes nunca duplica.
+Chamada na primeira visita a `/compras` (mesmo padrão de
+`initializeDefaultLearningContent`) e também a partir de
+`/api/ai/confirm-triage-action`, para garantir que a lista de destino exista
+antes de vincular uma captura confirmada como `shopping_item`.
+
+O núcleo idempotente vive em
+`modules/shopping/infrastructure/ensure-default-shopping-lists.ts` — uma
+função pura de `(SupabaseClient, workspaceId)`, sem `ChangeNotifier`, para
+ser reaproveitada tanto pelo repositório do cliente
+(`SupabaseShoppingListRepository`, que ainda dispara `notify()`) quanto pela
+rota de servidor de confirmação da triagem.
+
+**Backfill dos `shopping_item` antigos**: a mesma chamada faz
+`update items set shopping_list_id = <id de Mercado> where workspace_id = $1
+and type = 'shopping_item' and shopping_list_id is null and deleted_at is
+null` — determinístico e idempotente (não há mais linhas nulas para migrar
+depois da primeira execução). Nenhum item de compra antigo desaparece.
+
+### Commands, Queries e eventos
+
+- `ShoppingListRepository`/`SupabaseShoppingListRepository`
+  (`modules/shopping/{application,infrastructure}`): `findAll`,
+  `ensureDefaultLists`, `subscribe` — mesmo formato de repositório do resto
+  do projeto.
+- `ShoppingCommands.ensureDefaultLists()`: emite `shopping_list.initialized`
+  só para listas realmente criadas nesta chamada (nunca reemite).
+- `ShoppingQueries.getBoard()`: uma única leitura para toda a página —
+  listas + itens de compra (não arquivados) já separados em
+  pendentes/comprados e ordenados (pendentes por `createdAt` asc, comprados
+  por `completedAt` asc — ordenação estável dentro de cada grupo).
+- Toda mutação de item (adicionar, editar, marcar/desmarcar, mover, excluir)
+  usa `ItemCommands` já existente — nenhum Command novo foi criado para o
+  conteúdo do item, só para o ciclo de vida das listas.
+- `Item.shoppingListId` (schema) e `CreateItemSchema.skipInbox`: exceção
+  estreita à regra "captura primeiro, organizar depois" — um item de compra
+  adicionado direto numa lista já nasce `organized` (o usuário escolheu a
+  lista no próprio ato de digitar, não precisa de triagem). Nunca expõe um
+  `status` arbitrário — só um booleano que pula especificamente o estado
+  `inbox`. `ItemQueries.getReviewOverview().noProject` passou a excluir
+  `type = 'shopping_item'` — ele nunca tem projeto por design, não é uma
+  omissão a ser revisada.
+
+### Relação com `shopping_item` e a captura inteligente
+
+`/api/ai/confirm-triage-action` ganhou `action.shoppingListId` (opcional) e
+`actionIndex` (opcional). Quando a ação confirmada é `shopping_item`: a rota
+garante Mercado/Internet (idempotente), valida que o `shoppingListId`
+recebido realmente pertence ao workspace (nunca confia num id vindo do
+cliente/IA) e usa Mercado como padrão quando ausente ou inválido.
+`AudioCaptureReview` mostra um seletor "Lista" só quando o tipo da ação é
+`shopping_item`, pré-selecionado com Mercado assim que as listas carregam,
+sem travar a revisão caso a chamada falhe (o servidor resolve Mercado de
+novo).
+
+**Idempotência da confirmação**: `actionIndex` (posição da ação em
+`proposal.proposedActions`) permite ao servidor derivar um id de item
+**determinístico** (`deterministicUuid(`${aiRunId}:${actionIndex}`)`, em
+`src/lib/deterministic-uuid.ts`) em vez de um `crypto.randomUUID()` puro.
+Uma confirmação retentada (rede instável, duplo clique) colide com a chave
+primária (Postgres `23505`) em vez de criar um item duplicado — a rota trata
+esse conflito especificamente como sucesso idempotente. Isso vale para
+qualquer `actionType: 'create_item'`, não só `shopping_item`; clientes que
+não enviam `actionIndex` mantêm o comportamento anterior (sem essa garantia).
+
+### Realtime
+
+Nenhum canal novo: `/compras` usa exatamente o mesmo `useReactiveQuery` e o
+`ChangeNotifier` compartilhado do resto do painel.
+`shoppingListRepository` foi adicionado à lista fixa de repositórios que
+`useReactiveQuery` assina (`src/lib/hooks.ts`) — como todos os repositórios
+Supabase compartilham a mesma instância de `ChangeNotifier`, qualquer
+mudança em `items`, `shopping_lists` ou `workspace_settings` (todas
+publicadas no `supabase_realtime`) já dispara um refetch da página, entre
+dispositivos, sem polling.
+
+### Configuração do WhatsApp
+
+`workspace_settings.shopping_whatsapp_number` — nunca hardcoded (nenhum
+componente, constante ou migration contém um número; teste dedicado
+`src/test/no-hardcoded-whatsapp-number.test.ts` varre o código-fonte). Fica
+vazio em todo workspace novo; preenchido pela interface em Configurações →
+Compras (`ShoppingWhatsappSettingsCard`), rota dedicada
+`/api/settings/shopping` (GET/PUT) — narrower que `/api/settings/digest`
+para que o `upsert` só toque essa coluna, nunca as preferências de resumo.
+
+`modules/shopping/domain/whatsapp-share.ts` (puro, sem I/O):
+`normalizePhoneDigits`, `isValidWhatsAppNumber` (10–15 dígitos, cobre código
+do país + DDD + linha), `buildWhatsAppShareText` (nome da lista + um item
+pendente por linha, marcador `☐`) e `buildWhatsAppShareUrl` — sempre
+`https://wa.me/<dígitos>?text=<mensagem>`, nunca uma URL arbitrária. O botão
+"Enviar pelo WhatsApp" só compartilha a lista selecionada, só itens
+pendentes, e fica desabilitado (com explicação) sem número válido ou sem
+itens pendentes — nunca envia nada sozinho, só abre a conversa após clique
+explícito.
+
+### Limitação conhecida
+
+A migration `20260731100000_shopping_lists.sql` foi criada no repositório
+mas **não foi aplicada** no Supabase remoto nesta entrega. Até ser aplicada,
+`shopping_lists` e `items.shopping_list_id` não existem remotamente —
+`/compras` e a confirmação de `shopping_item` na triagem falham de forma
+tratada (mensagem de erro via `useReactiveQuery`/`DataErrorNotice`, nunca
+uma tela quebrada), sem afetar o restante do painel.
+
 ## Evolução planejada
 
 - **Automações externas**: regras centrais vivem no painel (commands/endpoints); ferramentas externas (n8n etc.) apenas chamam essas portas.

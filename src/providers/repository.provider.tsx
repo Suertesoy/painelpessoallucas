@@ -56,6 +56,10 @@ import { SupabaseReminderRepository } from '@/modules/reminders/infrastructure/s
 import { ReminderRepository } from '@/modules/reminders/application/reminder.repository';
 import { ReminderCommands } from '@/modules/reminders/application/reminder.commands';
 import { ReminderQueries } from '@/modules/reminders/application/reminder.queries';
+import { SupabaseShoppingListRepository } from '@/modules/shopping/infrastructure/supabase-shopping-list.repository';
+import { ShoppingListRepository } from '@/modules/shopping/application/shopping-list.repository';
+import { ShoppingCommands } from '@/modules/shopping/application/shopping.commands';
+import { ShoppingQueries } from '@/modules/shopping/application/shopping.queries';
 import { useAuth } from './auth.provider';
 
 interface RepositoryContextType {
@@ -86,6 +90,9 @@ interface RepositoryContextType {
   reminderRepository: ReminderRepository;
   reminderCommands: ReminderCommands;
   reminderQueries: ReminderQueries;
+  shoppingListRepository: ShoppingListRepository;
+  shoppingCommands: ShoppingCommands;
+  shoppingQueries: ShoppingQueries;
   changeNotifier: ChangeNotifier;
 }
 
@@ -124,6 +131,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     const studySessionRepo = new SupabaseStudySessionRepository(supabase, workspaceId, notifier);
     const lessonProgressRepo = new SupabaseLessonProgressRepository(supabase, workspaceId, notifier);
     const reminderRepo = new SupabaseReminderRepository(supabase, workspaceId);
+    const shoppingListRepo = new SupabaseShoppingListRepository(supabase, workspaceId, notifier);
 
     return {
       itemRepository: itemRepo,
@@ -155,6 +163,9 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       reminderRepository: reminderRepo,
       reminderCommands: new ReminderCommands(reminderRepo, eventRepo),
       reminderQueries: new ReminderQueries(reminderRepo),
+      shoppingListRepository: shoppingListRepo,
+      shoppingCommands: new ShoppingCommands(shoppingListRepo, eventRepo, workspaceId),
+      shoppingQueries: new ShoppingQueries(shoppingListRepo, itemRepo),
       changeNotifier: notifier,
     };
   }, [status, workspaceId]);
@@ -228,7 +239,8 @@ export function useCommands() {
     dailyPlan: context.dailyPlanCommands,
     plan: context.planCommands,
     learning: context.learningCommands,
-    reminder: context.reminderCommands
+    reminder: context.reminderCommands,
+    shopping: context.shoppingCommands
   };
 }
 
@@ -243,7 +255,8 @@ export function useQueries() {
     plan: context.planQueries,
     calendarEvent: context.calendarEventQueries,
     learning: context.learningQueries,
-    reminder: context.reminderQueries
+    reminder: context.reminderQueries,
+    shopping: context.shoppingQueries
   };
 }
 

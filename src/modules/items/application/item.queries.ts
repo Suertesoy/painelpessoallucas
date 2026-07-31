@@ -71,7 +71,11 @@ export class ItemQueries {
     const overdue = activeItems.filter(i => i.dueAt && isBefore(parseISO(i.dueAt), today));
     const blocked = activeItems.filter(i => i.status === 'blocked');
     const oldInbox = activeItems.filter(i => i.status === 'inbox' && isBefore(parseISO(i.createdAt), thirtyDaysAgo));
-    const noProject = activeItems.filter(i => !i.projectId && i.status !== 'inbox');
+    // shopping_item nunca pertence a um projeto por design (é conteúdo de
+    // lista de compras, não uma linha de trabalho) — nunca aparece aqui.
+    const noProject = activeItems.filter(
+      i => !i.projectId && i.status !== 'inbox' && i.type !== 'shopping_item'
+    );
 
     return { overdue, blocked, oldInbox, noProject };
   }

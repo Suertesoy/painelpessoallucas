@@ -41,6 +41,8 @@ export const ItemSchema = z.object({
   occurrenceAt: isoDateTimeSchema.optional(),
   // Proveniência (Fase 3): duração da gravação, só presente em source=audio_capture.
   audioDurationSeconds: z.number().int().positive().optional(),
+  // Lista de compras (Fase 5): só relevante para type=shopping_item.
+  shoppingListId: z.string().uuid().optional(),
 });
 
 export type Item = z.infer<typeof ItemSchema>;
@@ -61,6 +63,12 @@ export const CreateItemSchema = z.object({
   nextAction: z.string().optional(),
   source: ItemSourceSchema.optional().default('manual'),
   audioDurationSeconds: z.number().int().positive().optional(),
+  shoppingListId: z.string().uuid().optional(),
+  // Exceção estreita e explícita à regra "captura primeiro, organizar depois":
+  // um item de compra adicionado direto numa lista já nasce classificado (o
+  // usuário escolheu a lista no próprio ato de digitar) — não precisa de
+  // triagem na Caixa de Entrada. Nunca expõe um status arbitrário.
+  skipInbox: z.boolean().optional(),
 }).refine(data => data.title || data.content, {
   message: "O item deve ter um título ou conteúdo",
   path: ["title"]

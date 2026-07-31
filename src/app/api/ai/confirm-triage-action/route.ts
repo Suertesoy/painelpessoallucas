@@ -4,6 +4,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSessionContext } from '@/platform/supabase/session';
 import { ItemTypeSchema, ItemPrioritySchema } from '@/modules/items/domain/item.schema';
 import { checkTriageFreshness, STALE_ANALYSIS_MESSAGE } from '@/platform/ai/triage-freshness';
+import { ensureDefaultShoppingLists } from '@/modules/shopping/infrastructure/ensure-default-shopping-lists';
+import { FALLBACK_SHOPPING_LIST_SLUG } from '@/modules/shopping/domain/shopping-list.schema';
+import { deterministicUuid } from '@/lib/deterministic-uuid';
 
 /**
  * POST /api/ai/confirm-triage-action
@@ -26,6 +29,8 @@ const ActionPayloadSchema = z.object({
   dueAt: z.string().datetime({ offset: true }).optional(),
   scheduledAt: z.string().datetime({ offset: true }).optional(),
   estimatedMinutes: z.number().int().positive().optional(),
+  /** Só usado quando itemType === 'shopping_item'; padrão Mercado quando ausente. */
+  shoppingListId: z.string().uuid().optional(),
 });
 
 const BodySchema = z.object({
@@ -33,6 +38,14 @@ const BodySchema = z.object({
   aiRunId: z.string().uuid(),
   actionType: z.enum(['create_item', 'update_capture']),
   action: ActionPayloadSchema,
+  /**
+   * Índice da ação dentro de `proposal.proposedActions` (ver
+   * AudioCaptureReview). Quando presente, o id do item criado é derivado
+   * deterministicamente de `aiRunId:actionIndex` — uma confirmação retentada
+   * (rede instável, duplo clique) colide com a chave primária em vez de criar
+   * um item duplicado. Opcional para não quebrar chamadas antigas.
+   */
+  actionIndex: z.number().int().min(0).optional(),
 });
 
 type ErrorCategory = 'unauthenticated' | 'invalid_request' | 'not_found' | 'stale_analysis' | 'write_failed';
@@ -84,7 +97,25 @@ export async function POST(request: Request) {
   const now = new Date().toISOString();
 
   if (body.actionType === 'create_item') {
-    const newItemId = crypto.randomUUID();
+    const isShoppingItem = (body.action.itemType ?? 'task') === 'shopping_item';
+
+    // Garante que a lista de destino exista antes de vincular o item — nunca
+    // referencia um shopping_list_id que a IA/cliente possa ter inventado.
+    // Mercado é o destino quando a revisão não escolheu outra lista.
+    let shoppingListId: string | undefined;
+    if (isShoppingItem) {
+      const { lists } = await ensureDefaultShoppingLists(session.supabase, session.workspaceId);
+      const requested = body.action.shoppingListId
+        ? lists.find((l) => l.id === body.action.shoppingListId)
+        : undefined;
+      const fallback = lists.find((l) => l.slug === FALLBACK_SHOPPING_LIST_SLUG);
+      shoppingListId = (requested ?? fallback)?.id;
+    }
+
+    const newItemId =
+      body.actionIndex !== undefined
+        ? await deterministicUuid(`${body.aiRunId}:${body.actionIndex}`)
+        : crypto.randomUUID();
     const newItem = {
       id: newItemId,
       workspaceId: session.workspaceId,
@@ -100,6 +131,7 @@ export async function POST(request: Request) {
       scheduledAt: body.action.scheduledAt,
       estimatedMinutes: body.action.estimatedMinutes,
       nextAction: body.action.nextAction,
+      shoppingListId,
       source: 'ai' as const,
       createdAt: now,
       updatedAt: now,
@@ -118,10 +150,19 @@ export async function POST(request: Request) {
       scheduled_at: newItem.scheduledAt ?? null,
       estimated_minutes: newItem.estimatedMinutes ?? null,
       next_action: newItem.nextAction ?? null,
+      shopping_list_id: newItem.shoppingListId ?? null,
       source: newItem.source,
       created_at: newItem.createdAt,
     });
     if (insertError) {
+      // Confirmação retentada com o mesmo actionIndex: o id determinístico
+      // colide com a chave primária (item já criado por uma tentativa
+      // anterior) — sucesso idempotente, não um erro.
+      const isDuplicateRetry =
+        body.actionIndex !== undefined && (insertError as { code?: string }).code === '23505';
+      if (isDuplicateRetry) {
+        return NextResponse.json({ status: 'created', itemId: newItem.id });
+      }
       return errorResponse(500, 'write_failed', 'Não foi possível aplicar esta ação. Tente novamente.');
     }
 
