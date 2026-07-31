@@ -595,12 +595,21 @@ explícito.
 
 ### Limitação conhecida
 
-A migration `20260731100000_shopping_lists.sql` foi criada no repositório
-mas **não foi aplicada** no Supabase remoto nesta entrega. Até ser aplicada,
-`shopping_lists` e `items.shopping_list_id` não existem remotamente —
-`/compras` e a confirmação de `shopping_item` na triagem falham de forma
-tratada (mensagem de erro via `useReactiveQuery`/`DataErrorNotice`, nunca
-uma tela quebrada), sem afetar o restante do painel.
+As migrations `20260731100000_shopping_lists.sql` e
+`20260731110000_shopping_lists_grants.sql` foram criadas no repositório mas
+**não foram aplicadas** no Supabase remoto nesta entrega. Até serem
+aplicadas (nesta ordem), `shopping_lists` e `items.shopping_list_id` não
+existem remotamente — `/compras` e a confirmação de `shopping_item` na
+triagem falham de forma tratada (aviso seguro via `DataErrorNotice`, com
+"Tentar novamente" repetindo o fluxo completo de inicialização; nunca uma
+tela quebrada, nunca a mensagem interna do Postgres exposta na UI).
+
+A segunda migration existe porque a primeira criou tabela e RLS mas nunca
+concedeu `GRANT` a `authenticated`/`service_role` — sem isso o Postgres nega
+o acesso na camada de privilégios antes mesmo de avaliar qualquer policy de
+RLS, produzindo "permission denied for table shopping_lists" mesmo depois
+de aplicar a primeira migration sozinha (mesma causa raiz já documentada em
+`20260722140000_api_role_grants.sql` para as demais tabelas do projeto).
 
 ## Evolução planejada
 

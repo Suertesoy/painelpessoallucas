@@ -238,10 +238,14 @@ Compras para a arquitetura completa.
   nunca hardcoded.
 - Realtime entre dispositivos pelo mesmo `ChangeNotifier`/`useReactiveQuery`
   já usado no resto do painel — nenhum canal novo.
-- **Pendência real**: a migration `20260731100000_shopping_lists.sql` foi
-  criada no repositório mas **não foi aplicada** no Supabase remoto nesta
-  entrega. Até ser aplicada, `/compras` e a confirmação de `shopping_item`
-  falham de forma tratada — não derrubam o restante do painel.
+- **Pendência real**: as migrations `20260731100000_shopping_lists.sql` e
+  `20260731110000_shopping_lists_grants.sql` (esta última corrige a
+  ausência de `GRANT` a `authenticated`/`service_role` que causava
+  "permission denied for table shopping_lists" mesmo com a primeira já
+  aplicada) foram criadas no repositório mas **não foram aplicadas** no
+  Supabase remoto nesta entrega. Até serem aplicadas (nesta ordem),
+  `/compras` mostra um aviso seguro com "Tentar novamente" — não derruba o
+  restante do painel, e nunca expõe a mensagem interna do Postgres.
 - Fora do escopo desta fase: administração de listas (criar/renomear/excluir
   lista pela UI), quantidade/unidade/categoria estruturadas por item,
   reordenação manual, fila offline de alterações.
