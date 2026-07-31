@@ -150,19 +150,38 @@ export default function ComprasPage() {
     refetch,
   } = useReactiveQuery(() => shoppingQueries.getBoard(), []);
 
-  const [initError, setInitError] = useState<string | null>(null);
-  const initialized = useRef(false);
+  // Fluxo único de inicialização/recuperação: usado tanto na montagem quanto
+  // pelo botão "Tentar novamente" do DataErrorNotice, inclusive quando a
+  // primeira tentativa falhou (ex.: permissão ausente no Supabase). O ref
+  // evita rodar duas vezes em paralelo (clique repetido, ou o efeito de
+  // montagem disparando enquanto uma retentativa manual já está em curso).
+  const [initFailed, setInitFailed] = useState(false);
+  const isInitializingRef = useRef(false);
+  const runInit = useCallback(async () => {
+    if (isInitializingRef.current) return;
+    isInitializingRef.current = true;
+    setInitFailed(false);
+    try {
+      await shoppingCmds.ensureDefaultLists();
+      refetch();
+    } catch (e) {
+      // Nunca expõe e.message na UI (pode conter detalhes internos do
+      // Supabase, ex.: "permission denied for table shopping_lists") — só o
+      // console recebe o erro completo, mesmo padrão de useReactiveQuery.
+      console.error('Erro ao preparar as listas de compras', e);
+      setInitFailed(true);
+    } finally {
+      isInitializingRef.current = false;
+    }
+  }, [shoppingCmds, refetch]);
+
   useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-    shoppingCmds
-      .ensureDefaultLists()
-      .then(() => refetch())
-      .catch((e) =>
-        setInitError(e instanceof Error ? e.message : 'Não foi possível preparar as listas de compras.')
-      );
+    const timer = setTimeout(() => void runInit(), 0);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const hasError = Boolean(error) || initFailed;
 
   const [whatsappNumber, setWhatsappNumber] = useState<string | null>(null);
   const fetchWhatsappNumber = useCallback(async () => {
@@ -291,18 +310,13 @@ export default function ComprasPage() {
         <ShoppingCart size={24} className="text-blue-600" /> Compras
       </h1>
 
-      {error && <DataErrorNotice isOffline={isOffline} onRetry={refetch} className="mt-4" />}
-      {initError && (
-        <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {initError}
-        </p>
-      )}
+      {hasError && <DataErrorNotice isOffline={isOffline} onRetry={() => void runInit()} className="mt-4" />}
 
-      {!error && isLoading && !board && (
+      {!hasError && isLoading && !board && (
         <p className="mt-6 text-sm text-gray-500">Carregando suas listas de compras…</p>
       )}
 
-      {!error && board && board.length === 0 && (
+      {!hasError && board && board.length === 0 && (
         <p className="mt-6 text-sm text-gray-500">Preparando suas listas de compras…</p>
       )}
 

@@ -263,3 +263,72 @@ describe('ComprasPage', () => {
     expect(screen.queryByText('Arroz')).toBeNull();
   });
 });
+
+describe('ComprasPage — recuperação quando a inicialização das listas falha', () => {
+  // Mensagem real que o Postgres devolve quando a tabela shopping_lists fica
+  // sem GRANT para authenticated (causa raiz corrigida por
+  // 20260731110000_shopping_lists_grants.sql) — usada aqui só para simular a
+  // falha; a asserção é que ela NUNCA chega à interface.
+  const PERMISSION_DENIED = 'permission denied for table shopping_lists';
+
+  it('falha inicial em ensureDefaultLists() mostra um aviso seguro, sem detalhes internos', async () => {
+    ensureDefaultLists.mockRejectedValueOnce(new Error(PERMISSION_DENIED));
+    render(<ComprasPage />);
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(document.body.textContent ?? '').not.toContain(PERMISSION_DENIED);
+    expect(document.body.textContent ?? '').not.toMatch(/permission denied/i);
+  });
+
+  it('nunca renderiza a mensagem interna do Supabase em nenhum estado da página', async () => {
+    ensureDefaultLists.mockRejectedValueOnce(new Error(PERMISSION_DENIED));
+    render(<ComprasPage />);
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+
+    // Nenhuma segunda caixa de erro (o bug original renderizava a mensagem
+    // bruta do Supabase numa <p role="alert"> própria, além do aviso seguro).
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  it('"Tentar novamente" repete o fluxo completo (ensureDefaultLists + board) e recupera sem reload', async () => {
+    ensureDefaultLists.mockRejectedValueOnce(new Error(PERMISSION_DENIED));
+    render(<ComprasPage />);
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(ensureDefaultLists).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /Tentar novamente/i }));
+
+    await waitFor(() => expect(ensureDefaultLists).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/Nenhum item em Mercado/i)).toBeTruthy());
+  });
+
+  it('o aviso desaparece depois de uma recuperação bem-sucedida', async () => {
+    ensureDefaultLists.mockRejectedValueOnce(new Error(PERMISSION_DENIED));
+    render(<ComprasPage />);
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: /Tentar novamente/i }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('cliques repetidos em "Tentar novamente" não disparam inicializações concorrentes', async () => {
+    ensureDefaultLists.mockRejectedValueOnce(new Error(PERMISSION_DENIED));
+    render(<ComprasPage />);
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(ensureDefaultLists).toHaveBeenCalledTimes(1);
+
+    const retryButton = screen.getByRole('button', { name: /Tentar novamente/i });
+    fireEvent.click(retryButton);
+    fireEvent.click(retryButton);
+    fireEvent.click(retryButton);
+
+    // O guard por ref admite só uma execução por vez: uma retentativa em
+    // andamento ignora os cliques extras — nenhuma lista duplicada, nenhum
+    // evento reemitido (ensureDefaultLists em si já é idempotente, mas o
+    // objetivo aqui é não chamá-lo concorrentemente).
+    expect(ensureDefaultLists).toHaveBeenCalledTimes(2);
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+});
