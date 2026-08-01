@@ -104,7 +104,7 @@ export class SupabaseFinanceRepository implements FinanceRepository {
   async createSource(input: { name: string; kind: FinanceSourceKind }): Promise<FinanceSource> {
     const { data, error } = await this.supabase
       .from('finance_sources')
-      .insert({ workspace_id: this.workspaceId, name: input.name, kind: input.kind })
+      .insert({ workspace_id: this.workspaceId, name: input.name, kind: input.kind, provider: 'generic', status: 'active' })
       .select()
       .single();
     if (error) throw new Error(`Não foi possível criar a origem: ${error.message}`);
@@ -252,7 +252,17 @@ export class SupabaseFinanceRepository implements FinanceRepository {
       if (input.matheusIncomeCents !== undefined) update.matheus_income_cents = input.matheusIncomeCents;
       if (input.lucasIncomeCents !== undefined) update.lucas_income_cents = input.lucasIncomeCents;
       if (input.otherIncomeCents !== undefined) update.other_income_cents = input.otherIncomeCents;
-      if (input.availableCashCents !== undefined) update.available_cash_cents = input.availableCashCents;
+      // Só toca as colunas de disponível quando o chamador de fato informou
+      // um dos dois valores — nunca recalcula/zera `available_cash_cents`
+      // silenciosamente (seção 12 do pedido: total pré-existente "não
+      // distribuído" preservado até a próxima edição explícita do usuário).
+      if (input.lucasAvailableCashCents !== undefined || input.matheusAvailableCashCents !== undefined) {
+        const nextLucas = input.lucasAvailableCashCents ?? existing.lucasAvailableCashCents;
+        const nextMatheus = input.matheusAvailableCashCents ?? existing.matheusAvailableCashCents;
+        update.lucas_available_cash_cents = nextLucas;
+        update.matheus_available_cash_cents = nextMatheus;
+        update.available_cash_cents = nextLucas + nextMatheus;
+      }
       if (input.savedCashCents !== undefined) update.saved_cash_cents = input.savedCashCents;
 
       const { data, error } = await this.supabase
@@ -269,15 +279,21 @@ export class SupabaseFinanceRepository implements FinanceRepository {
 
     // Mês novo: renda do Matheus pré-preenchida com o valor padrão ATUAL
     // (fotografia no momento da criação — mudar o padrão depois nunca altera
-    // este registro). Renda do Lucas NUNCA copiada do mês anterior.
+    // este registro). Renda do Lucas NUNCA copiada do mês anterior. Disponível
+    // de Lucas/Matheus sempre começa em zero quando não informado (nunca
+    // herdado de outro mês nem atribuído a uma pessoa por suposição).
     const settings = await this.getSettings();
+    const lucasAvailableCashCents = input.lucasAvailableCashCents ?? 0;
+    const matheusAvailableCashCents = input.matheusAvailableCashCents ?? 0;
     const insertPayload = {
       workspace_id: this.workspaceId,
       month: input.month,
       matheus_income_cents: input.matheusIncomeCents ?? settings?.defaultMatheusIncomeCents ?? 0,
       lucas_income_cents: input.lucasIncomeCents ?? 0,
       other_income_cents: input.otherIncomeCents ?? 0,
-      available_cash_cents: input.availableCashCents ?? 0,
+      available_cash_cents: lucasAvailableCashCents + matheusAvailableCashCents,
+      lucas_available_cash_cents: lucasAvailableCashCents,
+      matheus_available_cash_cents: matheusAvailableCashCents,
       saved_cash_cents: input.savedCashCents ?? 0,
     };
     const { data, error } = await this.supabase

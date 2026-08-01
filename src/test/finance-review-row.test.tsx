@@ -41,6 +41,7 @@ function makeRow(overrides: Partial<FinanceImportRow> = {}): FinanceImportRow {
     description: 'Supermercado ABC',
     originalDescription: 'SUPERMERCADO ABC LTDA',
     amountCents: -4590,
+    sourceAmountCents: null,
     fitid: null,
     fingerprint: null,
     categoryId: CATEGORY_MERCADO.id,

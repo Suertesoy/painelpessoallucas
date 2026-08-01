@@ -1,22 +1,29 @@
 import { NextResponse } from 'next/server';
-import { z } from 'zod';
 import { getSessionContext } from '@/platform/supabase/session';
 import { ensureFinanceDefaults } from '@/modules/finance/infrastructure/ensure-finance-defaults';
+import { resolveImportSource } from '@/modules/finance/infrastructure/resolve-import-source';
 import { decodeTextBuffer, detectCsv, parseCsv, type CsvColumnMapping } from '@/modules/finance/domain/csv-parser';
-import { parseOfx } from '@/modules/finance/domain/ofx-parser';
+import { parseOfx, detectOfxAccountKind } from '@/modules/finance/domain/ofx-parser';
 import { normalizeText } from '@/modules/finance/domain/normalize-text';
 import { buildRowFingerprint } from '@/modules/finance/domain/fingerprint';
+import { computeDateRange } from '@/modules/finance/domain/date-range';
+import { buildSafeImportName, type ImportKind } from '@/modules/finance/domain/import-naming';
+import { importSourceProfileForCsv, importSourceProfileForOfx } from '@/modules/finance/domain/source-resolution';
 import { classifyTransaction, defaultNatureForAmount, type LearnedClassificationRule } from '@/modules/finance/domain/classification-engine';
 import { FALLBACK_FINANCE_CATEGORY_SLUG } from '@/modules/finance/domain/finance-category.schema';
 import type { FinanceNature } from '@/modules/finance/domain/finance-transaction.schema';
 
 /**
- * Recebe um extrato/fatura (CSV ou OFX), valida sessão + workspace + origem,
- * calcula SHA-256, classifica localmente e cria uma importação em revisão.
+ * Recebe um extrato/fatura (CSV ou OFX), valida sessão + workspace, detecta o
+ * formato/perfil automaticamente (nunca pergunta origem ao usuário — seção 4
+ * do pedido), calcula SHA-256, classifica localmente e cria uma importação
+ * em revisão.
  *
  * O arquivo bruto existe só durante esta requisição (buffer em memória) —
- * nunca é gravado em disco, Supabase, evento ou log. Nenhum dado é enviado a
- * serviços externos (parsing 100% local).
+ * nunca é gravado em disco, Supabase, evento ou log; o NOME original também
+ * nunca é persistido (pode carregar identificador de conta — seção 11 do
+ * pedido) — só um nome seguro derivado do perfil detectado e do intervalo de
+ * datas. Nenhum dado é enviado a serviços externos (parsing 100% local).
  */
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -26,7 +33,6 @@ type ErrorCategory =
   | 'invalid_request'
   | 'file_too_large'
   | 'invalid_format'
-  | 'source_not_found'
   | 'duplicate_import'
   | 'server_error';
 
@@ -34,13 +40,12 @@ function errorResponse(status: number, errorCategory: ErrorCategory, message: st
   return NextResponse.json({ error: message, errorCategory }, { status });
 }
 
-const SourceIdSchema = z.string().uuid();
-
 interface ParsedRow {
   date: string;
   description: string;
   originalDescription: string;
   amountCents: number;
+  sourceAmountCents: number;
   fitid?: string;
 }
 
@@ -63,14 +68,9 @@ export async function POST(request: Request) {
   }
 
   const file = formData.get('file');
-  const sourceIdRaw = formData.get('sourceId');
   const mappingRaw = formData.get('mapping');
 
   if (!(file instanceof File)) return errorResponse(400, 'invalid_request', 'Arquivo ausente.');
-  const sourceIdResult = SourceIdSchema.safeParse(sourceIdRaw);
-  if (!sourceIdResult.success) return errorResponse(400, 'invalid_request', 'Origem não informada ou inválida.');
-  const sourceId = sourceIdResult.data;
-
   if (file.size === 0) return errorResponse(400, 'invalid_request', 'O arquivo está vazio.');
   if (file.size > MAX_FILE_BYTES) return errorResponse(413, 'file_too_large', 'Arquivo maior que o limite de 10 MB.');
 
@@ -82,15 +82,6 @@ export async function POST(request: Request) {
     return errorResponse(415, 'invalid_format', 'Formato não reconhecido. Envie um arquivo .csv ou .ofx.');
   }
 
-  const { data: sourceRow, error: sourceError } = await session.supabase
-    .from('finance_sources')
-    .select('id, kind')
-    .eq('workspace_id', session.workspaceId)
-    .eq('id', sourceId)
-    .maybeSingle();
-  if (sourceError) return errorResponse(500, 'server_error', 'Não foi possível validar a origem selecionada.');
-  if (!sourceRow) return errorResponse(404, 'source_not_found', 'Origem não encontrada neste workspace.');
-
   const buffer = await file.arrayBuffer();
 
   // SHA-256 no servidor, antes de qualquer persistência — o buffer some da
@@ -100,26 +91,9 @@ export async function POST(request: Request) {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 
-  // Reimportação idempotente: mesmo hash na mesma origem/workspace nunca
-  // cria uma segunda revisão pendente nem uma segunda confirmação.
-  const { data: existingImport, error: existingImportError } = await session.supabase
-    .from('finance_imports')
-    .select('*')
-    .eq('workspace_id', session.workspaceId)
-    .eq('source_id', sourceId)
-    .eq('file_sha256', fileSha256)
-    .maybeSingle();
-  if (existingImportError) return errorResponse(500, 'server_error', 'Não foi possível verificar duplicidade do arquivo.');
-  if (existingImport) {
-    if (existingImport.status === 'confirmed') {
-      return errorResponse(409, 'duplicate_import', 'Este arquivo já foi importado e confirmado para esta origem.');
-    }
-    return NextResponse.json({ importId: existingImport.id, reopened: true, rowCount: existingImport.row_count });
-  }
-
   let parsedRows: ParsedRow[];
-  let statementStart: string | null = null;
-  let statementEnd: string | null = null;
+  let importKind: ImportKind;
+  let sourceProfile: ReturnType<typeof importSourceProfileForCsv>;
 
   if (isCsv) {
     const decoded = decodeTextBuffer(buffer);
@@ -141,28 +115,35 @@ export async function POST(request: Request) {
       Boolean(detection.suggestedMapping.amountColumn) &&
       !detection.suggestedMapping.debitColumn &&
       !detection.suggestedMapping.creditColumn;
-    // Convenção de sinal (negativo=saída) só é segura quando há colunas
-    // separadas de débito/crédito; com uma única coluna de valor, a fatura
-    // de cartão pode representar compra como positivo — sempre pede
-    // confirmação explícita do usuário nesse caso antes de processar.
-    const needsMapping = !mapping && (!detection.confident || hasSingleAmountColumn);
+    // Os dois perfis Nubank reconhecidos (seção 3 do pedido) já têm o modo
+    // de sinal resolvido deterministicamente pelo próprio perfil — nunca
+    // pedem mapeamento manual, mesmo com uma única coluna de valor. Fora
+    // deles, a convenção de sinal só é segura com colunas separadas de
+    // débito/crédito; com uma única coluna, sempre pede confirmação
+    // explícita do usuário (nunca adivinha se compra é positiva ou negativa).
+    const isKnownProfile = detection.profile !== 'generic';
+    const needsMapping = !mapping && !isKnownProfile && (!detection.confident || hasSingleAmountColumn);
     if (needsMapping) {
-      return NextResponse.json({ needsMapping: true, detection, sourceKind: sourceRow.kind });
+      return NextResponse.json({ needsMapping: true, detection });
     }
 
     const resolvedMapping = mapping ?? (detection.suggestedMapping as CsvColumnMapping);
+    let csvRows;
     try {
-      const csvRows = parseCsv(decoded.text, detection.delimiter, resolvedMapping);
-      parsedRows = csvRows.map((r) => ({
-        date: r.date,
-        description: r.description,
-        originalDescription: r.originalDescription,
-        amountCents: r.amountCents,
-        fitid: r.externalId,
-      }));
+      csvRows = parseCsv(decoded.text, detection.delimiter, resolvedMapping);
     } catch {
       return errorResponse(400, 'invalid_format', 'Não foi possível interpretar o CSV com o mapeamento informado.');
     }
+    parsedRows = csvRows.map((r) => ({
+      date: r.date,
+      description: r.description,
+      originalDescription: r.originalDescription,
+      amountCents: r.amountCents,
+      sourceAmountCents: r.sourceAmountCents,
+      fitid: r.externalId,
+    }));
+    importKind = detection.profile;
+    sourceProfile = importSourceProfileForCsv(detection.profile, resolvedMapping.amountMode);
   } else {
     const decoded = decodeTextBuffer(buffer);
     if (!/<ofx/i.test(decoded.text)) {
@@ -175,22 +156,55 @@ export async function POST(request: Request) {
         description: t.name ?? t.memo ?? 'Lançamento sem descrição',
         originalDescription: t.name ?? t.memo ?? 'Lançamento sem descrição',
         amountCents: t.amountCents,
+        sourceAmountCents: t.amountCents,
         fitid: t.fitid,
       }));
-      statementStart = ofxResult.statementStart;
-      statementEnd = ofxResult.statementEnd;
     } catch {
       return errorResponse(400, 'invalid_format', 'Não foi possível interpretar o arquivo OFX.');
     }
+    importKind = 'ofx';
+    sourceProfile = importSourceProfileForOfx(detectOfxAccountKind(decoded.text));
   }
 
   if (parsedRows.length === 0) {
     return errorResponse(400, 'invalid_format', 'Nenhum lançamento foi encontrado no arquivo.');
   }
 
+  const { start: statementStart, end: statementEnd } = computeDateRange(parsedRows.map((r) => r.date));
+
   // Garante categorias/origens (ensureFinanceDefaults é idempotente) antes
   // de classificar — cobre o primeiro import de um workspace novo.
   await ensureFinanceDefaults(session.supabase, session.workspaceId);
+
+  // Origem resolvida automaticamente pelo perfil detectado — o usuário nunca
+  // escolhe origem (seção 6 do pedido).
+  const resolvedSource = await resolveImportSource(session.supabase, session.workspaceId, sourceProfile);
+  const sourceId = resolvedSource.id;
+
+  // Reimportação idempotente: mesmo hash na mesma origem/workspace nunca
+  // cria uma segunda revisão pendente nem uma segunda confirmação.
+  const { data: existingImport, error: existingImportError } = await session.supabase
+    .from('finance_imports')
+    .select('*')
+    .eq('workspace_id', session.workspaceId)
+    .eq('source_id', sourceId)
+    .eq('file_sha256', fileSha256)
+    .maybeSingle();
+  if (existingImportError) return errorResponse(500, 'server_error', 'Não foi possível verificar duplicidade do arquivo.');
+  if (existingImport) {
+    if (existingImport.status === 'confirmed') {
+      return errorResponse(409, 'duplicate_import', 'Este arquivo já foi importado e confirmado para esta origem.');
+    }
+    return NextResponse.json({
+      importId: existingImport.id,
+      reopened: true,
+      rowCount: existingImport.row_count,
+      profile: importKind,
+      sourceName: resolvedSource.name,
+      statementStart: existingImport.statement_start,
+      statementEnd: existingImport.statement_end,
+    });
+  }
 
   const [{ data: categoryRows }, { data: ruleRows }] = await Promise.all([
     session.supabase.from('finance_categories').select('id, slug').eq('workspace_id', session.workspaceId),
@@ -284,6 +298,7 @@ export async function POST(request: Request) {
       description: row.description,
       original_description: row.originalDescription,
       amount_cents: row.amountCents,
+      source_amount_cents: row.sourceAmountCents,
       fitid: row.fitid ?? null,
       fingerprint,
       category_id: suggestedCategoryId,
@@ -297,12 +312,16 @@ export async function POST(request: Request) {
     });
   }
 
+  // Nome seguro derivado do perfil + intervalo de datas — o nome ORIGINAL do
+  // arquivo (pode carregar identificador de conta) nunca é persistido.
+  const safeFileName = buildSafeImportName(importKind, resolvedSource.kind, statementStart, statementEnd);
+
   const { data: insertedImport, error: insertImportError } = await session.supabase
     .from('finance_imports')
     .insert({
       workspace_id: session.workspaceId,
       source_id: sourceId,
-      file_name: fileName,
+      file_name: safeFileName,
       file_sha256: fileSha256,
       format: isCsv ? 'csv' : 'ofx',
       row_count: parsedRows.length,
@@ -327,7 +346,15 @@ export async function POST(request: Request) {
         if (raceImport.status === 'confirmed') {
           return errorResponse(409, 'duplicate_import', 'Este arquivo já foi importado e confirmado para esta origem.');
         }
-        return NextResponse.json({ importId: raceImport.id, reopened: true, rowCount: raceImport.row_count });
+        return NextResponse.json({
+          importId: raceImport.id,
+          reopened: true,
+          rowCount: raceImport.row_count,
+          profile: importKind,
+          sourceName: resolvedSource.name,
+          statementStart: raceImport.statement_start,
+          statementEnd: raceImport.statement_end,
+        });
       }
     }
     return errorResponse(500, 'server_error', 'Não foi possível criar a importação.');
@@ -341,5 +368,13 @@ export async function POST(request: Request) {
     return errorResponse(500, 'server_error', 'Não foi possível salvar as linhas da importação.');
   }
 
-  return NextResponse.json({ importId, reopened: false, rowCount: parsedRows.length });
+  return NextResponse.json({
+    importId,
+    reopened: false,
+    rowCount: parsedRows.length,
+    profile: importKind,
+    sourceName: resolvedSource.name,
+    statementStart,
+    statementEnd,
+  });
 }

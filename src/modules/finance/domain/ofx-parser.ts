@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
+import { computeDateRange } from './date-range';
 
 /**
  * Parser OFX estrutural — cobre OFX 2.x (XML bem formado) e OFX 1.x (SGML,
@@ -47,6 +48,17 @@ export function parseOfxAmountToCents(raw: string | undefined): number {
 /** OFX 2.x sempre declara `<?xml ... ?>` no início do arquivo; OFX 1.x (SGML) nunca. */
 function isXmlOfx(text: string): boolean {
   return /^\s*<\?xml/i.test(text);
+}
+
+/**
+ * OFX distingue estruturalmente extrato de conta (`BANKMSGSRSV1`/
+ * `BANKACCTFROM`) de fatura de cartão (`CREDITCARDMSGSRSV1`/
+ * `CCACCTFROM`) — usado para resolver a origem interna automaticamente
+ * (seção 6 do pedido), sem perguntar ao usuário. Checagem estrutural
+ * (presença da tag), nunca o nome do arquivo.
+ */
+export function detectOfxAccountKind(text: string): 'card' | 'account' {
+  return /creditcardmsgsrsv1|ccacctfrom/i.test(text) ? 'card' : 'account';
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +221,23 @@ function parseXmlOfx(text: string): OfxParseResult {
   };
 }
 
+/**
+ * `DTSTART`/`DTEND` do arquivo são a fonte preferida do intervalo (vêm do
+ * próprio banco); quando ausentes, cai para a menor/maior data das
+ * transações (nunca depende de estarem em ordem crescente/decrescente —
+ * seção 9 do pedido).
+ */
+function withStatementRangeFallback(result: OfxParseResult): OfxParseResult {
+  if (result.statementStart && result.statementEnd) return result;
+  const { start, end } = computeDateRange(result.transactions.map((t) => t.date));
+  return {
+    transactions: result.transactions,
+    statementStart: result.statementStart ?? start,
+    statementEnd: result.statementEnd ?? end,
+  };
+}
+
 export function parseOfx(text: string): OfxParseResult {
-  return isXmlOfx(text) ? parseXmlOfx(text) : parseSgmlOfx(text);
+  const result = isXmlOfx(text) ? parseXmlOfx(text) : parseSgmlOfx(text);
+  return withStatementRangeFallback(result);
 }

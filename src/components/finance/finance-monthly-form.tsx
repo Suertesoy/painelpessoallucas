@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { centsToBRL } from '@/modules/finance/domain/money';
 import type { MonthOverview } from '@/modules/finance/application/finance-analytics.queries';
 
 export interface FinanceMonthlyFormValues {
   matheusIncomeReais: string;
   lucasIncomeReais: string;
   otherIncomeReais: string;
-  availableCashReais: string;
+  lucasAvailableCashReais: string;
+  matheusAvailableCashReais: string;
   savedCashReais: string;
 }
 
@@ -25,15 +27,20 @@ function valuesFromOverview(overview: MonthOverview): FinanceMonthlyFormValues {
     matheusIncomeReais: centsToReaisInput(overview.matheusIncomeCents),
     lucasIncomeReais: centsToReaisInput(overview.lucasIncomeCents),
     otherIncomeReais: centsToReaisInput(overview.otherIncomeCents),
-    availableCashReais: centsToReaisInput(overview.availableCashCents),
+    // Total pré-existente ainda "não distribuído": os campos por pessoa
+    // começam VAZIOS (nunca 0,00 silenciosamente, nunca atribuídos a Lucas
+    // ou Matheus por suposição) até o usuário editar explicitamente.
+    lucasAvailableCashReais: overview.availableCashUnallocated ? '' : centsToReaisInput(overview.lucasAvailableCashCents),
+    matheusAvailableCashReais: overview.availableCashUnallocated ? '' : centsToReaisInput(overview.matheusAvailableCashCents),
     savedCashReais: centsToReaisInput(overview.savedCashCents),
   };
 }
 
 /**
- * Renda de Matheus/Lucas, outras entradas, disponível e guardado. Enquanto o
- * usuário estiver editando (`dirty`), um refetch reativo (realtime ou
- * mudança de mês) nunca sobrescreve os valores digitados ainda não salvos.
+ * Renda de Matheus/Lucas, outras entradas, disponível (por pessoa) e
+ * guardado. Enquanto o usuário estiver editando (`dirty`), um refetch
+ * reativo (realtime ou mudança de mês) nunca sobrescreve os valores
+ * digitados ainda não salvos.
  */
 export function FinanceMonthlyForm({
   overview,
@@ -47,12 +54,14 @@ export function FinanceMonthlyForm({
     matheusIncomeCents: number;
     lucasIncomeCents: number;
     otherIncomeCents: number;
-    availableCashCents: number;
+    lucasAvailableCashCents?: number;
+    matheusAvailableCashCents?: number;
     savedCashCents: number;
   }) => Promise<void>;
   onUpdateDefaultMatheusIncome: (cents: number) => Promise<void>;
 }) {
   const [dirty, setDirty] = useState(false);
+  const [cashTouched, setCashTouched] = useState(false);
   const [values, setValues] = useState<FinanceMonthlyFormValues>(() => valuesFromOverview(overview));
   const [saving, setSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
@@ -67,6 +76,7 @@ export function FinanceMonthlyForm({
   if (!dirty && overview !== syncedOverview) {
     setSyncedOverview(overview);
     setValues(valuesFromOverview(overview));
+    setCashTouched(false);
   }
 
   const [defaultDraft, setDefaultDraft] = useState(() => centsToReaisInput(defaultMatheusIncomeCents));
@@ -77,14 +87,18 @@ export function FinanceMonthlyForm({
     setDefaultDraft(centsToReaisInput(defaultMatheusIncomeCents));
   }
 
-  const field = (key: keyof FinanceMonthlyFormValues) => ({
+  const field = (key: keyof FinanceMonthlyFormValues, isCash = false) => ({
     value: values[key],
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
       setDirty(true);
+      if (isCash) setCashTouched(true);
       setSavedMessage(null);
       setValues((prev) => ({ ...prev, [key]: e.target.value }));
     },
   });
+
+  const totalAvailableCashCents =
+    reaisInputToCents(values.lucasAvailableCashReais || '0') + reaisInputToCents(values.matheusAvailableCashReais || '0');
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -95,10 +109,19 @@ export function FinanceMonthlyForm({
         matheusIncomeCents: reaisInputToCents(values.matheusIncomeReais),
         lucasIncomeCents: reaisInputToCents(values.lucasIncomeReais),
         otherIncomeCents: reaisInputToCents(values.otherIncomeReais),
-        availableCashCents: reaisInputToCents(values.availableCashReais),
+        // Só envia disponível por pessoa quando o usuário de fato editou um
+        // dos dois campos nesta sessão — evita zerar silenciosamente um
+        // total pré-existente ainda não distribuído (seção 12 do pedido).
+        ...(cashTouched
+          ? {
+              lucasAvailableCashCents: reaisInputToCents(values.lucasAvailableCashReais || '0'),
+              matheusAvailableCashCents: reaisInputToCents(values.matheusAvailableCashReais || '0'),
+            }
+          : {}),
         savedCashCents: reaisInputToCents(values.savedCashReais),
       });
       setDirty(false);
+      setCashTouched(false);
       setSavedMessage('Valores do mês salvos.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Não foi possível salvar os valores do mês.');
@@ -134,13 +157,34 @@ export function FinanceMonthlyForm({
           <input type="number" step="0.01" min="0" inputMode="decimal" className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" {...field('otherIncomeReais')} />
         </label>
         <span />
-        <label className="text-xs text-gray-600">
-          Dinheiro disponível (R$)
-          <input type="number" step="0.01" min="0" inputMode="decimal" className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" {...field('availableCashReais')} />
-        </label>
-        <label className="text-xs text-gray-600">
+      </div>
+
+      <div className="mt-4 border-t pt-3">
+        <p className="text-xs font-medium text-gray-700">Dinheiro disponível</p>
+        {overview.availableCashUnallocated && !cashTouched && (
+          <p className="mt-1 text-xs text-amber-700">
+            Valor existente ainda não distribuído: {centsToBRL(overview.availableCashCents)} — distribua abaixo.
+          </p>
+        )}
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="text-xs text-gray-600">
+            Dinheiro disponível de Lucas (R$)
+            <input type="number" step="0.01" min="0" inputMode="decimal" className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" {...field('lucasAvailableCashReais', true)} />
+          </label>
+          <label className="text-xs text-gray-600">
+            Dinheiro disponível de Matheus (R$)
+            <input type="number" step="0.01" min="0" inputMode="decimal" className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" {...field('matheusAvailableCashReais', true)} />
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          Total disponível calculado:{' '}
+          <span className="font-medium text-gray-800">
+            {centsToBRL(cashTouched || !overview.availableCashUnallocated ? totalAvailableCashCents : overview.availableCashCents)}
+          </span>
+        </p>
+        <label className="mt-3 block text-xs text-gray-600">
           Dinheiro guardado (R$)
-          <input type="number" step="0.01" min="0" inputMode="decimal" className="mt-1 w-full rounded border border-gray-300 px-2 py-1.5 text-sm" {...field('savedCashReais')} />
+          <input type="number" step="0.01" min="0" inputMode="decimal" className="mt-1 w-full max-w-xs rounded border border-gray-300 px-2 py-1.5 text-sm" {...field('savedCashReais')} />
         </label>
       </div>
 

@@ -47,7 +47,14 @@ export interface UpsertMonthlyRecordInput {
   matheusIncomeCents?: number;
   lucasIncomeCents?: number;
   otherIncomeCents?: number;
-  availableCashCents?: number;
+  /**
+   * Disponível de Lucas/Matheus (seção 12 do pedido) — quando nenhum dos
+   * dois é informado, o total existente (`availableCashCents`) nunca é
+   * recalculado/zerado (transição segura para registros anteriores a esta
+   * mudança, ainda "não distribuídos").
+   */
+  lucasAvailableCashCents?: number;
+  matheusAvailableCashCents?: number;
   savedCashCents?: number;
 }
 

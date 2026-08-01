@@ -34,6 +34,8 @@ export interface FinanceSourceRow {
   workspace_id: string;
   name: string;
   kind: string;
+  provider: string | null;
+  status: string;
   created_at: string;
   updated_at: string;
 }
@@ -44,6 +46,8 @@ export function rowToFinanceSource(row: FinanceSourceRow): FinanceSource {
     workspaceId: row.workspace_id,
     name: row.name,
     kind: row.kind,
+    provider: row.provider,
+    status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
@@ -136,6 +140,7 @@ export interface FinanceImportRowLineDb {
   description: string;
   original_description: string;
   amount_cents: number;
+  source_amount_cents: number | null;
   fitid: string | null;
   fingerprint: string | null;
   category_id: string;
@@ -160,6 +165,7 @@ export function rowToFinanceImportRow(row: FinanceImportRowLineDb): FinanceImpor
     description: row.description,
     originalDescription: row.original_description,
     amountCents: row.amount_cents,
+    sourceAmountCents: row.source_amount_cents ?? null,
     fitid: row.fitid,
     fingerprint: row.fingerprint,
     categoryId: row.category_id,
@@ -185,6 +191,7 @@ export interface FinanceTransactionRowDb {
   description: string;
   original_description: string;
   amount_cents: number;
+  source_amount_cents: number | null;
   category_id: string;
   nature: string;
   fitid: string | null;
@@ -204,6 +211,7 @@ export function rowToFinanceTransaction(row: FinanceTransactionRowDb): FinanceTr
     description: row.description,
     originalDescription: row.original_description,
     amountCents: row.amount_cents,
+    sourceAmountCents: row.source_amount_cents ?? null,
     categoryId: row.category_id,
     nature: row.nature,
     fitid: row.fitid,
@@ -221,6 +229,8 @@ export interface FinanceMonthlyRecordRowDb {
   lucas_income_cents: number;
   other_income_cents: number;
   available_cash_cents: number;
+  lucas_available_cash_cents: number;
+  matheus_available_cash_cents: number;
   saved_cash_cents: number;
   created_at: string;
   updated_at: string;
@@ -235,6 +245,8 @@ export function rowToFinanceMonthlyRecord(row: FinanceMonthlyRecordRowDb): Finan
     lucasIncomeCents: row.lucas_income_cents,
     otherIncomeCents: row.other_income_cents,
     availableCashCents: row.available_cash_cents,
+    lucasAvailableCashCents: row.lucas_available_cash_cents ?? 0,
+    matheusAvailableCashCents: row.matheus_available_cash_cents ?? 0,
     savedCashCents: row.saved_cash_cents,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

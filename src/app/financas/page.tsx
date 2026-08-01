@@ -98,7 +98,8 @@ export default function FinancasPage() {
       matheusIncomeCents: number;
       lucasIncomeCents: number;
       otherIncomeCents: number;
-      availableCashCents: number;
+      lucasAvailableCashCents?: number;
+      matheusAvailableCashCents?: number;
       savedCashCents: number;
     }) => {
       await financeCommands.monthly.upsertMonthlyRecord({ month: monthKey, ...values });

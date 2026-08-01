@@ -2,7 +2,7 @@
 
 import { use, useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, ClipboardCheck } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
@@ -11,11 +11,33 @@ import { normalizeText } from '@/modules/finance/domain/normalize-text';
 import { FinanceReviewRow, type ReviewRowPatch } from '@/components/finance/finance-review-row';
 import type { FinanceNature } from '@/modules/finance/domain/finance-transaction.schema';
 
+/**
+ * Fila de revisão do lote (seção 8 do pedido): `?queue=id1,id2,id3&pos=0` é
+ * uma coordenação puramente local via query string — nunca uma entidade de
+ * lote persistida. Confirmar (ou sair de) uma importação da fila oferece a
+ * próxima automaticamente.
+ */
+function useReviewQueue(currentImportId: string) {
+  const searchParams = useSearchParams();
+  const queueParam = searchParams.get('queue');
+  const posParam = Number(searchParams.get('pos') ?? '0');
+
+  const queue = useMemo(() => (queueParam ? queueParam.split(',').filter(Boolean) : []), [queueParam]);
+  const position = Number.isFinite(posParam) && posParam >= 0 ? posParam : 0;
+  const hasQueue = queue.length > 1;
+  const nextImportId = hasQueue && position + 1 < queue.length ? queue[position + 1] : null;
+
+  const nextHref = nextImportId ? `/financas/revisao/${nextImportId}?queue=${queue.join(',')}&pos=${position + 1}` : null;
+
+  return { queue, position, hasQueue, nextHref, currentImportId };
+}
+
 export default function FinanceReviewPage({ params }: { params: Promise<{ importId: string }> }) {
   const { importId } = use(params);
   const router = useRouter();
   const { finance: financeCommands } = useCommands();
   const { finance: financeQueries } = useQueries();
+  const reviewQueue = useReviewQueue(importId);
 
   const {
     data: review,
@@ -116,6 +138,11 @@ export default function FinanceReviewPage({ params }: { params: Promise<{ import
       <h1 className="mt-2 flex items-center gap-2 text-2xl font-bold">
         <ClipboardCheck size={22} className="text-blue-600" /> Revisão da importação
       </h1>
+      {reviewQueue.hasQueue && (
+        <p className="mt-1 text-xs font-medium text-gray-500">
+          Arquivo {reviewQueue.position + 1} de {reviewQueue.queue.length}
+        </p>
+      )}
 
       {error && <DataErrorNotice isOffline={isOffline} onRetry={refetch} className="mt-4" />}
 
@@ -133,7 +160,25 @@ export default function FinanceReviewPage({ params }: { params: Promise<{ import
 
           {review.import.status === 'confirmed' || confirmed ? (
             <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
-              Esta importação já foi confirmada. As transações estão disponíveis no painel de Finanças.
+              <p>Esta importação já foi confirmada. As transações estão disponíveis no painel de Finanças.</p>
+              {reviewQueue.nextHref && (
+                <button
+                  type="button"
+                  onClick={() => router.push(reviewQueue.nextHref!)}
+                  className="mt-2 rounded-lg bg-green-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-800"
+                >
+                  Próxima importação pendente
+                </button>
+              )}
+              {reviewQueue.hasQueue && (
+                <button
+                  type="button"
+                  onClick={() => router.push('/financas/importar')}
+                  className="ml-2 mt-2 rounded-lg border border-green-300 px-3 py-1.5 text-xs font-medium text-green-800 hover:bg-green-100"
+                >
+                  Voltar ao resumo do lote
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -224,13 +269,34 @@ export default function FinanceReviewPage({ params }: { params: Promise<{ import
                   </p>
                 )}
                 {confirmed && (
-                  <button
-                    type="button"
-                    onClick={() => router.push('/financas')}
-                    className="ml-2 mt-2 rounded-lg border border-blue-300 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                  >
-                    Ver no painel de Finanças
-                  </button>
+                  <>
+                    {reviewQueue.nextHref ? (
+                      <button
+                        type="button"
+                        onClick={() => router.push(reviewQueue.nextHref!)}
+                        className="ml-2 mt-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700"
+                      >
+                        Próxima importação pendente
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => router.push('/financas')}
+                        className="ml-2 mt-2 rounded-lg border border-blue-300 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      >
+                        Ver no painel de Finanças
+                      </button>
+                    )}
+                    {reviewQueue.hasQueue && (
+                      <button
+                        type="button"
+                        onClick={() => router.push('/financas/importar')}
+                        className="ml-2 mt-2 rounded-lg border border-blue-300 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      >
+                        Voltar ao resumo do lote
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </>

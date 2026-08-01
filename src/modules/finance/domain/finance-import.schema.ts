@@ -39,6 +39,8 @@ export const FinanceImportRowSchema = z
     description: z.string().min(1),
     originalDescription: z.string().min(1),
     amountCents: z.number().int(),
+    /** Valor bruto antes da normalização de sinal do perfil — auditoria (seção 5 do pedido). */
+    sourceAmountCents: z.number().int().nullable(),
     fitid: z.string().nullable(),
     fingerprint: z.string().nullable(),
     categoryId: z.string().uuid(),

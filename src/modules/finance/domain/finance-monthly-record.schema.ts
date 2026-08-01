@@ -11,7 +11,14 @@ export const FinanceMonthlyRecordSchema = z.object({
   matheusIncomeCents: z.number().int().min(0),
   lucasIncomeCents: z.number().int().min(0),
   otherIncomeCents: z.number().int().min(0),
+  /**
+   * Total calculado (`lucasAvailableCashCents + matheusAvailableCashCents`
+   * — seção 12 do pedido), sempre mantido em sincronia pelo repositório.
+   * Nunca editado diretamente pela UI.
+   */
   availableCashCents: z.number().int().min(0),
+  lucasAvailableCashCents: z.number().int().min(0),
+  matheusAvailableCashCents: z.number().int().min(0),
   savedCashCents: z.number().int().min(0),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,

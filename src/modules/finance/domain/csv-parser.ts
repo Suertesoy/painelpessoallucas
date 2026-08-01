@@ -221,29 +221,98 @@ export interface CsvColumnMapping {
   idColumn?: string;
 }
 
+/**
+ * Perfil de importação reconhecido automaticamente pela assinatura
+ * estrutural do arquivo (cabeçalhos + formato de data/valor + presença de
+ * identificador) — nunca pelo nome do arquivo isoladamente. `generic` cai no
+ * fluxo de detecção heurística existente (pode ainda ser `confident`, mas
+ * sempre exige confirmação do modo de sinal quando há só uma coluna de
+ * valor).
+ */
+export type CsvProfile = 'nubank_credit_card_statement' | 'nubank_account_statement' | 'generic';
+
 export interface CsvDetectionResult {
   delimiter: CsvDelimiter;
   headers: string[];
   sampleRows: string[][];
   suggestedMapping: Partial<CsvColumnMapping>;
   confident: boolean;
+  profile: CsvProfile;
+}
+
+/** Assinatura real da fatura Nubank: `date,title,amount` (UTF-8, vírgula). */
+const NUBANK_CREDIT_CARD_HEADERS = ['date', 'title', 'amount'];
+/** Assinatura real do extrato Nubank: `Data,Valor,Identificador,Descrição`. */
+const NUBANK_ACCOUNT_HEADERS = ['data', 'valor', 'identificador', 'descricao'];
+
+function headerSetEquals(headers: string[], expected: string[]): boolean {
+  if (headers.length !== expected.length) return false;
+  const normalized = headers.map(normalizeHeader);
+  return expected.every((e) => normalized.includes(e)) && normalized.every((n) => expected.includes(n));
+}
+
+function detectKnownNubankProfile(
+  headers: string[]
+): { profile: Exclude<CsvProfile, 'generic'>; suggestedMapping: CsvColumnMapping } | null {
+  const byNormalized = new Map(headers.map((h) => [normalizeHeader(h), h]));
+
+  if (headerSetEquals(headers, NUBANK_CREDIT_CARD_HEADERS)) {
+    return {
+      profile: 'nubank_credit_card_statement',
+      suggestedMapping: {
+        dateColumn: byNormalized.get('date')!,
+        descriptionColumn: byNormalized.get('title')!,
+        amountColumn: byNormalized.get('amount')!,
+        amountMode: 'card_positive_purchase',
+      },
+    };
+  }
+
+  if (headerSetEquals(headers, NUBANK_ACCOUNT_HEADERS)) {
+    return {
+      profile: 'nubank_account_statement',
+      suggestedMapping: {
+        dateColumn: byNormalized.get('data')!,
+        descriptionColumn: byNormalized.get('descricao')!,
+        amountColumn: byNormalized.get('valor')!,
+        amountMode: 'signed',
+        idColumn: byNormalized.get('identificador')!,
+      },
+    };
+  }
+
+  return null;
 }
 
 /**
- * Analisa o texto CSV e tenta reconhecer automaticamente as colunas. Quando
- * a confiança é baixa (falta data, descrição, ou nenhuma forma de valor),
- * `confident` fica falso — o chamador deve pedir mapeamento manual antes de
- * processar qualquer linha.
+ * Analisa o texto CSV e tenta reconhecer automaticamente as colunas.
+ * Primeiro tenta os perfis conhecidos (fatura/extrato Nubank — seções 3.1 e
+ * 3.2 do pedido), sempre `confident` e sem pedir mapeamento manual. Caindo
+ * no genérico, quando a confiança é baixa (falta data, descrição, ou nenhuma
+ * forma de valor), `confident` fica falso — o chamador deve pedir
+ * mapeamento manual antes de processar qualquer linha.
  */
 export function detectCsv(text: string): CsvDetectionResult {
   const firstLine = text.split(/\r?\n/, 1)[0] ?? '';
   const delimiter = detectDelimiter(firstLine);
   const rows = tokenizeCsv(text, delimiter);
   if (rows.length === 0) {
-    return { delimiter, headers: [], sampleRows: [], suggestedMapping: {}, confident: false };
+    return { delimiter, headers: [], sampleRows: [], suggestedMapping: {}, confident: false, profile: 'generic' };
   }
   const headers = rows[0];
   const sampleRows = rows.slice(1, 6);
+
+  const knownProfile = detectKnownNubankProfile(headers);
+  if (knownProfile) {
+    return {
+      delimiter,
+      headers,
+      sampleRows,
+      suggestedMapping: knownProfile.suggestedMapping,
+      confident: true,
+      profile: knownProfile.profile,
+    };
+  }
 
   const findColumn = (keys: string[]): string | undefined => {
     for (const header of headers) {
@@ -272,7 +341,7 @@ export function detectCsv(text: string): CsvDetectionResult {
   const hasAmountSignal = Boolean(amountColumn) || Boolean(debitColumn || creditColumn);
   const confident = Boolean(dateColumn && descriptionColumn && hasAmountSignal);
 
-  return { delimiter, headers, sampleRows, suggestedMapping, confident };
+  return { delimiter, headers, sampleRows, suggestedMapping, confident, profile: 'generic' };
 }
 
 export interface CsvParsedRow {
@@ -281,6 +350,14 @@ export interface CsvParsedRow {
   description: string;
   originalDescription: string;
   amountCents: number;
+  /**
+   * Valor bruto em centavos, antes da normalização de sinal do perfil (ex.:
+   * fatura de cartão onde compra vem positiva) — só para auditoria
+   * (`finance_import_rows.source_amount_cents`/`finance_transactions.
+   * source_amount_cents`). Nas colunas separadas de débito/crédito não há
+   * "bruto" distinto do canônico, então os dois valores coincidem.
+   */
+  sourceAmountCents: number;
   externalId?: string;
 }
 
@@ -313,15 +390,18 @@ export function parseCsv(text: string, delimiter: CsvDelimiter, mapping: CsvColu
     if (!rawDate && !rawDescription) continue;
 
     let amountCents: number;
+    let sourceAmountCents: number;
     if (debitIdx !== -1 || creditIdx !== -1) {
       const debitRaw = debitIdx !== -1 ? cells[debitIdx]?.trim() : '';
       const creditRaw = creditIdx !== -1 ? cells[creditIdx]?.trim() : '';
       const debitCents = debitRaw ? Math.abs(parseAmountToCents(debitRaw)) : 0;
       const creditCents = creditRaw ? Math.abs(parseAmountToCents(creditRaw)) : 0;
       amountCents = creditCents - debitCents;
+      sourceAmountCents = amountCents;
     } else if (amountIdx !== -1) {
       const rawAmount = cells[amountIdx]?.trim() ?? '';
       const parsedAmount = parseAmountToCents(rawAmount);
+      sourceAmountCents = parsedAmount;
       amountCents = mapping.amountMode === 'card_positive_purchase' ? -parsedAmount : parsedAmount;
     } else {
       throw new Error('Mapeamento de colunas não define nenhuma coluna de valor');
@@ -333,6 +413,7 @@ export function parseCsv(text: string, delimiter: CsvDelimiter, mapping: CsvColu
       description: rawDescription,
       originalDescription: rawDescription,
       amountCents,
+      sourceAmountCents,
       externalId: idIdx !== -1 ? cells[idIdx]?.trim() || undefined : undefined,
     });
   }

@@ -49,20 +49,39 @@ const SEED_CATEGORY_RULES: ReadonlyArray<{ keywords: string[]; categorySlug: str
   },
 ];
 
-const SEED_NATURE_RULES: ReadonlyArray<{ keywords: string[]; nature: FinanceNature }> = [
+const SEED_NATURE_RULES: ReadonlyArray<{ keywords: string[]; nature: FinanceNature; excludeIfContains?: string[] }> = [
   {
+    // "Pagamento recebido" é como a FATURA Nubank identifica o pagamento do
+    // cartão (valor bruto negativo); "pagamento de fatura"/variantes são
+    // como o EXTRATO da conta identifica a mesma operação do outro lado —
+    // nos dois casos, contribuição zero para gastos e renda (seções 5.1.3 e
+    // 5.2.3 do pedido).
     nature: 'invoice_payment',
-    keywords: ['pagamento de fatura', 'pagto fatura', 'pagamento fatura cartao'],
+    keywords: ['pagamento de fatura', 'pagto fatura', 'pagamento fatura cartao', 'pagamento recebido'],
   },
   {
-    // Pix é propositalmente excluído daqui: pode ser tanto uma transferência
-    // (repasse entre Lucas e Matheus) quanto uma despesa (Pix para
-    // estabelecimento) — nenhum dos dois é uma suposição segura só pelo
-    // texto "pix enviado", então a natureza padrão (compra, pelo sinal do
-    // valor) prevalece e a revisão manual decide. TED/DOC entre contas são
-    // movimentações não ambíguas.
+    // Estorno de compra: crédito canônico que reduz o gasto da própria
+    // categoria (seção 5.1.2), nunca vira renda.
+    nature: 'refund',
+    keywords: ['estorno'],
+  },
+  {
+    // Resgate de investimento (ex.: RDB): movimentação interna, nunca renda
+    // (seção 5.2.5).
+    nature: 'transfer',
+    keywords: ['resgate'],
+  },
+  {
+    // Pix é propositalmente excluído daqui (`excludeIfContains: ['pix']`):
+    // pode ser tanto uma transferência (repasse pessoal) quanto uma despesa
+    // (Pix para estabelecimento) — nenhum dos dois é uma suposição segura só
+    // pelo texto "transferência ... pix", então a natureza padrão (compra
+    // pelo sinal do valor, ou crédito não identificado) prevalece e a
+    // revisão manual decide (seção 5.2.7). TED/DOC e "Transferência
+    // Recebida"/"enviada" SEM Pix são movimentações internas não ambíguas.
     nature: 'transfer',
     keywords: ['transferencia', 'ted ', 'doc '],
+    excludeIfContains: ['pix'],
   },
 ];
 
@@ -97,6 +116,7 @@ export function classifyTransaction(
 
   let natureHit: { nature: FinanceNature; keyword: string } | undefined;
   for (const rule of SEED_NATURE_RULES) {
+    if (rule.excludeIfContains?.some((excluded) => normalizedDescription.includes(excluded))) continue;
     const keyword = findMatch(normalizedDescription, rule.keywords);
     if (keyword) {
       natureHit = { nature: rule.nature, keyword: keyword.trim() };

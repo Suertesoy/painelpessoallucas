@@ -43,6 +43,8 @@ export async function ensureFinanceDefaults(
     workspace_id: workspaceId,
     name: s.name,
     kind: s.kind,
+    provider: s.provider,
+    status: s.status,
   }));
   const { data: createdSources, error: sourcesUpsertError } = await supabase
     .from('finance_sources')

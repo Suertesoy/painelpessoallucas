@@ -37,6 +37,8 @@ export const FinanceTransactionSchema = z.object({
   description: z.string().min(1),
   originalDescription: z.string().min(1),
   amountCents: z.number().int(),
+  /** Valor bruto antes da normalização de sinal do perfil — auditoria (seção 5 do pedido). */
+  sourceAmountCents: z.number().int().nullable(),
   categoryId: z.string().uuid(),
   nature: FinanceNatureSchema,
   fitid: z.string().nullable(),

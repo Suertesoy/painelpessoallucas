@@ -16,10 +16,14 @@ const MIGRATIONS_DIR = join(__dirname, '..', '..', 'supabase', 'migrations');
 const MIGRATION_FILE = '20260731120000_finance.sql';
 const sql = readFileSync(join(MIGRATIONS_DIR, MIGRATION_FILE), 'utf8').toLowerCase();
 
+// Migration aditiva seguinte, do mesmo módulo (importação em lote, origem
+// automática, caixa separado por pessoa) — intencionalmente posterior a esta.
+const NEXT_FINANCE_MIGRATION_FILE = '20260731130000_finance_batch_import.sql';
+
 describe('Migration do módulo Finanças — ordem no histórico', () => {
-  it('tem timestamp posterior a todas as migrations existentes', () => {
+  it('tem timestamp posterior a todas as migrations existentes, exceto a migration aditiva seguinte do mesmo módulo', () => {
     const allMigrations = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
-    const others = allMigrations.filter((f) => f !== MIGRATION_FILE);
+    const others = allMigrations.filter((f) => f !== MIGRATION_FILE && f !== NEXT_FINANCE_MIGRATION_FILE);
     expect(others.every((f) => MIGRATION_FILE > f)).toBe(true);
   });
 

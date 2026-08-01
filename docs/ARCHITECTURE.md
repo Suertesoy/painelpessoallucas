@@ -613,13 +613,17 @@ de aplicar a primeira migration sozinha (mesma causa raiz já documentada em
 
 ## Finanças
 
-Primeira versão do módulo Finanças: importação de extratos/faturas (CSV/OFX),
-categorização local determinística, revisão antes da confirmação, e
-consolidação mensal da casa. Reaproveita o padrão de `shopping` como
-template (Commands→Zod→Repository→evento, `ensureDefault*` idempotente por
-workspace), mas com uma diferença deliberada: RLS **e** GRANT já saem juntos
-na mesma migration (`20260731120000_finance.sql`), para não repetir a
-lacuna que exigiu uma segunda migration corretiva em `shopping_lists`.
+Módulo Finanças: importação em lote de extratos/faturas (CSV/OFX) com
+detecção automática de formato, categorização local determinística, revisão
+antes da confirmação, e consolidação mensal da casa. Reaproveita o padrão de
+`shopping` como template (Commands→Zod→Repository→evento, `ensureDefault*`
+idempotente por workspace), mas com uma diferença deliberada: RLS **e**
+GRANT já saem juntos na mesma migration (`20260731120000_finance.sql`), para
+não repetir a lacuna que exigiu uma segunda migration corretiva em
+`shopping_lists`. Uma segunda migration aditiva
+(`20260731130000_finance_batch_import.sql`) acrescenta os campos usados pela
+simplificação do fluxo de importação (origem automática, caixa separado por
+pessoa, auditoria de valor bruto) — ver subseções abaixo.
 
 ### Escopo consciente: consolidado, nunca por pessoa
 
@@ -639,9 +643,17 @@ saldo por banco/conta.
   Matheus para **novos** meses (mudar o padrão nunca reescreve meses já
   criados — a fotografia acontece na criação do registro do mês, em
   `SupabaseFinanceRepository.upsertMonthlyRecord`).
-- `finance_sources` — origens (`kind: 'card' | 'account'`), inicializadas
-  idempotentemente por workspace (Cartão Nubank Lucas, Cartão C6 Lucas,
-  Cartão Nubank Matheus), mais as que o usuário cadastrar.
+- `finance_sources` — origens (`kind: 'card' | 'account'`), mais (desde
+  `20260731130000_finance_batch_import.sql`) `provider` (`'nubank' | 'c6' |
+  'generic'`, chave estável de resolução automática — nunca o nome de
+  exibição) e `status` (`'active' | 'legacy'`). Seed idempotente por
+  workspace: as três origens antigas vinculadas a pessoa (Cartão Nubank
+  Lucas, Cartão C6 Lucas, Cartão Nubank Matheus) continuam sendo criadas
+  como `legacy` — preservadas para dados já existentes, mas nunca usadas
+  pelo fluxo de importação atual, que não pergunta origem ao usuário; as
+  três origens internas automáticas (`Nubank • Cartão`, `Nubank • Conta`,
+  `C6 • Cartão`, esta última só metadado — sem detecção automática
+  implementada) nascem `active`. Ver "Origem automática" abaixo.
 - `finance_categories` — 13 categorias conservadoras (Mercado, Alimentação,
   Casa, Transporte, Saúde, Educação, Assinaturas, Lazer, Compras, Serviços e
   tarifas, Viagens, Outros, Não classificado), seed idempotente por
@@ -652,10 +664,17 @@ saldo por banco/conta.
   na revisão.
 - `finance_imports` / `finance_import_rows` — lote de importação e linhas em
   revisão (`status: pending_review | confirmed | ignored`).
+  `finance_import_rows.source_amount_cents` (desde a migration aditiva)
+  guarda o valor bruto antes da normalização de sinal do perfil, só para
+  auditoria — nunca a linha bruta inteira.
 - `finance_transactions` — só as confirmadas; único ponto que alimenta
-  gráficos e cálculos.
-- `finance_monthly_records` — renda (Matheus/Lucas/outras), disponível e
-  guardado, um registro por (workspace, mês).
+  gráficos e cálculos. Também ganhou `source_amount_cents` pelo mesmo motivo.
+- `finance_monthly_records` — renda (Matheus/Lucas/outras), guardado, e
+  (desde a migration aditiva) disponível separado por pessoa
+  (`lucas_available_cash_cents`/`matheus_available_cash_cents`); a coluna
+  original `available_cash_cents` passou a ser sempre o TOTAL calculado
+  (soma dos dois), nunca editada diretamente — ver "Caixa separado por
+  pessoa" abaixo.
 
 **Integridade entre workspaces via FK composta**: `finance_categories`,
 `finance_sources` e `finance_imports` têm `unique (workspace_id, id)` além
@@ -697,12 +716,21 @@ existe — nenhum componente reimplementa a aritmética).
 - **CSV**: tokenizer manual (aspas, `""` literal, delimitador `,`/`;`/tab
   detectado por amostragem), decimal brasileiro e ISO, datas `dd/mm/aaaa` e
   ISO por regex/fatiamento (nunca `new Date(...)`), colunas separadas de
-  crédito/débito. Reconhecimento automático de colunas por heurística de
-  cabeçalho; quando a confiança é baixa — ou há só uma coluna de valor sem
-  separação débito/crédito — a rota devolve `{ needsMapping: true,
-  detection }` sem persistir nada; o cliente reenvia o arquivo + mapeamento
-  no mesmo POST (o arquivo nunca fica esperando no servidor entre as duas
-  requisições).
+  crédito/débito. `detectCsv` primeiro tenta dois **perfis conhecidos**
+  (assinatura exata de cabeçalho, nunca o nome do arquivo):
+  `nubank_credit_card_statement` (`date,title,amount`, decimal com vírgula,
+  compra positiva invertida via `amountMode: 'card_positive_purchase'`) e
+  `nubank_account_statement` (`Data,Valor,Identificador,Descrição`, decimal
+  com ponto, `Identificador` como `idColumn`/FITID) — os dois sempre
+  `confident: true`, nunca pedem mapeamento manual, mesmo com uma única
+  coluna de valor. Fora desses dois, cai no reconhecimento heurístico
+  genérico por cabeçalho; quando a confiança é baixa — ou há só uma coluna
+  de valor sem separação débito/crédito — a rota devolve `{ needsMapping:
+  true, detection }` sem persistir nada; o cliente reenvia o arquivo +
+  mapeamento no mesmo POST (o arquivo nunca fica esperando no servidor entre
+  as duas requisições). `domain/date-range.ts#computeDateRange` calcula
+  menor/maior data do lote de linhas (nunca depende de o arquivo estar em
+  ordem crescente ou decrescente — faturas reais atravessam dois meses).
 - **OFX**: detecta XML (OFX 2.x, `<?xml`) vs SGML (OFX 1.x). XML via
   `fast-xml-parser` (única dependência nova, pequena, sem dependências,
   processamento 100% local). SGML via uma máquina de estados de pilha
@@ -711,6 +739,11 @@ existe — nenhum componente reimplementa a aritmética).
   nível) — não é regex solto. Datas (`DTPOSTED`/`DTSTART`/`DTEND`) são
   extraídas por fatiamento dos 8 primeiros dígitos (`YYYYMMDD`), nunca via
   `Date`/UTC — um sufixo de fuso (`[-3:BRT]`) nunca desloca o dia bancário.
+  Quando `DTSTART`/`DTEND` estão ausentes, `parseOfx` cai para
+  `computeDateRange` das transações (mesmo helper do CSV). `kind` (cartão x
+  conta) é decidido estruturalmente por `detectOfxAccountKind`
+  (`CREDITCARDMSGSRSV1`/`CCACCTFROM` vs o resto) — não há perfil de banco
+  reconhecido para OFX nesta versão, só a estrutura cartão/conta.
 - **Encoding**: BOM/decodificação UTF-8 estrita primeiro; se falhar, cai
   para Windows-1252 (`domain/csv-parser.ts#decodeTextBuffer`, reaproveitado
   pelos dois formatos).
@@ -720,18 +753,23 @@ existe — nenhum componente reimplementa a aritmética).
 Regras aprendidas (por workspace, exatas ou por trecho normalizado) têm
 prioridade sobre um conjunto pequeno de regras seed conservadoras
 (supermercado→Mercado, ifood/restaurante→Alimentação, farmácia→Saúde,
-netflix/spotify→Assinaturas, tarifa/anuidade/IOF→Serviços e tarifas,
-"pagamento de fatura"→natureza `invoice_payment`, "transferência"/TED/
-DOC→natureza `transfer`). Pix é propositalmente excluído das regras de
-natureza: pode ser tanto repasse entre Lucas e Matheus quanto despesa para
-um estabelecimento — nenhum dos dois é uma suposição segura só pelo texto,
-então a natureza padrão pelo sinal do valor prevalece e a revisão manual
-decide. Sem correspondência segura: `nao-classificado`, sem forçar nada.
+netflix/spotify→Assinaturas, tarifa/anuidade/IOF→Serviços e tarifas;
+"pagamento de fatura"/"pagamento recebido"→natureza `invoice_payment`
+(fatura de cartão identifica o pagamento como "Pagamento recebido", o
+extrato da conta como "Pagamento de fatura" — mesma operação, dois lados);
+"estorno"→natureza `refund`; "resgate" (ex.: RDB)→natureza `transfer`
+(nunca renda); "transferência"/TED/DOC→natureza `transfer`, **exceto**
+quando a descrição também contém "pix" (`excludeIfContains`) — Pix é
+propositalmente excluído dessa regra: pode ser tanto repasse pessoal quanto
+despesa para um estabelecimento, nenhum dos dois é uma suposição segura só
+pelo texto, então a natureza padrão pelo sinal do valor prevalece e a
+revisão manual decide. Sem correspondência segura: `nao-classificado`, sem
+forçar nada.
 Regra nova só é criada quando o usuário confirma explicitamente "Aplicar
 esta classificação a lançamentos semelhantes" na revisão
 (`FinanceImportCommands.createClassificationRuleFromReview`).
 
-### Importação (`/api/finance/import`, servidor)
+### Importação (`/api/finance/import`, servidor) — uma requisição por arquivo, sem escolha de origem
 
 Sessão + workspace via `getSessionContext()` (mesmo helper de
 `/api/audio/transcribe`), limite de 10 MB conferido pelo `Content-Length`
@@ -740,6 +778,11 @@ extensão **e** pela estrutura do conteúdo (nunca só extensão/MIME). SHA-256
 calculado no servidor (`crypto.subtle.digest`) antes de qualquer
 persistência; o buffer do arquivo existe só durante a requisição — nunca é
 gravado em disco, Supabase, evento ou log.
+
+A rota não recebe mais `sourceId` no corpo — a origem é sempre resolvida
+automaticamente pelo perfil detectado (ver "Origem automática" abaixo), o
+que também simplifica a duplicidade: a checagem por hash só acontece depois
+que a origem já foi resolvida (perfil → nome estável → busca/criação).
 
 **Reimportação idempotente sem corrida**: `finance_imports` tem um único
 `unique (workspace_id, source_id, file_sha256)` (não parcial — NULL nunca
@@ -750,6 +793,49 @@ revisão, sem duplicar linhas); hash novo → insere. Duas requisições
 simultâneas colidem no índice único (Postgres `23505`); a perdedora da
 corrida busca de novo e devolve o resultado da vencedora como reaberto —
 nunca um erro para o usuário nem uma segunda importação.
+
+### Origem automática (`domain/source-resolution.ts`, `infrastructure/resolve-import-source.ts`)
+
+O usuário nunca escolhe origem, cartão ou pessoa antes do upload — a tela de
+importação não tem esse campo. `importSourceProfileForCsv`/`ForOfx`
+(funções puras) mapeiam o perfil detectado para um nome ESTÁVEL e
+determinístico: `nubank_credit_card_statement` → `"Nubank • Cartão"`,
+`nubank_account_statement` → `"Nubank • Conta"`; fora dos dois perfis
+Nubank, uma origem genérica por tipo (`"Cartão (formato genérico)"` /
+`"Conta (formato genérico)"`, `provider: 'generic'` — nunca declara um banco
+específico como C6 sem fixture/arquivo real validado). `kind` (cartão x
+conta), quando o CSV não é um perfil conhecido, vem do `amountMode`
+escolhido no mapeamento manual (nunca de uma pergunta "é cartão ou conta?"
+separada) ou da estrutura do OFX.
+
+`resolveImportSource` faz busca-ou-cria por `(workspace_id, name)` — o
+mesmo índice único já usado por `ensureFinanceDefaults` — então nomes
+estáveis bastam para nunca duplicar a origem entre importações,
+inclusive sob corrida concorrente (mesmo tratamento de `23505` do
+`finance_imports`). As origens antigas vinculadas a pessoa (`status:
+'legacy'`) nunca são candidatas: a resolução é só por perfil, nunca por
+nome digitado ou escolhido pelo usuário.
+
+### Upload em lote (`/financas/importar`) e fila de revisão
+
+A tela aceita múltiplos arquivos numa única seleção ou arrasto (`<input
+multiple>` + drop zone), com limite de 10 arquivos/40 MB por lote além do
+limite de 10 MB por arquivo — tudo conferido no cliente antes de processar,
+com contagem e tamanho total visíveis e remoção individual. "Processar N
+arquivo(s)" dispara uma fila de concorrência fixa (2 requisições
+simultâneas) contra a MESMA rota `/api/finance/import` de um arquivo — não
+existe uma rota multipart de lote; cada arquivo tem progresso e resultado
+independentes (`pending → uploading → recognized_card/recognized_account/
+processed/duplicate/needs_mapping/invalid/failed`), e um arquivo com
+erro ou duplicidade nunca cancela os demais. Ao final, um resumo consolida
+contagens (processados, reconhecidos automaticamente, já importados,
+precisam de confirmação, lançamentos encontrados, possíveis duplicidades) e
+oferece "Ir para revisão", que leva à primeira importação pendente com
+`?queue=id1,id2,...&pos=0` — uma coordenação puramente local via query
+string, nunca uma entidade de lote persistida no banco. Em
+`/financas/revisao/[importId]`, confirmar (ou voltar) oferece a próxima
+posição da fila automaticamente (`useReviewQueue`, no próprio componente de
+página) e mostra "Arquivo X de N".
 
 ### Revisão e confirmação
 
@@ -793,6 +879,38 @@ texto visível (nome, valor, percentual) sempre ao lado — nunca dependem só
 de cor/largura/posição — e têm uma tabela textual equivalente
 (`sr-only`) para leitor de tela.
 
+### Caixa separado por pessoa
+
+`finance_monthly_records` guarda `lucasAvailableCashCents` e
+`matheusAvailableCashCents` (formulário mensal,
+`components/finance/finance-monthly-form.tsx`); o disponível TOTAL
+(`availableCashCents`) é sempre calculado como a soma dos dois pelo
+repositório (`SupabaseFinanceRepository.upsertMonthlyRecord`), nunca editado
+diretamente nem derivado das transações importadas. Total financeiro =
+disponível total + guardado (guardado continua conjunto, sem divisão por
+pessoa). Transições seguras: um total pré-existente de antes desta divisão
+(`availableCashCents > 0` com os dois campos por pessoa ainda em zero) é
+sinalizado como "não distribuído" (`MonthOverview.availableCashUnallocated`)
+— a UI nunca zera nem atribui esse total a Lucas ou Matheus por suposição:
+os campos começam vazios com um aviso, e salvar sem tocá-los mantém o total
+intacto no banco (o repositório só toca as colunas de disponível quando o
+chamador informa pelo menos um dos dois valores). Renda continua separada
+por pessoa como antes; nenhuma transação tem proprietário, e não há
+nenhuma análise de "quanto Lucas ou Matheus gastou" em nenhum ponto do
+módulo.
+
+### Privacidade do nome do arquivo
+
+O nome original do arquivo NUNCA é persistido, retornado pela rota ou usado
+em log/evento — extratos de conta Nubank têm um nome como
+`NU_584626107_01JUN2026_30JUN2026.csv`, que carrega um identificador da
+conta. `domain/import-naming.ts#buildSafeImportName` deriva um nome seguro
+só do perfil detectado e do intervalo de datas já calculado do conteúdo
+(nunca do nome enviado pelo usuário): `"Fatura Nubank • 21/05/2026 a
+17/06/2026"`, `"Extrato Nubank • 01/06/2026 a 29/06/2026"`, ou um rótulo
+genérico equivalente fora dos dois perfis Nubank — esse é o valor gravado em
+`finance_imports.file_name`.
+
 ### Segurança e privacidade
 
 Nenhuma chamada à OpenAI ou a qualquer serviço externo em nenhum ponto do
@@ -801,16 +919,24 @@ módulo — parsing e classificação são 100% locais. Eventos de domínio
 `finance.import_confirmed`, `finance.transaction_updated`,
 `finance.classification_rule_created`, `finance.monthly_values_updated`,
 ver `docs/events.md`) carregam só ids/contagens/metadados mínimos — nunca
-descrição de transação, valor, saldo ou o arquivo em si.
+descrição de transação, valor, saldo, nome original do arquivo ou o arquivo
+em si.
 
 ### Limitação conhecida
 
-A migration `20260731120000_finance.sql` foi criada no repositório mas
-**não foi aplicada** no Supabase remoto nesta entrega (nem nenhuma outra
-migration pendente citada acima). Até ser aplicada, `/financas` mostra uma
-orientação distinta de "migration ainda não aplicada" (detectada por uma
-heurística segura sobre a mensagem de erro interna, nunca exibida
-literalmente), sem afetar nenhuma outra página do painel. Transações
+As migrations `20260731120000_finance.sql` e
+`20260731130000_finance_batch_import.sql` foram criadas no repositório mas
+**não foram aplicadas** no Supabase remoto nesta entrega (nem nenhuma outra
+migration pendente citada acima) — ver ordem de aplicação no fim deste
+documento. Até serem aplicadas, `/financas` mostra uma orientação distinta
+de "migration ainda não aplicada" (detectada por uma heurística segura
+sobre a mensagem de erro interna, nunca exibida literalmente), sem afetar
+nenhuma outra página do painel. A detecção automática de formato cobre só
+os dois perfis Nubank validados por fixture (fatura de cartão e extrato de
+conta) — nenhum outro banco (incluindo C6, que só existe como origem
+genérica de compatibilidade futura) tem detecção automática declarada sem
+uma fixture ou arquivo real validado; um CSV desses formatos ainda cai no
+mapeamento manual de colunas. Transações
 confirmadas são imutáveis nesta versão — não há edição/estorno de uma
 transação já confirmada pela interface (só durante a revisão, antes de
 confirmar).
@@ -824,3 +950,10 @@ confirmar).
 ## Deploy
 
 Vercel, projeto `painelpessoallucas`. `vercel.json` fixa `"framework": "nextjs"` — necessário porque o Framework Preset do projeto ficou como "Other" no primeiro deploy (causa histórica do 404 em produção; ver `docs/AUDIT.md`). Build de produção valida TypeScript e não ignora erros.
+
+### Migrations pendentes de aplicação manual no Supabase remoto
+
+Nesta ordem, quando alguém com acesso ao projeto Supabase for aplicá-las:
+
+1. `20260731120000_finance.sql`
+2. `20260731130000_finance_batch_import.sql` (aditiva sobre a anterior — nunca editada)

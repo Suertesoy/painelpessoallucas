@@ -100,10 +100,22 @@ function makeFakeSupabase(initial: Record<string, Row[]> = {}) {
 
 const WS = 'ws-1';
 const SOURCE_ID = '11111111-1111-4111-8111-111111111111';
+// Ids fixos das origens internas automáticas (mesmo nome que `resolveImportSource`
+// procura por perfil) — presentes para que os testes que checam `source_id`
+// específico não dependam da ordem de criação em tempo de execução.
+const GENERIC_ACCOUNT_SOURCE_ID = '22222222-2222-4222-8222-222222222222';
+const GENERIC_CARD_SOURCE_ID = '33333333-3333-4333-8333-333333333333';
+const NUBANK_CARD_SOURCE_ID = '44444444-4444-4444-8444-444444444444';
+const NUBANK_ACCOUNT_SOURCE_ID = '55555555-5555-4555-8555-555555555555';
 
 function baseState(): Record<string, Row[]> {
   return {
-    finance_sources: [{ id: SOURCE_ID, workspace_id: WS, kind: 'card', name: 'Cartão Nubank Lucas' }],
+    finance_sources: [
+      { id: GENERIC_ACCOUNT_SOURCE_ID, workspace_id: WS, kind: 'account', name: 'Conta (formato genérico)', provider: 'generic', status: 'active' },
+      { id: GENERIC_CARD_SOURCE_ID, workspace_id: WS, kind: 'card', name: 'Cartão (formato genérico)', provider: 'generic', status: 'active' },
+      { id: NUBANK_CARD_SOURCE_ID, workspace_id: WS, kind: 'card', name: 'Nubank • Cartão', provider: 'nubank', status: 'active' },
+      { id: NUBANK_ACCOUNT_SOURCE_ID, workspace_id: WS, kind: 'account', name: 'Nubank • Conta', provider: 'nubank', status: 'active' },
+    ],
     finance_categories: DEFAULT_FINANCE_CATEGORIES.map((c) => ({
       id: crypto.randomUUID(),
       workspace_id: WS,
@@ -142,6 +154,20 @@ async function postImport(body: FormData, headers?: Record<string, string>) {
 }
 
 const SIMPLE_CSV = 'Data;Descricao;Valor\n05/07/2026;Supermercado Carrefour;-45,90\n';
+
+// Fixtures sintéticas reproduzindo só as CARACTERÍSTICAS ESTRUTURAIS dos
+// layouts reais do Nubank (seção 3 do pedido) — nenhum dado financeiro real.
+const NUBANK_CREDIT_CARD_CSV = [
+  'date,title,amount',
+  '2026-06-17,Uber Trip,"25,90"',
+  '2026-05-21,Supermercado Extra,"120,00"',
+].join('\n');
+
+const NUBANK_ACCOUNT_CSV = [
+  'Data,Valor,Identificador,Descrição',
+  '01/06/2026,-89.90,11111111-1111-4111-8111-111111111111,Compra no débito - Mercado Bom Preço',
+  '20/06/2026,-150.00,55555555-5555-4555-8555-555555555555,Transferência enviada pelo Pix',
+].join('\n');
 
 const SGML_OFX = `OFXHEADER:100
 DATA:OFXSGML
@@ -187,18 +213,29 @@ describe('POST /api/finance/import — sessão, validação e formato', () => {
     expect((await res.json()).errorCategory).toBe('invalid_request');
   });
 
-  it('rejeita origem ausente ou inválida (não confia em id arbitrário)', async () => {
-    mockSession(makeFakeSupabase(baseState()));
-    const res = await postImport(formDataWith({ file: csvFile(SIMPLE_CSV), sourceId: 'not-a-uuid' }));
-    expect(res.status).toBe(400);
-    expect((await res.json()).errorCategory).toBe('invalid_request');
+  it('nunca exige nem lê um sourceId do cliente — a origem é sempre resolvida automaticamente pelo conteúdo', async () => {
+    // Um `sourceId` arbitrário/inválido enviado pelo cliente é simplesmente
+    // ignorado — a rota nunca confia nele para decidir a origem (seção 6 do
+    // pedido: usuário nunca escolhe origem).
+    const supabase = makeFakeSupabase(baseState());
+    mockSession(supabase);
+    const mapping = { dateColumn: 'Data', descriptionColumn: 'Descricao', amountColumn: 'Valor', amountMode: 'signed' };
+    const res = await postImport(
+      formDataWith({ file: csvFile(SIMPLE_CSV), sourceId: 'not-a-uuid-or-anything-else', mapping: JSON.stringify(mapping) })
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.needsMapping).toBeUndefined();
+    expect(body.sourceName).toBe('Conta (formato genérico)');
   });
 
-  it('rejeita origem que não pertence ao workspace (404, nunca confia no client)', async () => {
-    mockSession(makeFakeSupabase({ ...baseState(), finance_sources: [] }));
-    const res = await postImport(formDataWith({ file: csvFile(SIMPLE_CSV), sourceId: SOURCE_ID }));
-    expect(res.status).toBe(404);
-    expect((await res.json()).errorCategory).toBe('source_not_found');
+  it('workspace sem nenhuma origem pré-existente cria a origem interna automaticamente (nunca 404)', async () => {
+    const supabase = makeFakeSupabase({ ...baseState(), finance_sources: [] });
+    mockSession(supabase);
+    const mapping = { dateColumn: 'Data', descriptionColumn: 'Descricao', amountColumn: 'Valor', amountMode: 'signed' };
+    const res = await postImport(formDataWith({ file: csvFile(SIMPLE_CSV), mapping: JSON.stringify(mapping) }));
+    expect(res.status).toBe(200);
+    expect(supabase.state.finance_sources.some((s) => s.name === 'Conta (formato genérico)')).toBe(true);
   });
 
   it('rejeita formato não reconhecido (extensão inválida)', async () => {
@@ -256,7 +293,6 @@ describe('POST /api/finance/import — mapeamento manual de CSV', () => {
     const body = await res.json();
     expect(res.status).toBe(200);
     expect(body.needsMapping).toBe(true);
-    expect(body.sourceKind).toBe('card');
   });
 
   it('processa com sucesso quando o mapeamento manual é enviado', async () => {
@@ -343,8 +379,10 @@ describe('POST /api/finance/import — OFX', () => {
 
   it('marca possível duplicidade quando o FITID já existe numa transação confirmada da mesma origem', async () => {
     const state = baseState();
+    // SGML_OFX é um extrato de conta (sem CREDITCARDMSGSRSV1) — resolve para
+    // a origem genérica de conta, com o id fixo já presente em baseState().
     state.finance_transactions = [
-      { id: 'tx-existing', workspace_id: WS, source_id: SOURCE_ID, fitid: 'FIT-001', fingerprint: null },
+      { id: 'tx-existing', workspace_id: WS, source_id: GENERIC_ACCOUNT_SOURCE_ID, fitid: 'FIT-001', fingerprint: null },
     ];
     const supabase = makeFakeSupabase(state);
     mockSession(supabase);
@@ -401,7 +439,9 @@ describe('POST /api/finance/import — reimportação idempotente', () => {
     const existing = {
       id: 'winner-import',
       workspace_id: WS,
-      source_id: SOURCE_ID,
+      // Mesma origem que a requisição perdedora vai resolver para este CSV
+      // (mapeamento amountMode 'signed', perfil genérico -> conta genérica).
+      source_id: GENERIC_ACCOUNT_SOURCE_ID,
       file_name: 'extrato.csv',
       file_sha256: sha256,
       format: 'csv',
@@ -452,5 +492,98 @@ describe('POST /api/finance/import — privacidade e dados sensíveis', () => {
     const bodyText = await res.text();
     expect(bodyText).not.toContain(SIMPLE_CSV);
     expect(bodyText).not.toContain('Data;Descricao;Valor');
+  });
+
+  it('o nome original do arquivo (pode carregar identificador de conta) nunca é persistido nem retornado — só um nome seguro derivado do perfil e do intervalo de datas', async () => {
+    const supabase = makeFakeSupabase(baseState());
+    mockSession(supabase);
+    const sensitiveFileName = 'NU_584626107_01JUN2026_30JUN2026.csv';
+    const res = await postImport(formDataWith({ file: csvFile(NUBANK_ACCOUNT_CSV, sensitiveFileName) }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    const bodyText = JSON.stringify(body);
+    expect(bodyText).not.toContain('584626107');
+    expect(bodyText).not.toContain(sensitiveFileName);
+
+    const storedImport = supabase.state.finance_imports.find((i) => i.id === body.importId)!;
+    expect(storedImport.file_name).not.toContain('584626107');
+    expect(storedImport.file_name).not.toContain(sensitiveFileName);
+    expect(storedImport.file_name).toBe('Extrato Nubank • 01/06/2026 a 20/06/2026');
+  });
+});
+
+describe('POST /api/finance/import — origem interna automática (seção 6/4 do pedido)', () => {
+  it('fatura Nubank (date,title,amount) é reconhecida automaticamente e recebe a origem interna "Nubank • Cartão", sem pedir mapeamento', async () => {
+    const supabase = makeFakeSupabase(baseState());
+    mockSession(supabase);
+    const res = await postImport(formDataWith({ file: csvFile(NUBANK_CREDIT_CARD_CSV, 'fatura.csv') }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.needsMapping).toBeUndefined();
+    expect(body.profile).toBe('nubank_credit_card_statement');
+    expect(body.sourceName).toBe('Nubank • Cartão');
+    expect(supabase.state.finance_import_rows[0].source_amount_cents).not.toBeNull();
+  });
+
+  it('extrato Nubank (Data,Valor,Identificador,Descrição) é reconhecido automaticamente e recebe a origem interna "Nubank • Conta", sem pedir mapeamento', async () => {
+    const supabase = makeFakeSupabase(baseState());
+    mockSession(supabase);
+    const res = await postImport(formDataWith({ file: csvFile(NUBANK_ACCOUNT_CSV, 'extrato.csv') }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.needsMapping).toBeUndefined();
+    expect(body.profile).toBe('nubank_account_statement');
+    expect(body.sourceName).toBe('Nubank • Conta');
+  });
+
+  it('nunca resolve uma origem antiga vinculada a pessoa para os perfis automáticos', async () => {
+    const state = {
+      ...baseState(),
+      // Mesmo com uma origem legada presente no workspace, o novo fluxo
+      // nunca a seleciona — a resolução é só por perfil detectado.
+      finance_sources: [
+        ...baseState().finance_sources,
+        { id: 'legacy-1', workspace_id: WS, kind: 'card', name: 'Cartão Nubank Lucas', provider: null, status: 'legacy' },
+      ],
+    };
+    const supabase = makeFakeSupabase(state);
+    mockSession(supabase);
+    const res = await postImport(formDataWith({ file: csvFile(NUBANK_CREDIT_CARD_CSV, 'fatura.csv') }));
+    const body = await res.json();
+    expect(body.sourceName).toBe('Nubank • Cartão');
+    expect(body.sourceName).not.toBe('Cartão Nubank Lucas');
+  });
+
+  it('dois perfis Nubank diferentes no mesmo lote (duas requisições sequenciais) são reconhecidos e recebem origens internas distintas', async () => {
+    const supabase = makeFakeSupabase(baseState());
+    mockSession(supabase);
+
+    const cardRes = await postImport(formDataWith({ file: csvFile(NUBANK_CREDIT_CARD_CSV, 'fatura.csv') }));
+    const cardBody = await cardRes.json();
+    const accountRes = await postImport(formDataWith({ file: csvFile(NUBANK_ACCOUNT_CSV, 'extrato.csv') }));
+    const accountBody = await accountRes.json();
+
+    expect(cardBody.profile).toBe('nubank_credit_card_statement');
+    expect(accountBody.profile).toBe('nubank_account_statement');
+    expect(cardBody.importId).not.toBe(accountBody.importId);
+
+    const cardImport = supabase.state.finance_imports.find((i) => i.id === cardBody.importId)!;
+    const accountImport = supabase.state.finance_imports.find((i) => i.id === accountBody.importId)!;
+    expect(cardImport.source_id).not.toBe(accountImport.source_id);
+  });
+
+  it('um arquivo inválido no lote não impede o processamento dos demais (chamadas independentes)', async () => {
+    const supabase = makeFakeSupabase(baseState());
+    mockSession(supabase);
+
+    const invalidRes = await postImport(formDataWith({ file: new File(['x'], 'nota.txt') }));
+    const validRes = await postImport(formDataWith({ file: csvFile(NUBANK_CREDIT_CARD_CSV, 'fatura.csv') }));
+
+    expect(invalidRes.status).toBe(415);
+    expect(validRes.status).toBe(200);
+    expect((await validRes.json()).profile).toBe('nubank_credit_card_statement');
   });
 });

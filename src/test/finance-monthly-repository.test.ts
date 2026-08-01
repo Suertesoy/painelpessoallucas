@@ -187,10 +187,55 @@ describe('SupabaseFinanceRepository.upsertMonthlyRecord — renda padrão e inde
     const repo = new SupabaseFinanceRepository(supabase as never, WS, NOOP_NOTIFIER as never);
 
     const created = await repo.upsertMonthlyRecord({ month: '2026-08-01', lucasIncomeCents: 100000 });
-    const updated = await repo.upsertMonthlyRecord({ month: '2026-08-01', availableCashCents: 250000 });
+    const updated = await repo.upsertMonthlyRecord({ month: '2026-08-01', lucasAvailableCashCents: 250000, matheusAvailableCashCents: 50000 });
 
     expect(updated.id).toBe(created.id);
     expect(updated.lucasIncomeCents).toBe(100000);
-    expect(updated.availableCashCents).toBe(250000);
+    expect(updated.lucasAvailableCashCents).toBe(250000);
+    expect(updated.matheusAvailableCashCents).toBe(50000);
+    expect(updated.availableCashCents).toBe(300000);
+  });
+
+  it('disponível de Lucas e Matheus salvo separadamente, e o total é sempre a soma dos dois', async () => {
+    const supabase = makeFakeSupabase({
+      finance_settings: [
+        {
+          id: '00000000-0000-4000-8000-000000000001',
+          workspace_id: WS,
+          default_matheus_income_cents: 0,
+          created_at: '2026-07-31T10:00:00.000Z',
+          updated_at: '2026-07-31T10:00:00.000Z',
+        },
+      ],
+    });
+    const repo = new SupabaseFinanceRepository(supabase as never, WS, NOOP_NOTIFIER as never);
+
+    const created = await repo.upsertMonthlyRecord({ month: '2026-08-01', lucasAvailableCashCents: 120000, matheusAvailableCashCents: 80000 });
+    expect(created.lucasAvailableCashCents).toBe(120000);
+    expect(created.matheusAvailableCashCents).toBe(80000);
+    expect(created.availableCashCents).toBe(200000);
+  });
+
+  it('editar só a renda não recalcula/zera o disponível já salvo', async () => {
+    const supabase = makeFakeSupabase({
+      finance_settings: [
+        {
+          id: '00000000-0000-4000-8000-000000000001',
+          workspace_id: WS,
+          default_matheus_income_cents: 0,
+          created_at: '2026-07-31T10:00:00.000Z',
+          updated_at: '2026-07-31T10:00:00.000Z',
+        },
+      ],
+    });
+    const repo = new SupabaseFinanceRepository(supabase as never, WS, NOOP_NOTIFIER as never);
+
+    await repo.upsertMonthlyRecord({ month: '2026-08-01', lucasAvailableCashCents: 120000, matheusAvailableCashCents: 80000 });
+    const updated = await repo.upsertMonthlyRecord({ month: '2026-08-01', lucasIncomeCents: 500000 });
+
+    expect(updated.lucasIncomeCents).toBe(500000);
+    expect(updated.lucasAvailableCashCents).toBe(120000);
+    expect(updated.matheusAvailableCashCents).toBe(80000);
+    expect(updated.availableCashCents).toBe(200000);
   });
 });

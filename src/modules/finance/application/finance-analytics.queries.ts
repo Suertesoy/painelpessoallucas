@@ -22,7 +22,12 @@ export interface MonthOverview {
   totalIncomeCents: number;
   expenseCents: number;
   resultCents: number;
+  /** Total = `lucasAvailableCashCents + matheusAvailableCashCents` (seção 12 do pedido). */
   availableCashCents: number;
+  lucasAvailableCashCents: number;
+  matheusAvailableCashCents: number;
+  /** `true` quando existe um total pré-existente (de antes da divisão por pessoa) ainda não distribuído entre os dois campos. */
+  availableCashUnallocated: boolean;
   savedCashCents: number;
   totalFinancialPositionCents: number;
   categoryBreakdown: CategoryBreakdownEntry[];
@@ -73,6 +78,13 @@ export class FinanceAnalyticsQueries {
     const comparisonWithPreviousMonth = compareWithPreviousMonth(expenseCents, previousExpenseCents);
 
     const availableCashCents = monthlyRecord?.availableCashCents ?? 0;
+    const lucasAvailableCashCents = monthlyRecord?.lucasAvailableCashCents ?? 0;
+    const matheusAvailableCashCents = monthlyRecord?.matheusAvailableCashCents ?? 0;
+    // "Não distribuído": existe um total (de antes da divisão por pessoa,
+    // ou herdado de um mês anterior à migration) mas nenhum dos dois campos
+    // por pessoa foi preenchido ainda — nunca atribuído a Lucas ou Matheus
+    // por suposição (seção 12 do pedido).
+    const availableCashUnallocated = lucasAvailableCashCents === 0 && matheusAvailableCashCents === 0 && availableCashCents > 0;
     const savedCashCents = monthlyRecord?.savedCashCents ?? 0;
 
     return {
@@ -84,6 +96,9 @@ export class FinanceAnalyticsQueries {
       expenseCents,
       resultCents: monthResultCents(income, analyticsTransactions),
       availableCashCents,
+      lucasAvailableCashCents,
+      matheusAvailableCashCents,
+      availableCashUnallocated,
       savedCashCents,
       totalFinancialPositionCents: totalFinancialPositionCents({ availableCashCents, savedCashCents }),
       categoryBreakdown,

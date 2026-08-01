@@ -250,22 +250,43 @@ Compras para a arquitetura completa.
   lista pela UI), quantidade/unidade/categoria estruturadas por item,
   reordenação manual, fila offline de alterações.
 
-## Fase 11 — Finanças (código; migration remota pendente de aplicação — ver abaixo)
-Primeira versão do módulo Finanças: importar extratos/faturas (CSV/OFX),
-categorizar automaticamente de forma local e determinística, revisar antes
-de confirmar, e mostrar uma análise mensal consolidada das finanças da casa
-— sem dividir gasto por Lucas/Matheus, só por categoria. Ver
-`docs/ARCHITECTURE.md` § Finanças para a arquitetura completa.
+## Fase 11 — Finanças (código; migrations remotas pendentes de aplicação — ver abaixo)
+Módulo Finanças: importar extratos/faturas (CSV/OFX) em lote com detecção
+automática de formato, categorizar automaticamente de forma local e
+determinística, revisar antes de confirmar, e mostrar uma análise mensal
+consolidada das finanças da casa — sem dividir gasto por Lucas/Matheus, só
+por categoria. Ver `docs/ARCHITECTURE.md` § Finanças para a arquitetura
+completa.
 - Rota `/financas` na navegação principal (desktop e mobile): seletor de
   mês, cards de renda/gastos/resultado e de disponível/guardado/total
   financeiro (sempre distintos), gráfico de gastos por categoria, comparação
   com o mês anterior, evolução mensal, lista de transações confirmadas com
   filtros, área de não classificados, histórico de importações.
-- Importação de CSV (vírgula/ponto e vírgula/tab, aspas, decimal BR, datas
-  BR/ISO, colunas separadas de débito/crédito, UTF-8/Windows-1252, mapeamento
-  manual quando a confiança automática é baixa) e OFX (XML via
+- **Importação em lote sem escolha de origem** (`/financas/importar`):
+  seleção/arrasto de vários CSV/OFX numa única ação (limite de 10
+  arquivos/40 MB por lote, 10 MB por arquivo, remoção individual antes de
+  processar), processados com concorrência limitada e resultado
+  independente por arquivo — um arquivo inválido ou duplicado nunca bloqueia
+  os demais. O usuário nunca escolhe origem/pessoa/cartão: a origem interna
+  é sempre resolvida automaticamente pelo perfil do conteúdo detectado.
+  Resumo do lote consolidado ao final, com fila de revisão (`Arquivo X de
+  N`, próxima pendente automática) coordenada por query string, sem
+  entidade de lote persistida.
+- **Dois perfis Nubank reconhecidos automaticamente por assinatura de
+  cabeçalho** (fatura de cartão `date,title,amount` e extrato de conta
+  `Data,Valor,Identificador,Descrição`) — nunca pedem mapeamento manual,
+  mesmo com uma única coluna de valor; sinal bruto normalizado para a
+  convenção canônica (compra positiva→saída, "Pagamento recebido"/
+  "Pagamento de fatura"→contribuição zero, estorno→reduz a categoria,
+  "Resgate"→nunca renda, Pix ambíguo→nunca natureza automática só pelo
+  texto). Fora dos dois perfis validados (inclusive C6, que só existe como
+  origem genérica de compatibilidade futura, sem detecção declarada), o
+  formato ainda cai no mapeamento manual de colunas existente — CSV
+  (vírgula/ponto e vírgula/tab, aspas, decimal BR, datas BR/ISO, colunas
+  separadas de débito/crédito, UTF-8/Windows-1252) e OFX (XML via
   `fast-xml-parser` e SGML por um tokenizer estrutural próprio) — arquivo
-  bruto nunca persiste, só as linhas estruturadas resultantes.
+  bruto e nome original do arquivo nunca persistem (nome seguro derivado do
+  perfil + intervalo de datas).
 - Categorização automática local e determinística (regras seed
   conservadoras + regras aprendidas por workspace, criadas só após
   confirmação explícita na revisão) — nunca força uma categoria sem
@@ -278,21 +299,27 @@ de confirmar, e mostrar uma análise mensal consolidada das finanças da casa
   duplo clique/retry nunca duplica.
 - Prevenção de duplicidade em três níveis: mesmo arquivo (SHA-256) na mesma
   origem/workspace nunca cria uma segunda importação confirmada (reabre a
-  pendente, corrida tratada pelo índice único); FITID OFX nunca duplica
-  transação; impressão digital de linha CSV sinaliza possível duplicidade
-  na revisão sem nunca descartar silenciosamente — duas compras legítimas
-  idênticas continuam preserváveis.
+  pendente, corrida tratada pelo índice único); FITID OFX/extrato Nubank
+  nunca duplica transação; impressão digital de linha CSV sinaliza possível
+  duplicidade na revisão sem nunca descartar silenciosamente — duas compras
+  legítimas idênticas continuam preserváveis.
 - Renda (Matheus com valor padrão configurável só para meses novos, Lucas
-  sempre manual e nunca copiado), dinheiro disponível e guardado
-  registrados manualmente por mês; crédito importado nunca vira renda
-  automática.
+  sempre manual e nunca copiado) continua separada por pessoa; **dinheiro
+  disponível agora também separado por pessoa** (Lucas/Matheus, total
+  calculado como a soma dos dois — nunca editado diretamente, nunca
+  atribuído a uma pessoa por suposição quando já existia um total antes
+  desta divisão); dinheiro guardado continua conjunto; crédito importado
+  nunca vira renda automática.
 - Fora do escopo desta fase: Open Finance, PDF, integrações bancárias,
   Pluggy/Belvo, pagamentos/Pix reais, credenciais bancárias, envio de dados
   financeiros à OpenAI, saldo por banco/conta, análise de quanto cada pessoa
   gastou, divisão de despesas, orçamento por categoria, projeção de
-  parcelas, notificações financeiras, investimentos, conversão de moeda.
-- **Pendência real**: a migration `20260731120000_finance.sql` foi criada
-  no repositório mas **não foi aplicada** no Supabase remoto nesta entrega.
-  Até ser aplicada, `/financas` mostra uma orientação segura de "migration
-  ainda não aplicada" — não derruba o restante do painel, e nunca expõe a
-  mensagem interna do Postgres.
+  parcelas, notificações financeiras, investimentos, conversão de moeda,
+  detecção automática de bancos além dos dois perfis Nubank validados.
+- **Pendência real**: as migrations `20260731120000_finance.sql` e
+  `20260731130000_finance_batch_import.sql` (aditiva, origem
+  automática/caixa separado/auditoria de valor bruto) foram criadas no
+  repositório mas **não foram aplicadas** no Supabase remoto nesta entrega.
+  Até serem aplicadas (nesta ordem), `/financas` mostra uma orientação
+  segura de "migration ainda não aplicada" — não derruba o restante do
+  painel, e nunca expõe a mensagem interna do Postgres.
