@@ -77,6 +77,29 @@ listas.
   reagenda em vez de criar outro)
 - `reminder.cancelled`
 
+## Eventos do módulo Finanças
+- `finance.setup_initialized` (emitido só quando `FinanceSetupCommands.
+  ensureDefaults` efetivamente cria categorias, origens ou a configuração
+  pela primeira vez no workspace; chamadas seguintes são idempotentes e não
+  reemitem — payload: contagens criadas, nunca os dados em si)
+- `finance.import_created`
+- `finance.import_confirmed` (emitido só na confirmação real; retentativas
+  idempotentes da mesma importação não reemitem — payload: `importId` e
+  contagem de transações criadas)
+- `finance.transaction_updated` (emitido a cada edição salva na revisão de
+  uma linha de importação — payload: só os nomes dos campos alterados,
+  nunca a descrição/valor em si)
+- `finance.classification_rule_created` (emitido só quando o usuário
+  confirma explicitamente "Aplicar esta classificação a lançamentos
+  semelhantes"; nunca automático)
+- `finance.monthly_values_updated` (renda/disponível/guardado do mês —
+  payload: só o mês, nunca os valores)
+
+Nenhum evento do módulo carrega arquivo bruto, descrição completa de
+transação, valor monetário, saldo ou dado bancário — só ids, contagens e
+metadados mínimos (seção 12 do módulo, ver `docs/ARCHITECTURE.md` §
+Finanças).
+
 ## Persistência (Fase 2)
 Os eventos vivem na tabela `domain_events` do Supabase (append-only, RLS por
 workspace, imutáveis para o cliente). O `LocalStorageEventRepository` permanece

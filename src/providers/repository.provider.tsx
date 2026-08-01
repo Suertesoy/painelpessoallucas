@@ -60,6 +60,13 @@ import { SupabaseShoppingListRepository } from '@/modules/shopping/infrastructur
 import { ShoppingListRepository } from '@/modules/shopping/application/shopping-list.repository';
 import { ShoppingCommands } from '@/modules/shopping/application/shopping.commands';
 import { ShoppingQueries } from '@/modules/shopping/application/shopping.queries';
+import { SupabaseFinanceRepository } from '@/modules/finance/infrastructure/supabase-finance.repository';
+import { FinanceRepository } from '@/modules/finance/application/finance.repository';
+import { FinanceSetupCommands } from '@/modules/finance/application/finance-setup.commands';
+import { FinanceImportCommands } from '@/modules/finance/application/finance-import.commands';
+import { FinanceMonthlyCommands } from '@/modules/finance/application/finance-monthly.commands';
+import { FinanceQueries } from '@/modules/finance/application/finance.queries';
+import { FinanceAnalyticsQueries } from '@/modules/finance/application/finance-analytics.queries';
 import { useAuth } from './auth.provider';
 
 interface RepositoryContextType {
@@ -93,6 +100,12 @@ interface RepositoryContextType {
   shoppingListRepository: ShoppingListRepository;
   shoppingCommands: ShoppingCommands;
   shoppingQueries: ShoppingQueries;
+  financeRepository: FinanceRepository;
+  financeSetupCommands: FinanceSetupCommands;
+  financeImportCommands: FinanceImportCommands;
+  financeMonthlyCommands: FinanceMonthlyCommands;
+  financeQueries: FinanceQueries;
+  financeAnalyticsQueries: FinanceAnalyticsQueries;
   changeNotifier: ChangeNotifier;
 }
 
@@ -132,6 +145,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     const lessonProgressRepo = new SupabaseLessonProgressRepository(supabase, workspaceId, notifier);
     const reminderRepo = new SupabaseReminderRepository(supabase, workspaceId);
     const shoppingListRepo = new SupabaseShoppingListRepository(supabase, workspaceId, notifier);
+    const financeRepo = new SupabaseFinanceRepository(supabase, workspaceId, notifier);
 
     return {
       itemRepository: itemRepo,
@@ -166,6 +180,12 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       shoppingListRepository: shoppingListRepo,
       shoppingCommands: new ShoppingCommands(shoppingListRepo, eventRepo, workspaceId),
       shoppingQueries: new ShoppingQueries(shoppingListRepo, itemRepo),
+      financeRepository: financeRepo,
+      financeSetupCommands: new FinanceSetupCommands(financeRepo, eventRepo, workspaceId),
+      financeImportCommands: new FinanceImportCommands(financeRepo, eventRepo, workspaceId),
+      financeMonthlyCommands: new FinanceMonthlyCommands(financeRepo, eventRepo, workspaceId),
+      financeQueries: new FinanceQueries(financeRepo),
+      financeAnalyticsQueries: new FinanceAnalyticsQueries(financeRepo),
       changeNotifier: notifier,
     };
   }, [status, workspaceId]);
@@ -240,7 +260,12 @@ export function useCommands() {
     plan: context.planCommands,
     learning: context.learningCommands,
     reminder: context.reminderCommands,
-    shopping: context.shoppingCommands
+    shopping: context.shoppingCommands,
+    finance: {
+      setup: context.financeSetupCommands,
+      import: context.financeImportCommands,
+      monthly: context.financeMonthlyCommands,
+    },
   };
 }
 
@@ -256,7 +281,11 @@ export function useQueries() {
     calendarEvent: context.calendarEventQueries,
     learning: context.learningQueries,
     reminder: context.reminderQueries,
-    shopping: context.shoppingQueries
+    shopping: context.shoppingQueries,
+    finance: {
+      queries: context.financeQueries,
+      analytics: context.financeAnalyticsQueries,
+    },
   };
 }
 

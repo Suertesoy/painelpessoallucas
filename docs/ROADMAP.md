@@ -249,3 +249,50 @@ Compras para a arquitetura completa.
 - Fora do escopo desta fase: administração de listas (criar/renomear/excluir
   lista pela UI), quantidade/unidade/categoria estruturadas por item,
   reordenação manual, fila offline de alterações.
+
+## Fase 11 — Finanças (código; migration remota pendente de aplicação — ver abaixo)
+Primeira versão do módulo Finanças: importar extratos/faturas (CSV/OFX),
+categorizar automaticamente de forma local e determinística, revisar antes
+de confirmar, e mostrar uma análise mensal consolidada das finanças da casa
+— sem dividir gasto por Lucas/Matheus, só por categoria. Ver
+`docs/ARCHITECTURE.md` § Finanças para a arquitetura completa.
+- Rota `/financas` na navegação principal (desktop e mobile): seletor de
+  mês, cards de renda/gastos/resultado e de disponível/guardado/total
+  financeiro (sempre distintos), gráfico de gastos por categoria, comparação
+  com o mês anterior, evolução mensal, lista de transações confirmadas com
+  filtros, área de não classificados, histórico de importações.
+- Importação de CSV (vírgula/ponto e vírgula/tab, aspas, decimal BR, datas
+  BR/ISO, colunas separadas de débito/crédito, UTF-8/Windows-1252, mapeamento
+  manual quando a confiança automática é baixa) e OFX (XML via
+  `fast-xml-parser` e SGML por um tokenizer estrutural próprio) — arquivo
+  bruto nunca persiste, só as linhas estruturadas resultantes.
+- Categorização automática local e determinística (regras seed
+  conservadoras + regras aprendidas por workspace, criadas só após
+  confirmação explícita na revisão) — nunca força uma categoria sem
+  correspondência segura.
+- Revisão por linha antes da confirmação (categoria, natureza, descrição,
+  ignorar, ações em lote), com edição em andamento nunca sobrescrita por um
+  refetch reativo.
+- Confirmação transacional e idempotente via RPC Postgres
+  (`confirm_finance_import`, `security invoker`, bloqueio de linha) —
+  duplo clique/retry nunca duplica.
+- Prevenção de duplicidade em três níveis: mesmo arquivo (SHA-256) na mesma
+  origem/workspace nunca cria uma segunda importação confirmada (reabre a
+  pendente, corrida tratada pelo índice único); FITID OFX nunca duplica
+  transação; impressão digital de linha CSV sinaliza possível duplicidade
+  na revisão sem nunca descartar silenciosamente — duas compras legítimas
+  idênticas continuam preserváveis.
+- Renda (Matheus com valor padrão configurável só para meses novos, Lucas
+  sempre manual e nunca copiado), dinheiro disponível e guardado
+  registrados manualmente por mês; crédito importado nunca vira renda
+  automática.
+- Fora do escopo desta fase: Open Finance, PDF, integrações bancárias,
+  Pluggy/Belvo, pagamentos/Pix reais, credenciais bancárias, envio de dados
+  financeiros à OpenAI, saldo por banco/conta, análise de quanto cada pessoa
+  gastou, divisão de despesas, orçamento por categoria, projeção de
+  parcelas, notificações financeiras, investimentos, conversão de moeda.
+- **Pendência real**: a migration `20260731120000_finance.sql` foi criada
+  no repositório mas **não foi aplicada** no Supabase remoto nesta entrega.
+  Até ser aplicada, `/financas` mostra uma orientação segura de "migration
+  ainda não aplicada" — não derruba o restante do painel, e nunca expõe a
+  mensagem interna do Postgres.

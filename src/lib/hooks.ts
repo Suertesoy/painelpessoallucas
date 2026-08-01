@@ -42,6 +42,7 @@ export function useReactiveQuery<T>(
     studySessionRepository,
     lessonProgressRepository,
     shoppingListRepository,
+    financeRepository,
   } = useRepositories();
   const [data, setData] = useState<T | undefined>(initialData);
   const [isLoading, setIsLoading] = useState(true);
@@ -92,6 +93,11 @@ export function useReactiveQuery<T>(
     const unsub6 = studySessionRepository.subscribe(runFetch);
     const unsub7 = lessonProgressRepository.subscribe(runFetch);
     const unsub8 = shoppingListRepository.subscribe(runFetch);
+    // Encadeamento opcional: só um resguardo para mocks de teste antigos que
+    // ainda não incluem financeRepository (o provider real sempre o
+    // fornece) — evita quebrar suítes existentes só por adicionar um novo
+    // repositório à lista de inscrição compartilhada.
+    const unsub9 = financeRepository?.subscribe(runFetch) ?? (() => {});
 
     return () => {
       mounted = false;
@@ -103,6 +109,7 @@ export function useReactiveQuery<T>(
       unsub6();
       unsub7();
       unsub8();
+      unsub9();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

@@ -611,6 +611,210 @@ RLS, produzindo "permission denied for table shopping_lists" mesmo depois
 de aplicar a primeira migration sozinha (mesma causa raiz já documentada em
 `20260722140000_api_role_grants.sql` para as demais tabelas do projeto).
 
+## Finanças
+
+Primeira versão do módulo Finanças: importação de extratos/faturas (CSV/OFX),
+categorização local determinística, revisão antes da confirmação, e
+consolidação mensal da casa. Reaproveita o padrão de `shopping` como
+template (Commands→Zod→Repository→evento, `ensureDefault*` idempotente por
+workspace), mas com uma diferença deliberada: RLS **e** GRANT já saem juntos
+na mesma migration (`20260731120000_finance.sql`), para não repetir a
+lacuna que exigiu uma segunda migration corretiva em `shopping_lists`.
+
+### Escopo consciente: consolidado, nunca por pessoa
+
+Os gastos são separados **só por categoria**, nunca por quem comprou. As
+origens de importação (cartões/contas) existem para identificar o arquivo,
+prevenir duplicidade e interpretar pagamento de fatura — nunca para inferir
+se a compra foi de Lucas ou Matheus (os dois usam os cartões disponíveis).
+Não há divisão de despesas, cálculo de quanto uma pessoa deve à outra, nem
+saldo por banco/conta.
+
+### Modelo de dados
+
+`src/modules/finance/domain/*.schema.ts` (Zod, fonte única de verdade) +
+`supabase/migrations/20260731120000_finance.sql`:
+
+- `finance_settings` — 1 linha por workspace: valor padrão de renda do
+  Matheus para **novos** meses (mudar o padrão nunca reescreve meses já
+  criados — a fotografia acontece na criação do registro do mês, em
+  `SupabaseFinanceRepository.upsertMonthlyRecord`).
+- `finance_sources` — origens (`kind: 'card' | 'account'`), inicializadas
+  idempotentemente por workspace (Cartão Nubank Lucas, Cartão C6 Lucas,
+  Cartão Nubank Matheus), mais as que o usuário cadastrar.
+- `finance_categories` — 13 categorias conservadoras (Mercado, Alimentação,
+  Casa, Transporte, Saúde, Educação, Assinaturas, Lazer, Compras, Serviços e
+  tarifas, Viagens, Outros, Não classificado), seed idempotente por
+  workspace (mesmo motivo de `shopping_lists`/`learning_courses`: tabela por
+  workspace não é alcançável por seed de migration).
+- `finance_classification_rules` — regras aprendidas, exatas ou por trecho
+  normalizado, isoladas por workspace, criadas só após confirmação explícita
+  na revisão.
+- `finance_imports` / `finance_import_rows` — lote de importação e linhas em
+  revisão (`status: pending_review | confirmed | ignored`).
+- `finance_transactions` — só as confirmadas; único ponto que alimenta
+  gráficos e cálculos.
+- `finance_monthly_records` — renda (Matheus/Lucas/outras), disponível e
+  guardado, um registro por (workspace, mês).
+
+**Integridade entre workspaces via FK composta**: `finance_categories`,
+`finance_sources` e `finance_imports` têm `unique (workspace_id, id)` além
+da PK; toda referência cruzada (`finance_import_rows.category_id`,
+`.import_id`, `finance_transactions.source_id` etc.) usa
+`foreign key (workspace_id, <col>) references <tabela> (workspace_id, id)`
+— impossível uma linha referenciar uma entidade de outro workspace, mesmo
+manipulando o payload enviado ao servidor.
+
+**Possível duplicidade sem referência polimórfica**:
+`finance_import_rows` tem duas colunas opcionais —
+`possible_duplicate_transaction_id` (aponta para uma transação já
+confirmada, sinalizado por FITID ou impressão digital repetida) e
+`possible_duplicate_import_row_id` (aponta para outra linha do mesmo lote,
+quando duas linhas do CSV têm a mesma impressão digital) — nunca as duas ao
+mesmo tempo (`check` no banco). Nenhuma das duas bloqueia a confirmação:
+duas compras legítimas idênticas continuam preserváveis, só marcadas para
+conferência na revisão.
+
+### Convenção monetária
+
+Valor **negativo = saída**, **positivo = entrada**, em toda parte —
+inclusive internamente em `finance_transactions.amount_cents`. Faturas de
+cartão que representam compra como número positivo são invertidas na
+importação (`domain/csv-parser.ts`, `amountMode: 'card_positive_purchase'`);
+quando o mapeamento não permite inferir isso com segurança (uma única
+coluna de valor, sem colunas separadas de débito/crédito), a rota de
+importação sempre pede confirmação explícita do usuário antes de processar
+qualquer linha.
+
+Gasto do mês = soma de `purchase`/`fee` (valor absoluto) **menos** a redução
+de `refund` corretamente classificado; `invoice_payment`, `transfer`,
+`unidentified_credit` e `ignored` contribuem zero
+(`domain/money.ts#expenseContributionCents`, único lugar onde essa regra
+existe — nenhum componente reimplementa a aritmética).
+
+### Parsers (`domain/csv-parser.ts`, `domain/ofx-parser.ts`) — puros, sem I/O
+
+- **CSV**: tokenizer manual (aspas, `""` literal, delimitador `,`/`;`/tab
+  detectado por amostragem), decimal brasileiro e ISO, datas `dd/mm/aaaa` e
+  ISO por regex/fatiamento (nunca `new Date(...)`), colunas separadas de
+  crédito/débito. Reconhecimento automático de colunas por heurística de
+  cabeçalho; quando a confiança é baixa — ou há só uma coluna de valor sem
+  separação débito/crédito — a rota devolve `{ needsMapping: true,
+  detection }` sem persistir nada; o cliente reenvia o arquivo + mapeamento
+  no mesmo POST (o arquivo nunca fica esperando no servidor entre as duas
+  requisições).
+- **OFX**: detecta XML (OFX 2.x, `<?xml`) vs SGML (OFX 1.x). XML via
+  `fast-xml-parser` (única dependência nova, pequena, sem dependências,
+  processamento 100% local). SGML via uma máquina de estados de pilha
+  própria (tags-container abrem/fecham explicitamente; tags-folha trazem o
+  valor na mesma linha e fecham implicitamente na tag seguinte do mesmo
+  nível) — não é regex solto. Datas (`DTPOSTED`/`DTSTART`/`DTEND`) são
+  extraídas por fatiamento dos 8 primeiros dígitos (`YYYYMMDD`), nunca via
+  `Date`/UTC — um sufixo de fuso (`[-3:BRT]`) nunca desloca o dia bancário.
+- **Encoding**: BOM/decodificação UTF-8 estrita primeiro; se falhar, cai
+  para Windows-1252 (`domain/csv-parser.ts#decodeTextBuffer`, reaproveitado
+  pelos dois formatos).
+
+### Categorização local (`domain/classification-engine.ts`)
+
+Regras aprendidas (por workspace, exatas ou por trecho normalizado) têm
+prioridade sobre um conjunto pequeno de regras seed conservadoras
+(supermercado→Mercado, ifood/restaurante→Alimentação, farmácia→Saúde,
+netflix/spotify→Assinaturas, tarifa/anuidade/IOF→Serviços e tarifas,
+"pagamento de fatura"→natureza `invoice_payment`, "transferência"/TED/
+DOC→natureza `transfer`). Pix é propositalmente excluído das regras de
+natureza: pode ser tanto repasse entre Lucas e Matheus quanto despesa para
+um estabelecimento — nenhum dos dois é uma suposição segura só pelo texto,
+então a natureza padrão pelo sinal do valor prevalece e a revisão manual
+decide. Sem correspondência segura: `nao-classificado`, sem forçar nada.
+Regra nova só é criada quando o usuário confirma explicitamente "Aplicar
+esta classificação a lançamentos semelhantes" na revisão
+(`FinanceImportCommands.createClassificationRuleFromReview`).
+
+### Importação (`/api/finance/import`, servidor)
+
+Sessão + workspace via `getSessionContext()` (mesmo helper de
+`/api/audio/transcribe`), limite de 10 MB conferido pelo `Content-Length`
+(fail-fast) e pelo tamanho real do buffer lido, formato conferido pela
+extensão **e** pela estrutura do conteúdo (nunca só extensão/MIME). SHA-256
+calculado no servidor (`crypto.subtle.digest`) antes de qualquer
+persistência; o buffer do arquivo existe só durante a requisição — nunca é
+gravado em disco, Supabase, evento ou log.
+
+**Reimportação idempotente sem corrida**: `finance_imports` tem um único
+`unique (workspace_id, source_id, file_sha256)` (não parcial — NULL nunca
+colide consigo mesmo em UNIQUE, então isso já bastaria mesmo sem essa
+coluna ser opcional). A rota busca antes de inserir: hash já confirmado →
+409 sem criar nada; hash já pendente → devolve o import existente (reabre a
+revisão, sem duplicar linhas); hash novo → insere. Duas requisições
+simultâneas colidem no índice único (Postgres `23505`); a perdedora da
+corrida busca de novo e devolve o resultado da vencedora como reaberto —
+nunca um erro para o usuário nem uma segunda importação.
+
+### Revisão e confirmação
+
+Tela de revisão (`/financas/revisao/[importId]`) por linha: categoria,
+natureza, descrição editável (original sempre preservada à parte), ignorar,
+ações em lote (categoria/natureza/ignorar para os selecionados). **Edição
+em andamento nunca é sobrescrita por um refetch reativo**: cada linha
+(`components/finance/finance-review-row.tsx`) mantém rascunho local
+separado do valor persistido, ajustado durante a renderização (padrão
+documentado do React para "resetar estado quando uma prop muda", não em
+`useEffect` — evita a cascata de `setState` num efeito) — só sincroniza com
+o valor vindo da Query quando não há edição/salvamento em andamento. O
+mesmo princípio se aplica ao formulário mensal
+(`components/finance/finance-monthly-form.tsx`).
+
+**Confirmação transacional e idempotente**: `confirm_finance_import(uuid)`
+é uma função Postgres `security invoker` (não `definer` — todas as tabelas
+tocadas já têm RLS via `is_workspace_member` e o chamador é sempre
+`authenticated`), `search_path` fixo, `execute` revogado de `public`/`anon`
+e concedido só a `authenticated` (mesma lição de
+`20260722150000_workspace_function_grants.sql`: funções nascem com EXECUTE
+implícito para PUBLIC). `select ... for update` na linha do import serializa
+confirmações concorrentes — duplo clique ou retry de rede encontram
+`status = 'confirmed'` e recebem o resultado existente sem inserir nada de
+novo. `insert ... on conflict (workspace_id, source_id, fitid) do nothing`
+evita duplicar transação quando um OFX se sobrepõe a uma importação já
+confirmada. Chamada pelo cliente via `supabase.rpc('confirm_finance_import',
+...)` (mesmo padrão de `auth.provider.tsx`), sem uma rota Next.js
+intermediária — a atomicidade já vive inteira na função.
+
+### Análises (`domain/analytics.ts`)
+
+Toda a aritmética do módulo mora aqui — renda total, gastos confirmados,
+resultado do mês, total financeiro, percentual por categoria, comparação
+com o mês anterior. Só transações **confirmadas** entram nos cálculos.
+Textos determinísticos em pt-BR (ex.: "Mercado representou 23% dos gastos
+confirmados deste mês"), sem juízo de valor; ausência de dado suficiente
+produz uma limitação explícita, nunca uma comparação vazia apresentada como
+completa. Gráfico de categoria e evolução mensal são CSS/SVG com rótulo de
+texto visível (nome, valor, percentual) sempre ao lado — nunca dependem só
+de cor/largura/posição — e têm uma tabela textual equivalente
+(`sr-only`) para leitor de tela.
+
+### Segurança e privacidade
+
+Nenhuma chamada à OpenAI ou a qualquer serviço externo em nenhum ponto do
+módulo — parsing e classificação são 100% locais. Eventos de domínio
+(`finance.setup_initialized`, `finance.import_created`,
+`finance.import_confirmed`, `finance.transaction_updated`,
+`finance.classification_rule_created`, `finance.monthly_values_updated`,
+ver `docs/events.md`) carregam só ids/contagens/metadados mínimos — nunca
+descrição de transação, valor, saldo ou o arquivo em si.
+
+### Limitação conhecida
+
+A migration `20260731120000_finance.sql` foi criada no repositório mas
+**não foi aplicada** no Supabase remoto nesta entrega (nem nenhuma outra
+migration pendente citada acima). Até ser aplicada, `/financas` mostra uma
+orientação distinta de "migration ainda não aplicada" (detectada por uma
+heurística segura sobre a mensagem de erro interna, nunca exibida
+literalmente), sem afetar nenhuma outra página do painel. Transações
+confirmadas são imutáveis nesta versão — não há edição/estorno de uma
+transação já confirmada pela interface (só durante a revisão, antes de
+confirmar).
+
 ## Evolução planejada
 
 - **Automações externas**: regras centrais vivem no painel (commands/endpoints); ferramentas externas (n8n etc.) apenas chamam essas portas.
