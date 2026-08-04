@@ -22,6 +22,7 @@ export interface ExecutionPlanRepository {
   saveRecurrenceRules(rules: RecurrenceRule[]): Promise<void>;
   deletePhase(id: string): Promise<void>;
   deleteAction(id: string): Promise<void>;
+  deleteRecurrenceRule(id: string): Promise<void>;
   findPlanById(id: string): Promise<ExecutionPlan | null>;
   findAllPlans(): Promise<ExecutionPlan[]>;
   findPlansByProject(projectId: string): Promise<ExecutionPlan[]>;

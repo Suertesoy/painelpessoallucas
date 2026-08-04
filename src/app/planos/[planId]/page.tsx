@@ -2,11 +2,13 @@
 
 import React, { use, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, CheckCircle, PlayCircle, PauseCircle, PencilLine } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { AlertCircle, CheckCircle, PlayCircle, PauseCircle, PencilLine, RotateCcw } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import type { PlanStatus } from '@/modules/plans/domain/plan.schema';
+import { formatRecurrenceRuleLabel } from '@/modules/plans/domain/recurrence-label';
 
 const STATUS_LABEL: Record<PlanStatus, string> = {
   draft: 'Rascunho',
@@ -18,18 +20,9 @@ const STATUS_LABEL: Record<PlanStatus, string> = {
   archived: 'Arquivado',
 };
 
-const FREQ_LABEL: Record<string, string> = {
-  daily: 'Diária',
-  weekly: 'Semanal',
-  monthly: 'Mensal',
-  once: 'Única',
-  relative_to_plan_start: 'Relativa ao início do plano',
-  relative_to_phase_start: 'Relativa ao início da fase',
-  relative_to_event: 'Relativa a evento',
-};
-
 export default function PlanoDetalhePage({ params }: { params: Promise<{ planId: string }> }) {
   const { planId } = use(params);
+  const router = useRouter();
   const { plan: planQueries, project: projectQueries } = useQueries();
   const { plan: planCmds } = useCommands();
 
@@ -41,6 +34,7 @@ export default function PlanoDetalhePage({ params }: { params: Promise<{ planId:
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingReprocess, setConfirmingReprocess] = useState(false);
 
   const run = async (fn: () => Promise<unknown>) => {
     setActionError(null);
@@ -91,6 +85,26 @@ export default function PlanoDetalhePage({ params }: { params: Promise<{ planId:
     (a) => !a.phaseId || !phases.some((p) => p.id === a.phaseId)
   );
 
+  // Uma rotina é UMA atividade recorrente (atividade + frequência + horário),
+  // nunca duas informações soltas: a regra vinculada aparece dentro do card
+  // da própria ação (recurrenceRuleId), nunca só numa lista separada.
+  const ruleById = new Map(recurrenceRules.map((r) => [r.id, r]));
+  const referencedRuleIds = new Set(
+    actions.filter((a) => a.recurrenceRuleId).map((a) => a.recurrenceRuleId)
+  );
+  const orphanRules = recurrenceRules.filter((r) => !referencedRuleIds.has(r.id));
+
+  const actionMeta = (a: (typeof actions)[number]) => {
+    const rule = a.recurrenceRuleId ? ruleById.get(a.recurrenceRuleId) : undefined;
+    return (
+      <span className="ml-2 text-xs text-gray-400">
+        {a.actionType === 'routine' ? 'rotina' : a.actionType}
+        {a.estimatedMinutes ? ` · ${a.estimatedMinutes}min` : ''}
+        {rule ? ` · ${formatRecurrenceRuleLabel(rule)}` : ''}
+      </span>
+    );
+  };
+
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <Link href="/planos" className="text-sm text-blue-600 hover:underline">← Planos</Link>
@@ -133,6 +147,41 @@ export default function PlanoDetalhePage({ params }: { params: Promise<{ planId:
             >
               <CheckCircle size={16} /> Aprovar plano
             </button>
+            {plan.sourceDocumentId && !confirmingReprocess && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmingReprocess(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                <RotateCcw size={16} /> Reprocessar com IA
+              </button>
+            )}
+            {plan.sourceDocumentId && confirmingReprocess && (
+              <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <span>Isso arquiva este rascunho (não apaga) e gera um novo a partir do documento original. Confirmar?</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    router.push(
+                      `/planos/processar/${plan.sourceDocumentId}?force=true${
+                        plan.startDate ? `&startDate=${plan.startDate}` : ''
+                      }`
+                    )
+                  }
+                  className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+                >
+                  Confirmar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingReprocess(false)}
+                  className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
           </>
         )}
         {plan.status === 'approved' && (
@@ -198,10 +247,7 @@ export default function PlanoDetalhePage({ params }: { params: Promise<{ planId:
                         <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-gray-300" />
                         <div>
                           <span>{a.title}</span>
-                          <span className="ml-2 text-xs text-gray-400">
-                            {a.actionType === 'routine' ? 'rotina' : a.actionType}
-                            {a.estimatedMinutes ? ` · ${a.estimatedMinutes}min` : ''}
-                          </span>
+                          {actionMeta(a)}
                         </div>
                       </li>
                     ))}
@@ -221,36 +267,32 @@ export default function PlanoDetalhePage({ params }: { params: Promise<{ planId:
             {phaselessActions.map((a) => (
               <li key={a.id} className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm">
                 {a.title}
+                {actionMeta(a)}
               </li>
             ))}
           </ul>
         </section>
       )}
 
-      {/* Recorrências */}
-      <section className="mt-6">
-        <h2 className="text-lg font-semibold">Rotinas recorrentes</h2>
-        {recurrenceRules.length === 0 ? (
-          <p className="mt-2 text-sm text-gray-500">Nenhuma recorrência definida.</p>
-        ) : (
+      {/* Recorrências sem ação associada — o caso comum já aparece dentro do
+          card de cada ação (rotina) acima; esta seção só existe para nunca
+          esconder uma regra órfã. */}
+      {orphanRules.length > 0 && (
+        <section className="mt-6">
+          <h2 className="text-lg font-semibold">Outras recorrências</h2>
+          <p className="mt-1 text-xs text-gray-500">Sem ação vinculada nesta leitura.</p>
           <ul className="mt-2 space-y-1.5">
-            {recurrenceRules.map((r) => (
+            {orphanRules.map((r) => (
               <li key={r.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm">
-                <span>
-                  {FREQ_LABEL[r.frequency] ?? r.frequency}
-                  {r.localTime ? ` às ${r.localTime.slice(0, 5)}` : ''}
-                  {r.daysOfWeek && r.daysOfWeek.length > 0
-                    ? ` (${r.daysOfWeek.map((d) => ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][d]).join(', ')})`
-                    : ''}
-                </span>
+                <span>{formatRecurrenceRuleLabel(r)}</span>
                 <span className={`text-xs ${r.isActive ? 'text-green-700' : 'text-gray-400'}`}>
                   {r.isActive ? 'Ativa' : 'Inativa'}
                 </span>
               </li>
             ))}
           </ul>
-        )}
-      </section>
+        </section>
+      )}
     </div>
   );
 }

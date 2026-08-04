@@ -83,6 +83,8 @@ export function buildPrompt(input: StructurePlanInput): {
     'Ações recorrentes devem virar routine com recurrence preenchida; não duplique a mesma rotina em actions e dailyRoutines/weeklyRoutines.',
     'dependencies de cada ação são índices (base 0) de outras ações na própria lista.',
     'phaseIndex é o índice (base 0) da fase correspondente em phases, ou null.',
+    'EXTRAIA TODAS as tarefas executáveis de CADA fase como actions com o phaseIndex correspondente — nunca resuma as tarefas de uma fase apenas na description/milestone/successCriteria da fase. Se o documento lista tarefas específicas para a Semana 2, Semana 3, Semana 4 etc., cada uma dessas tarefas vira uma action própria vinculada ao phaseIndex daquela semana, com o mesmo nível de detalhe usado para a primeira fase — nunca concentre as actions só na primeira fase do plano.',
+    'estimatedMinutes só pode ser preenchido quando o documento define EXPLICITAMENTE a duração daquela tarefa específica (ex.: "30 minutos", "reunião de 1 hora"). NUNCA infira, estime, arredonde ou "chute" uma duração a partir do tamanho aparente da tarefa ou de senso comum. Quando o documento não informa duração individual explícita, estimatedMinutes é null — mesmo que a tarefa pareça grande ou pequena.',
     'confidence entre 0 e 1 refletindo a qualidade/completude do documento.',
   ].join(' ');
 

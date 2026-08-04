@@ -138,6 +138,63 @@ function sixWeekProposal(): PlanProposal {
   };
 }
 
+/** Proposta com AO MENOS uma action detalhada em CADA uma das 6 fases —
+ * reproduz o requisito de que nenhuma semana fique sem tarefas (causa real:
+ * IA/prompt concentrando ações só na primeira fase). estimatedMinutes só é
+ * preenchido na Semana 1 (simulando o único trecho do documento com duração
+ * explícita, ex.: "Estudo de japonês, 30 minutos") — as demais ficam null,
+ * nunca uma duração inventada. */
+function sixWeekProposalAllPhasesActions(): PlanProposal {
+  const phases = Array.from({ length: 6 }, (_, i) => ({
+    name: `Semana ${i + 1}`,
+    description: null,
+    startOffsetDays: i * 7,
+    durationDays: 7,
+    milestone: null,
+    successCriteria: null,
+  }));
+
+  const actions = Array.from({ length: 6 }, (_, i) => ({
+    title: `Tarefa da Semana ${i + 1}`,
+    description: null,
+    phaseIndex: i,
+    actionType: 'task' as const,
+    priority: 'normal' as const,
+    estimatedMinutes: i === 0 ? 30 : null,
+    suggestedDue: null,
+    suggestedSchedule: {
+      dateRule: { type: 'offset_from_phase' as const, days: 0 },
+      localTime: '09:00',
+    },
+    recurrence: null,
+    dependencies: [],
+    waitingOn: null,
+    reasoningSummary: null,
+    needsConfirmation: false,
+  }));
+
+  return {
+    projectSuggestion: null,
+    planName: 'Plano de 6 semanas — todas as fases com ações',
+    objective: null,
+    assumptions: [],
+    confirmedFacts: [],
+    openQuestions: [],
+    decisions: [],
+    phases,
+    actions,
+    milestones: [],
+    risks: [],
+    dependencies: [],
+    waitingItems: [],
+    dailyRoutines: [],
+    weeklyRoutines: [],
+    suggestedReminders: [],
+    confidence: 0.9,
+    warnings: [],
+  };
+}
+
 function mockStructurer(proposal: unknown): PlanStructurer {
   return {
     structure: async (): Promise<StructurePlanResult> => ({
@@ -314,5 +371,108 @@ describe('POST /api/planos/processar', () => {
 
     expect(res.status).toBe(200);
     expect(json.planId).toBeTruthy();
+  });
+
+  it('persiste ao menos uma ação em CADA uma das 6 fases — nenhuma semana fica sem tarefas', async () => {
+    setPlanStructurerFactory(() => mockStructurer(sixWeekProposalAllPhasesActions()));
+    const { POST } = await import('@/app/api/planos/processar/route');
+
+    const res = await POST(jsonRequest({ documentId: DOC_ID, startDate: '2026-08-05' }));
+    expect(res.status).toBe(200);
+
+    const phaseRows = fakeSupabase.tables.plan_phases as Record<string, unknown>[];
+    const actionRows = fakeSupabase.tables.plan_actions as Record<string, unknown>[];
+    expect(phaseRows).toHaveLength(6);
+
+    for (const phase of phaseRows) {
+      const actionsForPhase = actionRows.filter((a) => a.phase_id === phase.id);
+      expect(actionsForPhase.length).toBeGreaterThan(0);
+    }
+
+    // estimatedMinutes nunca é inventado: só a Semana 1 tinha duração
+    // explícita no documento simulado; as demais chegam null e devem
+    // permanecer null na persistência (não a IA nem a rota "chutam" um valor).
+    const week1Phase = phaseRows.find((p) => p.name === 'Semana 1')!;
+    const week1Action = actionRows.find((a) => a.phase_id === week1Phase.id)!;
+    expect(week1Action.estimated_minutes).toBe(30);
+
+    const week2Phase = phaseRows.find((p) => p.name === 'Semana 2')!;
+    const week2Action = actionRows.find((a) => a.phase_id === week2Phase.id)!;
+    expect(week2Action.estimated_minutes).toBeNull();
+  });
+});
+
+describe('POST /api/planos/processar — reprocessamento explícito (force)', () => {
+  it('arquiva o draft antigo e cria um novo — nunca duplica plano visível, nunca perde o documento', async () => {
+    const oldPlanId = 'plan-old';
+    fakeSupabase = createFakeSupabase({
+      source_documents: [sourceDocRow({ processing_status: 'completed' })],
+      execution_plans: [
+        {
+          id: oldPlanId,
+          workspace_id: WORKSPACE_ID,
+          source_document_id: DOC_ID,
+          status: 'draft',
+          deleted_at: null,
+          created_at: '2026-08-01T00:00:00Z',
+        },
+      ],
+    });
+    fakeSupabase.auth.getUser = async () => ({ data: { user: { id: 'user-1' } } });
+    setPlanStructurerFactory(() => mockStructurer(sixWeekProposal()));
+    const { POST } = await import('@/app/api/planos/processar/route');
+
+    const res = await POST(jsonRequest({ documentId: DOC_ID, startDate: '2026-08-05', force: true }));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.planId).not.toBe(oldPlanId);
+
+    const plans = fakeSupabase.tables.execution_plans as Record<string, unknown>[];
+    const old = plans.find((p) => p.id === oldPlanId)!;
+    expect(old.status).toBe('archived');
+    // O source_document nunca é apagado nem perde conteúdo.
+    const docs = fakeSupabase.tables.source_documents as Record<string, unknown>[];
+    expect(docs[0].id).toBe(DOC_ID);
+
+    // Nunca duplica plano visível: só um plano não-arquivado para o documento.
+    const nonArchived = plans.filter((p) => p.status !== 'archived' && p.deleted_at == null);
+    expect(nonArchived).toHaveLength(1);
+    expect(nonArchived[0].id).toBe(json.planId);
+  });
+
+  it('nunca reprocessa automaticamente um plano já aprovado/ativo (409, IA nunca chamada)', async () => {
+    const approvedPlanId = 'plan-approved';
+    fakeSupabase = createFakeSupabase({
+      source_documents: [sourceDocRow({ processing_status: 'completed' })],
+      execution_plans: [
+        {
+          id: approvedPlanId,
+          workspace_id: WORKSPACE_ID,
+          source_document_id: DOC_ID,
+          status: 'active',
+          deleted_at: null,
+          created_at: '2026-08-01T00:00:00Z',
+        },
+      ],
+    });
+    fakeSupabase.auth.getUser = async () => ({ data: { user: { id: 'user-1' } } });
+    let called = false;
+    setPlanStructurerFactory(() => ({
+      structure: async () => {
+        called = true;
+        throw new Error('não deveria chamar a IA para um plano já ativo');
+      },
+    }));
+    const { POST } = await import('@/app/api/planos/processar/route');
+
+    const res = await POST(jsonRequest({ documentId: DOC_ID, force: true }));
+    const json = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(called).toBe(false);
+    expect(json.error).toMatch(/aprovado ou em andamento/);
+
+    const plans = fakeSupabase.tables.execution_plans as Record<string, unknown>[];
+    expect(plans.find((p) => p.id === approvedPlanId)?.status).toBe('active');
   });
 });

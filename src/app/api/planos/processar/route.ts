@@ -19,7 +19,18 @@ import { PlanProposalSchema, type PlanProposal } from '@/modules/plans/domain/pl
 const BodySchema = z.object({
   documentId: z.string().uuid(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /**
+   * Reprocessamento explícito: descarta a resposta idempotente padrão e
+   * chama a IA de novo para o mesmo documento, mesmo já havendo um draft
+   * concluído (ex.: draft legado criado antes de uma correção no prompt).
+   * Nunca duplica plano visível nem perde o source_document — ver bloco
+   * abaixo.
+   */
+  force: z.boolean().optional(),
 });
+
+/** Planos que ainda não têm execução real comprometida — seguros para arquivar num reprocessamento. */
+const REPROCESSABLE_STATUSES = new Set(['draft', 'awaiting_review', 'archived']);
 
 export async function POST(request: Request) {
   const supabase = await getSupabaseServerClient();
@@ -58,7 +69,7 @@ export async function POST(request: Request) {
   // existente; se ainda está em andamento (recente), pede para aguardar em vez
   // de disparar uma segunda chamada de IA em paralelo.
   // ---------------------------------------------------------------------------
-  if (doc.processing_status === 'completed') {
+  if (doc.processing_status === 'completed' && !body.force) {
     const { data: existingPlan } = await supabase
       .from('execution_plans')
       .select('id')
@@ -77,6 +88,48 @@ export async function POST(request: Request) {
         .limit(1)
         .maybeSingle();
       return NextResponse.json({ planId: existingPlan.id, aiRunId: latestRun?.id ?? null });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reprocessamento explícito (force): um documento já processado (ex.: draft
+  // legado criado antes de uma correção no prompt/schema) pode ser reenviado à
+  // IA sem duplicar plano. Planos ainda não comprometidos (draft/
+  // awaiting_review/archived) são arquivados — nunca apagados, nunca perdem o
+  // source_document — para abrir espaço a um novo draft. Um plano já aprovado/
+  // ativo/pausado/concluído nunca é reprocessado automaticamente: teria items
+  // já materializados dependendo dele.
+  // ---------------------------------------------------------------------------
+  if (doc.processing_status === 'completed' && body.force) {
+    const { data: existingPlans, error: existingPlansError } = await supabase
+      .from('execution_plans')
+      .select('id, status')
+      .eq('source_document_id', doc.id)
+      .is('deleted_at', null);
+    if (existingPlansError) {
+      return NextResponse.json(
+        { error: `Falha ao verificar planos existentes: ${existingPlansError.message}` },
+        { status: 500 }
+      );
+    }
+    const blocking = (existingPlans ?? []).filter(
+      (p) => !REPROCESSABLE_STATUSES.has(p.status as string)
+    );
+    if (blocking.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Este documento já tem um plano aprovado ou em andamento. Não é possível reprocessar automaticamente — o plano atual já pode ter tarefas geradas a partir dele.',
+        },
+        { status: 409 }
+      );
+    }
+    const toArchive = (existingPlans ?? []).filter((p) => p.status !== 'archived');
+    for (const p of toArchive) {
+      await supabase
+        .from('execution_plans')
+        .update({ status: 'archived' })
+        .eq('id', p.id as string);
     }
   }
 

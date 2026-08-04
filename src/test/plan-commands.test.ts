@@ -34,6 +34,7 @@ class FakePlanRepository implements ExecutionPlanRepository {
   async saveRecurrenceRules(): Promise<void> {}
   async deletePhase(): Promise<void> {}
   async deleteAction(): Promise<void> {}
+  async deleteRecurrenceRule(): Promise<void> {}
   async findPlanById(id: string): Promise<ExecutionPlan | null> {
     return this.plans.get(id) ?? null;
   }
@@ -127,6 +128,31 @@ describe('PlanCommands — validação Zod na escrita (não só na leitura)', ()
 
     await expect(cmds.saveActions([invalid])).rejects.toThrow();
     expect(repo.actions.size).toBe(0);
+  });
+
+  it('aprovar um plano NUNCA ativa recorrências (materialização só acontece na ativação)', async () => {
+    const repo = new FakePlanRepository();
+    const now = new Date().toISOString();
+    repo.plans.set(PLAN_ID, {
+      id: PLAN_ID,
+      workspaceId: WORKSPACE_ID,
+      name: 'Plano',
+      status: 'draft',
+      timezone: 'America/Sao_Paulo',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const events = new FakeEventRepository();
+    let materialized: string | null = null;
+    const cmds = new PlanCommands(new FakeDocRepository(), repo, events, async (planId) => {
+      materialized = planId;
+    });
+
+    const approved = await cmds.approvePlan(PLAN_ID);
+    expect(approved.status).toBe('approved');
+    expect(materialized).toBeNull();
+    expect(events.events.some((e) => e.type === 'execution_plan.approved')).toBe(true);
+    expect(events.events.some((e) => e.type === 'execution_plan.activated')).toBe(false);
   });
 
   it('ativar um plano aprovado chama a materialização e emite o evento', async () => {

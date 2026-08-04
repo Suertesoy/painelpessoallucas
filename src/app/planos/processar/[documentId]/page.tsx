@@ -18,6 +18,7 @@ export default function ProcessarDocumentoPage({
   const router = useRouter();
   const searchParams = useSearchParams();
   const startDate = searchParams.get('startDate') ?? undefined;
+  const force = searchParams.get('force') === 'true';
 
   const [status, setStatus] = useState<'processing' | 'error'>('processing');
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +45,11 @@ export default function ProcessarDocumentoPage({
         const res = await fetch('/api/planos/processar', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ documentId, ...(startDate ? { startDate } : {}) }),
+          body: JSON.stringify({
+            documentId,
+            ...(startDate ? { startDate } : {}),
+            ...(force ? { force: true } : {}),
+          }),
         });
         const json = await res.json();
 
@@ -77,7 +82,7 @@ export default function ProcessarDocumentoPage({
     return () => {
       cancelled = true;
     };
-  }, [documentId, startDate, router]);
+  }, [documentId, startDate, force, router]);
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center p-8">
@@ -87,9 +92,14 @@ export default function ProcessarDocumentoPage({
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-blue-50">
               <Sparkles className="text-blue-600" size={24} />
             </div>
-            <h1 className="mt-4 text-lg font-semibold">Estruturando o plano com IA…</h1>
+            <h1 className="mt-4 text-lg font-semibold">
+              {force ? 'Reprocessando o plano com IA…' : 'Estruturando o plano com IA…'}
+            </h1>
             <p className="mt-2 text-sm text-gray-500">
-              O documento original já está salvo. A IA está propondo fases, ações e
+              {force
+                ? 'O draft anterior foi arquivado (não perdido) e o documento original está preservado. '
+                : 'O documento original já está salvo. '}
+              A IA está propondo fases, ações e
               rotinas — você revisará tudo antes de qualquer aprovação.
             </p>
             <Loader2 className="mx-auto mt-6 animate-spin text-blue-600" size={24} />

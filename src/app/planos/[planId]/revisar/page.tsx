@@ -22,6 +22,7 @@ import type {
   PlanPhase,
   RecurrenceRule,
 } from '@/modules/plans/domain/plan.schema';
+import { formatRecurrenceRuleLabel } from '@/modules/plans/domain/recurrence-label';
 
 /**
  * Tela de revisão da proposta da IA.
@@ -117,6 +118,7 @@ function ReviewEditor({
   const [actions, setActions] = useState<PlanAction[]>(detail.actions);
   const [rules, setRules] = useState<RecurrenceRule[]>(detail.recurrenceRules);
   const [deletedActionIds, setDeletedActionIds] = useState<string[]>([]);
+  const [deletedRuleIds, setDeletedRuleIds] = useState<string[]>([]);
 
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -130,12 +132,33 @@ function ReviewEditor({
     setActions((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
 
   const removeAction = (id: string) => {
-    setActions((prev) => prev.filter((a) => a.id !== id));
+    setActions((prev) => {
+      const target = prev.find((a) => a.id === id);
+      const next = prev.filter((a) => a.id !== id);
+      // Uma rotina é uma única atividade recorrente: removendo a ação, a
+      // regra de recorrência associada não fica órfã (a menos que outra
+      // ação ainda a use, o que não deveria acontecer no modelo atual).
+      if (target?.recurrenceRuleId) {
+        const stillReferenced = next.some((a) => a.recurrenceRuleId === target.recurrenceRuleId);
+        if (!stillReferenced) {
+          setRules((rs) => rs.filter((r) => r.id !== target.recurrenceRuleId));
+          setDeletedRuleIds((prev2) => [...prev2, target.recurrenceRuleId as string]);
+        }
+      }
+      return next;
+    });
     setDeletedActionIds((prev) => [...prev, id]);
   };
 
   const updateRule = (id: string, patch: Partial<RecurrenceRule>) =>
     setRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+
+  const phaseById = new Map(phases.map((p) => [p.id, p]));
+  const ruleById = new Map(rules.map((r) => [r.id, r]));
+  const referencedRuleIds = new Set(
+    actions.filter((a) => a.recurrenceRuleId).map((a) => a.recurrenceRuleId)
+  );
+  const orphanRules = rules.filter((r) => !referencedRuleIds.has(r.id));
 
   const handleSave = async () => {
     setBusy(true);
@@ -155,7 +178,11 @@ function ReviewEditor({
       for (const id of deletedActionIds) {
         await planCmds.deleteAction(id);
       }
+      for (const id of deletedRuleIds) {
+        await planCmds.deleteRecurrenceRule(id);
+      }
       setDeletedActionIds([]);
+      setDeletedRuleIds([]);
       setFeedback('Alterações salvas.');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar alterações.');
@@ -433,8 +460,11 @@ function ReviewEditor({
                   </button>
                 )}
               </div>
-              <div className="mt-1.5 flex flex-wrap gap-1.5 pl-2 text-xs">
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-2 text-xs">
                 <span className="text-gray-400">{action.actionType === 'routine' ? 'rotina' : action.actionType}</span>
+                <span className="rounded bg-gray-50 px-1.5 py-0.5 text-gray-500">
+                  {action.phaseId ? phaseById.get(action.phaseId)?.name ?? 'Fase removida' : 'Sem fase'}
+                </span>
                 {action.requiresConfirmation && (
                   <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">confirmar</span>
                 )}
@@ -452,26 +482,49 @@ function ReviewEditor({
               {action.description && (
                 <p className="mt-1 pl-2 text-xs text-gray-500">{action.description}</p>
               )}
+              {/* Uma rotina é UMA atividade recorrente: atividade + frequência
+                  + horário juntos no card, nunca o título aqui e a regra numa
+                  lista separada e desconectada. */}
+              {action.recurrenceRuleId && ruleById.get(action.recurrenceRuleId) && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-blue-50/60 px-2.5 py-1.5 pl-2 text-xs text-blue-800">
+                  <span className="font-medium">
+                    {formatRecurrenceRuleLabel(ruleById.get(action.recurrenceRuleId)!)}
+                  </span>
+                  <label className="ml-auto flex items-center gap-1 text-blue-700">
+                    Horário:
+                    <input
+                      type="time"
+                      value={ruleById.get(action.recurrenceRuleId)!.localTime?.slice(0, 5) ?? ''}
+                      onChange={(e) =>
+                        updateRule(action.recurrenceRuleId as string, {
+                          localTime: e.target.value || undefined,
+                        })
+                      }
+                      disabled={readOnly}
+                      className="rounded border border-blue-200 bg-white px-1.5 py-0.5"
+                    />
+                  </label>
+                  <span className="text-blue-600/70">
+                    Será ativada quando o plano for ativado.
+                  </span>
+                </div>
+              )}
             </li>
           ))}
         </ul>
       </section>
 
-      {/* Recorrências */}
-      <section className="mt-4 rounded-xl border border-blue-200 bg-white p-5">
-        <h2 className="font-semibold">Rotinas recorrentes propostas</h2>
-        {rules.length === 0 ? (
-          <p className="mt-2 text-sm text-gray-500">Nenhuma recorrência proposta.</p>
-        ) : (
+      {/* Recorrências sem ação associada nesta revisão — o caso comum já
+          aparece dentro do card de cada ação (rotina) acima. */}
+      {orphanRules.length > 0 && (
+        <section className="mt-4 rounded-xl border border-blue-200 bg-white p-5">
+          <h2 className="font-semibold">Outras recorrências propostas</h2>
+          <p className="mt-1 text-xs text-gray-500">Sem ação vinculada nesta revisão.</p>
           <ul className="mt-3 space-y-2">
-            {rules.map((rule) => (
+            {orphanRules.map((rule) => (
               <li key={rule.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 p-3 text-sm">
-                <span className="capitalize">
-                  {{ daily: 'Diária', weekly: 'Semanal', monthly: 'Mensal', once: 'Única' }[
-                    rule.frequency as 'daily' | 'weekly' | 'monthly' | 'once'
-                  ] ?? rule.frequency}
-                </span>
-                <label className="flex items-center gap-1 text-xs text-gray-500">
+                <span>{formatRecurrenceRuleLabel(rule)}</span>
+                <label className="ml-auto flex items-center gap-1 text-xs text-gray-500">
                   Horário:
                   <input
                     type="time"
@@ -481,19 +534,14 @@ function ReviewEditor({
                     className="rounded border border-gray-200 px-1.5 py-0.5 text-xs"
                   />
                 </label>
-                {rule.daysOfWeek && rule.daysOfWeek.length > 0 && (
-                  <span className="text-xs text-gray-500">
-                    ({rule.daysOfWeek.map((d) => ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][d]).join(', ')})
-                  </span>
-                )}
-                <span className="ml-auto text-xs text-gray-400">
-                  ativada somente após aprovação
+                <span className="text-xs text-gray-400">
+                  Será ativada quando o plano for ativado.
                 </span>
               </li>
             ))}
           </ul>
-        )}
-      </section>
+        </section>
+      )}
 
       {/* Barra de ações */}
       {error && (

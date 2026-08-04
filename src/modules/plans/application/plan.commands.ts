@@ -106,6 +106,10 @@ export class PlanCommands {
     await this.planRepo.deleteAction(id);
   }
 
+  async deleteRecurrenceRule(id: string): Promise<void> {
+    await this.planRepo.deleteRecurrenceRule(id);
+  }
+
   /**
    * Aprovação explícita: única transição que torna o plano definitivo.
    * A OpenAI nunca chama isto — somente o usuário, na tela de revisão.

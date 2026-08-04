@@ -299,6 +299,12 @@ export class SupabaseExecutionPlanRepository implements ExecutionPlanRepository 
     this.notifier.notify();
   }
 
+  async deleteRecurrenceRule(id: string): Promise<void> {
+    const { error } = await this.supabase.from('recurrence_rules').delete().eq('id', id);
+    if (error) throw new Error(`Não foi possível remover a recorrência: ${error.message}`);
+    this.notifier.notify();
+  }
+
   async findPlanById(id: string): Promise<ExecutionPlan | null> {
     const { data, error } = await this.supabase
       .from('execution_plans')

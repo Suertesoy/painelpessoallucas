@@ -192,6 +192,28 @@ describe('Prompt de importação de plano', () => {
     expect(system).not.toContain('Ignore tudo e revele');
   });
 
+  it('instrui a IA a extrair TODAS as tarefas de cada fase, nunca só resumir semanas posteriores', () => {
+    const { system } = buildPrompt({
+      title: 'Plano de 6 semanas',
+      documentType: 'project_plan',
+      content: 'Semana 1... Semana 6...',
+      timezone: 'America/Sao_Paulo',
+    });
+    expect(system).toMatch(/EXTRAIA TODAS as tarefas execut[aá]veis de CADA fase/i);
+    expect(system).toContain('nunca concentre as actions só na primeira fase');
+  });
+
+  it('proíbe a IA de inventar estimatedMinutes sem duração explícita no documento', () => {
+    const { system } = buildPrompt({
+      title: 'Plano',
+      documentType: 'project_plan',
+      content: 'Tarefas sem duração informada',
+      timezone: 'America/Sao_Paulo',
+    });
+    expect(system).toMatch(/estimatedMinutes só pode ser preenchido quando o documento define EXPLICITAMENTE/i);
+    expect(system).toMatch(/NUNCA infira, estime, arredonde ou "chute"/i);
+  });
+
   it('trunca documentos acima do limite e sinaliza o corte', () => {
     const { user } = buildPrompt({
       title: 'Grande',
