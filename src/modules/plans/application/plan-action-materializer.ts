@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { zonedDateTimeToUtc, addDaysToDateStr } from '../domain/recurrence-engine';
+import { resolveActionProjectId } from '../domain/project-assignment';
 
 /**
  * Materializa ações NÃO recorrentes de um plano em `items` (ocorrências
@@ -35,6 +36,8 @@ interface PlanActionRow {
   schedule_rule: { dateRule?: PlanDateRuleRow; time?: string; durationMinutes?: number } | null;
   recurrence_rule_id: string | null;
   waiting_on: string | null;
+  project_assignment: string | null;
+  project_id: string | null;
 }
 
 /** item.type por action_type — só os tipos de ação materializáveis em item. */
@@ -80,13 +83,14 @@ export async function materializeOneOffActions(
 ): Promise<MaterializeActionsResult> {
   const { data: plan, error: planError } = await supabase
     .from('execution_plans')
-    .select('id, start_date, timezone')
+    .select('id, project_id, start_date, timezone')
     .eq('id', planId)
     .maybeSingle();
   if (planError || !plan) {
     throw new Error(`Plano não encontrado para materialização: ${planError?.message ?? planId}`);
   }
 
+  const planProjectId: string | null = plan.project_id ?? null;
   const timezone: string = plan.timezone || 'America/Sao_Paulo';
   const startDate: string =
     plan.start_date ?? new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
@@ -147,6 +151,10 @@ export async function materializeOneOffActions(
       execution_plan_id: action.execution_plan_id,
       plan_phase_id: action.phase_id,
       plan_action_id: action.id,
+      project_id: resolveActionProjectId(
+        { projectAssignment: action.project_assignment, projectId: action.project_id },
+        planProjectId
+      ),
     });
   }
 

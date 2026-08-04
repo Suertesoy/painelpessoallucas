@@ -29,6 +29,10 @@ export const viewport: Viewport = {
   themeColor: '#2563eb',
   width: 'device-width',
   initialScale: 1,
+  // Necessário para que env(safe-area-inset-*) resolva para valores reais em
+  // vez de 0 — usado pela barra inferior fixa da revisão de planos para não
+  // ficar atrás do indicador de home/notch em dispositivos móveis.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({

@@ -9,6 +9,7 @@ import { useCommands, useQueries } from '@/providers/repository.provider';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import type { PlanStatus } from '@/modules/plans/domain/plan.schema';
 import { formatRecurrenceRuleLabel } from '@/modules/plans/domain/recurrence-label';
+import { describeActionProjectAssignment } from '@/modules/plans/domain/project-assignment';
 
 const STATUS_LABEL: Record<PlanStatus, string> = {
   draft: 'Rascunho',
@@ -94,13 +95,17 @@ export default function PlanoDetalhePage({ params }: { params: Promise<{ planId:
   );
   const orphanRules = recurrenceRules.filter((r) => !referencedRuleIds.has(r.id));
 
+  const projectById = new Map((projects ?? []).map((p) => [p.id, p]));
+
   const actionMeta = (a: (typeof actions)[number]) => {
     const rule = a.recurrenceRuleId ? ruleById.get(a.recurrenceRuleId) : undefined;
+    const projectLabel = describeActionProjectAssignment(a, projectName ?? null, (id) => projectById.get(id)?.name);
     return (
       <span className="ml-2 text-xs text-gray-400">
         {a.actionType === 'routine' ? 'rotina' : a.actionType}
         {a.estimatedMinutes ? ` · ${a.estimatedMinutes}min` : ''}
         {rule ? ` · ${formatRecurrenceRuleLabel(rule)}` : ''}
+        {` · ${projectLabel.text}`}
       </span>
     );
   };

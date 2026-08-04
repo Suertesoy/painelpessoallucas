@@ -46,6 +46,7 @@ const detail: PlanDetail = {
       position: 0,
       createdAt: now,
       updatedAt: now,
+      projectAssignment: 'inherit',
     },
   ],
   recurrenceRules: [
@@ -67,6 +68,7 @@ const detail: PlanDetail = {
 
 const getPlanDetail = vi.fn();
 const getPlanProposal = vi.fn();
+const listProjects = vi.fn().mockResolvedValue([]);
 const fakeRepo = { subscribe: () => () => {} };
 
 vi.mock('next/navigation', () => ({
@@ -87,6 +89,7 @@ vi.mock('@/providers/repository.provider', () => ({
   }),
   useQueries: () => ({
     plan: { getPlanDetail, getPlanProposal },
+    project: { listProjects },
   }),
   useCommands: () => ({
     plan: {

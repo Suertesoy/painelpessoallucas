@@ -14,6 +14,7 @@ function basePlan(overrides: Record<string, unknown> = {}) {
     id: PLAN_ID,
     start_date: '2026-08-05', // quarta-feira
     timezone: TZ,
+    project_id: null,
     ...overrides,
   };
 }
@@ -40,6 +41,8 @@ function action(overrides: Record<string, unknown>) {
     schedule_rule: null,
     recurrence_rule_id: null,
     waiting_on: null,
+    project_assignment: 'inherit',
+    project_id: null,
     ...overrides,
   };
 }
@@ -169,5 +172,85 @@ describe('materializeOneOffActions', () => {
     expect(second.created).toBe(0);
 
     expect(supabase.tables.items).toHaveLength(1);
+  });
+
+  describe('projeto por ação (inherit | specific | none)', () => {
+    const PLAN_PROJECT_ID = 'project-almeida';
+    const OTHER_PROJECT_ID = 'project-carreira';
+
+    it('inherit: item.project_id recebe o projeto do plano', async () => {
+      const supabase = createFakeSupabase({
+        execution_plans: [basePlan({ project_id: PLAN_PROJECT_ID })],
+        plan_phases: [],
+        plan_actions: [
+          action({
+            id: 'a-inherit',
+            due_rule: { type: 'offset_from_start', days: 1 },
+            project_assignment: 'inherit',
+          }),
+        ],
+      });
+
+      await materializeOneOffActions(supabase as never, PLAN_ID);
+      const items = supabase.tables.items as Record<string, unknown>[];
+      expect(items[0].project_id).toBe(PLAN_PROJECT_ID);
+    });
+
+    it('specific: item.project_id recebe o projeto da própria ação, nunca o do plano', async () => {
+      const supabase = createFakeSupabase({
+        execution_plans: [basePlan({ project_id: PLAN_PROJECT_ID })],
+        plan_phases: [],
+        plan_actions: [
+          action({
+            id: 'a-specific',
+            title: 'Aplicação para vagas',
+            due_rule: { type: 'offset_from_start', days: 1 },
+            project_assignment: 'specific',
+            project_id: OTHER_PROJECT_ID,
+          }),
+        ],
+      });
+
+      await materializeOneOffActions(supabase as never, PLAN_ID);
+      const items = supabase.tables.items as Record<string, unknown>[];
+      expect(items[0].project_id).toBe(OTHER_PROJECT_ID);
+    });
+
+    it('none: item.project_id é null mesmo quando o plano tem projeto', async () => {
+      const supabase = createFakeSupabase({
+        execution_plans: [basePlan({ project_id: PLAN_PROJECT_ID })],
+        plan_phases: [],
+        plan_actions: [
+          action({
+            id: 'a-none',
+            title: 'Estudo de japonês',
+            due_rule: { type: 'offset_from_start', days: 1 },
+            project_assignment: 'none',
+          }),
+        ],
+      });
+
+      await materializeOneOffActions(supabase as never, PLAN_ID);
+      const items = supabase.tables.items as Record<string, unknown>[];
+      expect(items[0].project_id).toBeNull();
+    });
+
+    it('linha legada sem project_assignment (anterior a este campo) se comporta como inherit', async () => {
+      const supabase = createFakeSupabase({
+        execution_plans: [basePlan({ project_id: PLAN_PROJECT_ID })],
+        plan_phases: [],
+        plan_actions: [
+          action({
+            id: 'a-legacy',
+            due_rule: { type: 'offset_from_start', days: 1 },
+            project_assignment: undefined,
+          }),
+        ],
+      });
+
+      await materializeOneOffActions(supabase as never, PLAN_ID);
+      const items = supabase.tables.items as Record<string, unknown>[];
+      expect(items[0].project_id).toBe(PLAN_PROJECT_ID);
+    });
   });
 });

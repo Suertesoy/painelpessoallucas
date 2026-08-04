@@ -186,26 +186,51 @@ export const ScheduleRuleSchema = z
   })
   .optional();
 
-export const PlanActionSchema = z.object({
-  id: z.string().uuid(),
-  workspaceId: z.string().uuid(),
-  executionPlanId: z.string().uuid(),
-  phaseId: z.string().uuid().optional(),
-  title: z.string().min(1),
-  description: z.string().optional(),
-  actionType: ActionTypeSchema,
-  priority: z.enum(['low', 'normal', 'high', 'critical']),
-  estimatedMinutes: z.number().int().positive().optional(),
-  dueRule: DueRuleSchema,
-  scheduleRule: ScheduleRuleSchema,
-  recurrenceRuleId: z.string().uuid().optional(),
-  dependencyActionIds: z.array(z.string().uuid()).default([]),
-  waitingOn: z.string().optional(),
-  requiresConfirmation: z.boolean().default(false),
-  position: z.number().int().min(0),
-  createdAt: isoDateTimeSchema,
-  updatedAt: isoDateTimeSchema,
-});
+/**
+ * Projeto da ação — explícito para nunca confundir "herda o projeto do
+ * plano" com "não tem projeto" (ver modules/plans/domain/project-assignment.ts
+ * para a resolução em items na materialização).
+ */
+export const PlanActionProjectAssignmentSchema = z.enum(['inherit', 'specific', 'none']);
+export type PlanActionProjectAssignment = z.infer<typeof PlanActionProjectAssignmentSchema>;
+
+export const PlanActionSchema = z
+  .object({
+    id: z.string().uuid(),
+    workspaceId: z.string().uuid(),
+    executionPlanId: z.string().uuid(),
+    phaseId: z.string().uuid().optional(),
+    title: z.string().min(1),
+    description: z.string().optional(),
+    actionType: ActionTypeSchema,
+    priority: z.enum(['low', 'normal', 'high', 'critical']),
+    estimatedMinutes: z.number().int().positive().optional(),
+    dueRule: DueRuleSchema,
+    scheduleRule: ScheduleRuleSchema,
+    recurrenceRuleId: z.string().uuid().optional(),
+    dependencyActionIds: z.array(z.string().uuid()).default([]),
+    waitingOn: z.string().optional(),
+    requiresConfirmation: z.boolean().default(false),
+    position: z.number().int().min(0),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
+    // Projeto da ação (default 'inherit' preserva o comportamento de linhas
+    // legadas, gravadas antes deste campo existir).
+    projectAssignment: PlanActionProjectAssignmentSchema.default('inherit'),
+    projectId: z.string().uuid().optional(),
+    /** Nome de projeto sugerido pela IA sem correspondência entre os
+     * projetos existentes — nunca cria projeto silenciosamente; fica aqui só
+     * para a revisão humana confirmar ou descartar a sugestão. */
+    suggestedProjectName: z.string().optional(),
+  })
+  .refine((a) => (a.projectAssignment === 'specific' ? !!a.projectId : true), {
+    message: 'projectId é obrigatório quando projectAssignment é "specific"',
+    path: ['projectId'],
+  })
+  .refine((a) => (a.projectAssignment !== 'specific' ? a.projectId === undefined : true), {
+    message: 'projectId só pode ser definido quando projectAssignment é "specific"',
+    path: ['projectId'],
+  });
 
 export type PlanAction = z.infer<typeof PlanActionSchema>;
 export type ActionType = z.infer<typeof ActionTypeSchema>;

@@ -98,6 +98,9 @@ function actionRowToDomain(row: Row): PlanAction {
     position: row.position,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    projectAssignment: row.project_assignment ?? 'inherit',
+    projectId: row.project_id ?? undefined,
+    suggestedProjectName: row.suggested_project_name ?? undefined,
   });
 }
 
@@ -253,6 +256,9 @@ export class SupabaseExecutionPlanRepository implements ExecutionPlanRepository 
         requires_confirmation: a.requiresConfirmation,
         position: a.position,
         created_at: a.createdAt,
+        project_assignment: a.projectAssignment,
+        project_id: a.projectId ?? null,
+        suggested_project_name: a.suggestedProjectName ?? null,
       })),
       { onConflict: 'id' }
     );

@@ -147,7 +147,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // Nome do projeto (contexto mínimo para o modelo).
+  // Nome do projeto principal (contexto mínimo para o modelo).
   let projectName: string | undefined;
   if (doc.project_id) {
     const { data: project } = await supabase
@@ -157,6 +157,26 @@ export async function POST(request: Request) {
       .maybeSingle();
     projectName = project?.name;
   }
+
+  // Projetos ativos do workspace: contexto mínimo para a IA sugerir
+  // projectAssignment "specific" só entre projetos que realmente existem —
+  // nunca envia dados internos além do nome.
+  const { data: activeProjectRows } = await supabase
+    .from('projects')
+    .select('id, name')
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'active')
+    .is('deleted_at', null);
+  const activeProjects = (activeProjectRows ?? []) as { id: string; name: string }[];
+
+  /** Resolve um nome de projeto sugerido pela IA para um projeto existente
+   * (comparação exata, sem espaços nas pontas, sem diferenciar maiúsculas —
+   * nunca fuzzy matching inseguro). */
+  const findProjectByName = (name: string | null | undefined): { id: string; name: string } | null => {
+    if (!name) return null;
+    const normalized = name.trim().toLowerCase();
+    return activeProjects.find((p) => p.name.trim().toLowerCase() === normalized) ?? null;
+  };
 
   // Registra a execução como queued.
   const { data: aiRun, error: aiRunError } = await supabase
@@ -200,6 +220,7 @@ export async function POST(request: Request) {
       documentType: doc.document_type,
       content: doc.original_content,
       projectName,
+      existingProjectNames: activeProjects.map((p) => p.name),
       startDate: body.startDate,
       timezone: 'America/Sao_Paulo',
     });
@@ -328,6 +349,25 @@ export async function POST(request: Request) {
       if (error) throw new Error(`recorrências: ${error.message}`);
     }
 
+    // Projeto de cada ação: a IA só pode apontar "specific" para um projeto
+    // JÁ EXISTENTE (findProjectByName, comparação exata — nunca fuzzy). Uma
+    // sugestão sem correspondência nunca cria projeto silenciosamente: cai
+    // para "none" e preserva o nome sugerido em suggested_project_name para
+    // confirmação humana na revisão.
+    function resolveProjectAssignment(
+      assignment: 'inherit' | 'specific' | 'none',
+      projectName: string | null
+    ): { project_assignment: 'inherit' | 'specific' | 'none'; project_id: string | null; suggested_project_name: string | null } {
+      if (assignment !== 'specific') {
+        return { project_assignment: assignment, project_id: null, suggested_project_name: null };
+      }
+      const match = findProjectByName(projectName);
+      if (match) {
+        return { project_assignment: 'specific', project_id: match.id, suggested_project_name: null };
+      }
+      return { project_assignment: 'none', project_id: null, suggested_project_name: projectName };
+    }
+
     // Ações (dependências por índice → UUIDs pré-gerados).
     // due_rule/schedule_rule já vêm validados pelo PlanProposalSchema na
     // fronteira da IA (parsePlanProposal) — mesmo formato de PlanDateRuleSchema
@@ -342,6 +382,7 @@ export async function POST(request: Request) {
               ...(schedule.localTime ? { time: schedule.localTime } : {}),
             }
           : null;
+      const projectResolution = resolveProjectAssignment(action.projectAssignment, action.projectName);
       return {
         id: actionIds[i],
         workspace_id: workspaceId,
@@ -364,10 +405,15 @@ export async function POST(request: Request) {
         waiting_on: action.waitingOn,
         requires_confirmation: action.needsConfirmation,
         position: i,
+        project_assignment: projectResolution.project_assignment,
+        project_id: projectResolution.project_id,
+        suggested_project_name: projectResolution.suggested_project_name,
       };
     });
 
-    // Rotinas viram ações do tipo routine vinculadas às regras.
+    // Rotinas viram ações do tipo routine vinculadas às regras. dailyRoutines/
+    // weeklyRoutines (caminho legado, sem campo de projeto próprio) sempre
+    // herdam o projeto principal do plano.
     const routineRows = routineEntries.map(({ routine }, i) => ({
       id: crypto.randomUUID(),
       workspace_id: workspaceId,
@@ -385,6 +431,9 @@ export async function POST(request: Request) {
       waiting_on: null,
       requires_confirmation: false,
       position: actionRows.length + i,
+      project_assignment: 'inherit' as const,
+      project_id: null,
+      suggested_project_name: null,
     }));
 
     const allActionRows = [...actionRows, ...routineRows];

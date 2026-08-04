@@ -101,6 +101,7 @@ function baseAction(overrides: Partial<PlanAction> = {}): PlanAction {
     position: 0,
     createdAt: now,
     updatedAt: now,
+    projectAssignment: 'inherit',
     ...overrides,
   };
 }

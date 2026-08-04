@@ -33,6 +33,11 @@ class SelectBuilder {
   order() {
     return this;
   }
+  /** Não modela a combinação real de condições — só evita que chamadas reais
+   * (ex.: `.or('next_occurrence_at.is.null,...')`) quebrem em teste. */
+  or() {
+    return this;
+  }
   private resolved(): Row[] {
     return this.rows.filter((r) => this.filters.every((f) => matches(r, f.col, f.op, f.val)));
   }
@@ -91,10 +96,16 @@ export function createFakeSupabase(initial: Record<string, Row[]> = {}) {
         },
         upsert(payload: Row | Row[], opts?: { onConflict?: string; ignoreDuplicates?: boolean }) {
           const arr = Array.isArray(payload) ? payload : [payload];
-          const conflictCol = opts?.onConflict;
+          // onConflict pode ser uma chave composta ("recurrence_rule_id,occurrence_at")
+          // — precisa comparar TODAS as colunas, senão linhas de entidades
+          // diferentes (ex.: duas recurrence_rules distintas) colidem
+          // erradamente entre si por uma coluna indefinida em comum.
+          const conflictCols = opts?.onConflict?.split(',').map((c) => c.trim());
           const rows = rowsOf(table);
           for (const r of arr) {
-            const clash = conflictCol ? rows.find((x) => x[conflictCol] === r[conflictCol]) : undefined;
+            const clash = conflictCols
+              ? rows.find((x) => conflictCols.every((c) => x[c] === r[c]))
+              : undefined;
             if (clash) {
               if (!opts?.ignoreDuplicates) Object.assign(clash, r);
               continue;

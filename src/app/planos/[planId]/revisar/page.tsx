@@ -1,6 +1,6 @@
 'use client';
 
-import React, { use, useState } from 'react';
+import React, { use, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { PlanDetail } from '@/modules/plans/domain/plan.schema';
@@ -23,6 +23,8 @@ import type {
   RecurrenceRule,
 } from '@/modules/plans/domain/plan.schema';
 import { formatRecurrenceRuleLabel } from '@/modules/plans/domain/recurrence-label';
+import { describeActionProjectAssignment } from '@/modules/plans/domain/project-assignment';
+import type { Project } from '@/modules/projects/domain/project.schema';
 
 /**
  * Tela de revisão da proposta da IA.
@@ -44,7 +46,7 @@ function Badge({ children, tone }: { children: React.ReactNode; tone: string }) 
 
 export default function RevisarPlanoPage({ params }: { params: Promise<{ planId: string }> }) {
   const { planId } = use(params);
-  const { plan: planQueries } = useQueries();
+  const { plan: planQueries, project: projectQueries } = useQueries();
 
   const {
     data: detail,
@@ -60,6 +62,7 @@ export default function RevisarPlanoPage({ params }: { params: Promise<{ planId:
     () => planQueries.getPlanProposal(planId),
     [planId]
   );
+  const { data: projects } = useReactiveQuery(() => projectQueries.listProjects(), []);
   const error = detailError ?? proposalError;
 
   if (isLoading) {
@@ -92,6 +95,7 @@ export default function RevisarPlanoPage({ params }: { params: Promise<{ planId:
       planId={planId}
       detail={detail}
       proposal={proposal ?? null}
+      projects={projects ?? []}
     />
   );
 }
@@ -100,10 +104,12 @@ function ReviewEditor({
   planId,
   detail,
   proposal,
+  projects,
 }: {
   planId: string;
   detail: PlanDetail;
   proposal: PlanProposal | null;
+  projects: Project[];
 }) {
   const router = useRouter();
   const { plan: planCmds } = useCommands();
@@ -124,6 +130,29 @@ function ReviewEditor({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const readOnly = plan.status !== 'draft' && plan.status !== 'awaiting_review';
+
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+  const planProjectName = plan.projectId ? projectById.get(plan.projectId)?.name ?? null : null;
+
+  // A barra inferior fixa não pode esconder o final da revisão: mede a
+  // própria altura renderizada (ela pode quebrar em duas linhas no mobile) e
+  // usa esse valor como padding do conteúdo — nunca um valor fixo frágil que
+  // desalinha em telas menores ou com a barra do sistema (safe-area).
+  const barRef = useRef<HTMLDivElement>(null);
+  const [barHeight, setBarHeight] = useState(0);
+  useEffect(() => {
+    if (readOnly || !barRef.current || typeof ResizeObserver === 'undefined') {
+      setBarHeight(0);
+      return;
+    }
+    const el = barRef.current;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setBarHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [readOnly]);
 
   const updatePhase = (id: string, patch: Partial<PlanPhase>) =>
     setPhases((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -205,7 +234,10 @@ function ReviewEditor({
   };
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto pb-32">
+    <div
+      className="p-4 md:p-8 max-w-5xl mx-auto pb-8"
+      style={barHeight > 0 ? { paddingBottom: barHeight + 24 } : undefined}
+    >
       <Link href={`/planos/${planId}`} className="text-sm text-blue-600 hover:underline">
         ← Plano
       </Link>
@@ -410,7 +442,26 @@ function ReviewEditor({
           Ações marcadas com “confirmar” precisam da sua atenção antes de virarem tarefas.
         </p>
         <ul className="mt-3 space-y-2">
-          {actions.map((action) => (
+          {actions.map((action) => {
+            const projectLabel = describeActionProjectAssignment(
+              action,
+              planProjectName,
+              (id) => projectById.get(id)?.name
+            );
+            const projectSelectValue =
+              action.projectAssignment === 'specific' && !action.projectId
+                ? 'unresolved'
+                : action.projectAssignment === 'specific' && action.projectId
+                  ? `specific:${action.projectId}`
+                  : action.projectAssignment ?? 'inherit';
+            const projectBadgeClass =
+              projectLabel.tone === 'alert'
+                ? 'rounded bg-red-100 px-1.5 py-0.5 text-red-700'
+                : projectLabel.tone === 'highlight'
+                  ? 'rounded bg-amber-100 px-1.5 py-0.5 text-amber-800'
+                  : 'rounded bg-gray-50 px-1.5 py-0.5 text-gray-500';
+
+            return (
             <li key={action.id} className="rounded-lg border border-gray-200 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <input
@@ -465,6 +516,48 @@ function ReviewEditor({
                 <span className="rounded bg-gray-50 px-1.5 py-0.5 text-gray-500">
                   {action.phaseId ? phaseById.get(action.phaseId)?.name ?? 'Fase removida' : 'Sem fase'}
                 </span>
+                {/* Projeto da ação: sempre visível (herdado, específico ou sem
+                    projeto), editável sem precisar de um formulário grande —
+                    o mesmo padrão de select compacto já usado para prioridade. */}
+                <span className={projectBadgeClass}>
+                  {projectLabel.text}
+                  {projectLabel.tone !== 'muted' ? ' · confirmar' : ''}
+                </span>
+                <select
+                  aria-label={`Projeto de "${action.title}"`}
+                  value={projectSelectValue}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === 'inherit') {
+                      updateAction(action.id, { projectAssignment: 'inherit', projectId: undefined, suggestedProjectName: undefined });
+                    } else if (v === 'none') {
+                      updateAction(action.id, { projectAssignment: 'none', projectId: undefined, suggestedProjectName: undefined });
+                    } else if (v.startsWith('specific:')) {
+                      updateAction(action.id, {
+                        projectAssignment: 'specific',
+                        projectId: v.slice('specific:'.length),
+                        suggestedProjectName: undefined,
+                      });
+                    }
+                  }}
+                  disabled={readOnly}
+                  className="rounded border border-gray-200 px-1.5 py-0.5 text-xs disabled:bg-gray-50"
+                >
+                  {projectSelectValue === 'unresolved' && (
+                    <option value="unresolved" disabled>
+                      Sugestão da IA: {action.suggestedProjectName} — escolha
+                    </option>
+                  )}
+                  <option value="inherit">
+                    Usar projeto do plano{planProjectName ? ` — ${planProjectName}` : ''}
+                  </option>
+                  <option value="none">Sem projeto</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={`specific:${p.id}`}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
                 {action.requiresConfirmation && (
                   <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">confirmar</span>
                 )}
@@ -510,7 +603,8 @@ function ReviewEditor({
                 </div>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       </section>
 
@@ -556,7 +650,11 @@ function ReviewEditor({
       )}
 
       {!readOnly && (
-        <div className="fixed inset-x-0 bottom-0 border-t bg-white/95 p-3 backdrop-blur md:pl-64">
+        <div
+          ref={barRef}
+          className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-3 pt-3 backdrop-blur md:pl-64"
+          style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
+        >
           <div className="mx-auto flex max-w-5xl flex-wrap justify-end gap-2 px-4">
             <button
               type="button"

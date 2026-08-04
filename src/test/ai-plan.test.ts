@@ -36,6 +36,8 @@ const validProposal = {
       actionType: 'task',
       priority: 'high',
       estimatedMinutes: 120,
+      projectAssignment: 'inherit',
+      projectName: null,
       suggestedDue: { type: 'fixed', date: '2026-08-07' },
       suggestedSchedule: { dateRule: { type: 'fixed', date: '2026-08-03' }, localTime: '09:00' },
       recurrence: null,
@@ -51,6 +53,8 @@ const validProposal = {
       actionType: 'routine',
       priority: 'normal',
       estimatedMinutes: 30,
+      projectAssignment: 'inherit',
+      projectName: null,
       suggestedDue: null,
       suggestedSchedule: null,
       recurrence: {
@@ -212,6 +216,44 @@ describe('Prompt de importação de plano', () => {
     });
     expect(system).toMatch(/estimatedMinutes só pode ser preenchido quando o documento define EXPLICITAMENTE/i);
     expect(system).toMatch(/NUNCA infira, estime, arredonde ou "chute"/i);
+  });
+
+  it('proíbe agrupar atividades diferentes numa única recorrência só por compartilharem horário/bloco (caso real: "Bloco C rotativo")', () => {
+    const { system } = buildPrompt({
+      title: 'Plano',
+      documentType: 'project_plan',
+      content: 'Bloco C rotativo - Trilhas pessoais',
+      timezone: 'America/Sao_Paulo',
+    });
+    expect(system).toMatch(/NUNCA colapse atividades semanticamente diferentes/i);
+    expect(system).toMatch(/Bloco C rotativo/);
+  });
+
+  it('inclui os nomes dos projetos existentes no payload e instrui a IA a nunca inventar projeto fora dessa lista', () => {
+    const { system, user } = buildPrompt({
+      title: 'Plano',
+      documentType: 'project_plan',
+      content: 'doc',
+      projectName: 'Almeida Ambiental',
+      existingProjectNames: ['Almeida Ambiental', 'Carreira'],
+      timezone: 'America/Sao_Paulo',
+    });
+    expect(system).toMatch(/projectAssignment/);
+    expect(system).toContain('Almeida Ambiental, Carreira');
+    expect(system).toMatch(/NUNCA use "specific" para um projeto que não está nessa lista/);
+    expect(JSON.parse(user).projetosExistentes).toEqual(['Almeida Ambiental', 'Carreira']);
+  });
+
+  it('trata a data inicial informada pelo usuário como âncora operacional decidida, nunca como incerteza', () => {
+    const { system } = buildPrompt({
+      title: 'Plano',
+      documentType: 'project_plan',
+      content: 'A Semana 1 começa no dia útil seguinte ao envio da mensagem.',
+      startDate: '2026-08-05',
+      timezone: 'America/Sao_Paulo',
+    });
+    expect(system).toMatch(/DECISÃO OPERACIONAL do usuário/);
+    expect(system).toMatch(/NUNCA gere um warning, uma openQuestion/i);
   });
 
   it('trunca documentos acima do limite e sinaliza o corte', () => {

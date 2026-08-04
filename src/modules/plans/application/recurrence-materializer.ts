@@ -6,6 +6,7 @@ import {
   addDaysToDateStr,
   type RecurrenceSpec,
 } from '../domain/recurrence-engine';
+import { resolveActionProjectId } from '../domain/project-assignment';
 
 /**
  * Serviço de materialização de ocorrências.
@@ -43,6 +44,8 @@ interface ActionRow {
   estimated_minutes: number | null;
   phase_id: string | null;
   execution_plan_id: string;
+  project_assignment: string | null;
+  project_id: string | null;
 }
 
 function ruleToSpec(rule: RuleRow): RecurrenceSpec {
@@ -71,7 +74,8 @@ export async function materializeRule(
   rule: RuleRow,
   action: ActionRow | null,
   now: Date,
-  horizonDays = DEFAULT_HORIZON_DAYS
+  horizonDays = DEFAULT_HORIZON_DAYS,
+  planProjectId: string | null = null
 ): Promise<MaterializeResult> {
   if (!rule.is_active || !rule.start_at) {
     return { ruleId: rule.id, created: 0, nextOccurrenceAt: null };
@@ -89,6 +93,13 @@ export async function materializeRule(
   const spec = ruleToSpec(rule);
   const horizonEnd = new Date(now.getTime() + horizonDays * 86_400_000);
   const occurrences = occurrencesBetween(spec, now, horizonEnd, existingCount ?? 0);
+
+  const projectId = action
+    ? resolveActionProjectId(
+        { projectAssignment: action.project_assignment, projectId: action.project_id },
+        planProjectId
+      )
+    : planProjectId;
 
   let created = 0;
   if (occurrences.length > 0) {
@@ -108,6 +119,7 @@ export async function materializeRule(
       plan_action_id: action?.id ?? null,
       recurrence_rule_id: rule.id,
       occurrence_at: occ.occurrenceAt,
+      project_id: projectId,
     }));
 
     const { error } = await supabase
@@ -159,13 +171,14 @@ export async function activateAndMaterializePlanRules(
 ): Promise<MaterializeResult[]> {
   const { data: plan, error: planError } = await supabase
     .from('execution_plans')
-    .select('id, workspace_id, start_date, timezone')
+    .select('id, workspace_id, project_id, start_date, timezone')
     .eq('id', planId)
     .maybeSingle();
   if (planError || !plan) {
     throw new Error(`Plano não encontrado para materialização: ${planError?.message ?? planId}`);
   }
 
+  const planProjectId: string | null = plan.project_id ?? null;
   const timezone = plan.timezone || 'America/Sao_Paulo';
   const startDate: string =
     plan.start_date ??
@@ -212,7 +225,16 @@ export async function activateAndMaterializePlanRules(
     }
 
     const activeRule: RuleRow = { ...rule, is_active: true, start_at: startAt };
-    results.push(await materializeRule(supabase, activeRule, actionByRule.get(rule.id) ?? null, now));
+    results.push(
+      await materializeRule(
+        supabase,
+        activeRule,
+        actionByRule.get(rule.id) ?? null,
+        now,
+        DEFAULT_HORIZON_DAYS,
+        planProjectId
+      )
+    );
   }
 
   return results;
@@ -231,6 +253,21 @@ export async function materializeDueRules(
     .or(`next_occurrence_at.is.null,next_occurrence_at.lte.${now.toISOString()}`);
   if (error) throw new Error(`Falha ao buscar regras vencidas: ${error.message}`);
 
+  // Projeto do plano de cada regra vencida — buscado em lote (um único
+  // select) para não repetir uma query por regra.
+  const planIds = [...new Set((rules ?? []).map((r) => (r as RuleRow).execution_plan_id).filter(Boolean))] as string[];
+  const planProjectById = new Map<string, string | null>();
+  if (planIds.length > 0) {
+    const { data: plans, error: plansError } = await supabase
+      .from('execution_plans')
+      .select('id, project_id')
+      .in('id', planIds);
+    if (plansError) throw new Error(`Falha ao carregar planos das regras vencidas: ${plansError.message}`);
+    for (const p of (plans ?? []) as { id: string; project_id: string | null }[]) {
+      planProjectById.set(p.id, p.project_id ?? null);
+    }
+  }
+
   const results: MaterializeResult[] = [];
   for (const rule of (rules ?? []) as RuleRow[]) {
     let action: ActionRow | null = null;
@@ -241,7 +278,8 @@ export async function materializeDueRules(
       .limit(1)
       .maybeSingle();
     action = (actionRow as ActionRow | null) ?? null;
-    results.push(await materializeRule(supabase, rule, action, now, horizonDays));
+    const planProjectId = rule.execution_plan_id ? planProjectById.get(rule.execution_plan_id) ?? null : null;
+    results.push(await materializeRule(supabase, rule, action, now, horizonDays, planProjectId));
   }
   return results;
 }

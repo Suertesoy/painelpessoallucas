@@ -41,6 +41,20 @@ export const ProposedRecurrenceSchema = z.object({
   localTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
 });
 
+/**
+ * Projeto da ação, na fronteira da IA — espelha `PlanActionProjectAssignmentSchema`
+ * do domínio (mantido separado de propósito, mesmo padrão de
+ * ProposedDateRuleSchema/PlanDateRuleSchema).
+ *
+ * - inherit  → a ação pertence ao projeto principal do plano (padrão).
+ * - specific → a ação pertence a OUTRO projeto; projectName deve ser o nome
+ *   EXATO de um projeto já existente (fornecido no contexto). A IA nunca cria
+ *   projeto: se o nome não corresponder a nenhum projeto existente, o
+ *   servidor marca a sugestão para confirmação humana em vez de criar.
+ * - none     → a ação não pertence a nenhum projeto (ex.: hábito pessoal).
+ */
+export const ProposedProjectAssignmentSchema = z.enum(['inherit', 'specific', 'none']);
+
 export const ProposedActionSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullable(),
@@ -48,6 +62,9 @@ export const ProposedActionSchema = z.object({
   actionType: z.enum(['task', 'routine', 'reminder', 'milestone', 'decision', 'waiting']),
   priority: PrioritySchema,
   estimatedMinutes: z.number().int().positive().nullable(),
+  projectAssignment: ProposedProjectAssignmentSchema,
+  /** Nome exato de um projeto existente — só relevante quando projectAssignment é "specific". */
+  projectName: z.string().nullable(),
   /** Prazo (deadline) real da ação — nunca o dia planejado de execução. */
   suggestedDue: ProposedDateRuleSchema.nullable(),
   /**

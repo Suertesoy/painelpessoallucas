@@ -71,6 +71,8 @@ function sixWeekProposal(): PlanProposal {
       actionType: 'task' as const,
       priority: 'high' as const,
       estimatedMinutes: null,
+      projectAssignment: 'inherit' as const,
+      projectName: null,
       suggestedDue: null,
       suggestedSchedule: {
         dateRule: { type: 'offset_from_phase' as const, days: 0 },
@@ -89,6 +91,8 @@ function sixWeekProposal(): PlanProposal {
       actionType: 'milestone' as const,
       priority: 'critical' as const,
       estimatedMinutes: null,
+      projectAssignment: 'inherit' as const,
+      projectName: null,
       suggestedDue: { type: 'offset_from_phase' as const, days: 4 },
       suggestedSchedule: null,
       recurrence: null,
@@ -104,6 +108,8 @@ function sixWeekProposal(): PlanProposal {
       actionType: 'waiting' as const,
       priority: 'normal' as const,
       estimatedMinutes: null,
+      projectAssignment: 'none' as const,
+      projectName: null,
       suggestedDue: null,
       suggestedSchedule: null,
       recurrence: null,
@@ -161,6 +167,8 @@ function sixWeekProposalAllPhasesActions(): PlanProposal {
     actionType: 'task' as const,
     priority: 'normal' as const,
     estimatedMinutes: i === 0 ? 30 : null,
+    projectAssignment: 'inherit' as const,
+    projectName: null,
     suggestedDue: null,
     suggestedSchedule: {
       dateRule: { type: 'offset_from_phase' as const, days: 0 },
@@ -182,6 +190,50 @@ function sixWeekProposalAllPhasesActions(): PlanProposal {
     openQuestions: [],
     decisions: [],
     phases,
+    actions,
+    milestones: [],
+    risks: [],
+    dependencies: [],
+    waitingItems: [],
+    dailyRoutines: [],
+    weeklyRoutines: [],
+    suggestedReminders: [],
+    confidence: 0.9,
+    warnings: [],
+  };
+}
+
+function baseTestAction(overrides: Partial<PlanProposal['actions'][number]> = {}): PlanProposal['actions'][number] {
+  return {
+    title: 'Ação de teste',
+    description: null,
+    phaseIndex: null,
+    actionType: 'task',
+    priority: 'normal',
+    estimatedMinutes: null,
+    projectAssignment: 'inherit',
+    projectName: null,
+    suggestedDue: null,
+    suggestedSchedule: null,
+    recurrence: null,
+    dependencies: [],
+    waitingOn: null,
+    reasoningSummary: null,
+    needsConfirmation: false,
+    ...overrides,
+  };
+}
+
+function minimalProposal(actions: PlanProposal['actions']): PlanProposal {
+  return {
+    projectSuggestion: null,
+    planName: 'Plano de teste — projeto por ação',
+    objective: null,
+    assumptions: [],
+    confirmedFacts: [],
+    openQuestions: [],
+    decisions: [],
+    phases: [],
     actions,
     milestones: [],
     risks: [],
@@ -474,5 +526,133 @@ describe('POST /api/planos/processar — reprocessamento explícito (force)', ()
 
     const plans = fakeSupabase.tables.execution_plans as Record<string, unknown>[];
     expect(plans.find((p) => p.id === approvedPlanId)?.status).toBe('active');
+  });
+});
+
+describe('POST /api/planos/processar — projeto por ação (homologação real: plano Almeida)', () => {
+  it('projectAssignment "specific" com nome de projeto existente resolve para o project_id real', async () => {
+    fakeSupabase = createFakeSupabase({
+      source_documents: [sourceDocRow()],
+      projects: [{ id: 'proj-carreira', workspace_id: WORKSPACE_ID, name: 'Carreira', status: 'active', deleted_at: null }],
+    });
+    fakeSupabase.auth.getUser = async () => ({ data: { user: { id: 'user-1' } } });
+    const proposal = minimalProposal([
+      baseTestAction({ title: 'Aplicação para vagas', projectAssignment: 'specific', projectName: 'Carreira' }),
+    ]);
+    setPlanStructurerFactory(() => mockStructurer(proposal));
+    const { POST } = await import('@/app/api/planos/processar/route');
+
+    const res = await POST(jsonRequest({ documentId: DOC_ID, startDate: '2026-08-05' }));
+    expect(res.status).toBe(200);
+
+    const actionRows = fakeSupabase.tables.plan_actions as Record<string, unknown>[];
+    expect(actionRows[0].project_assignment).toBe('specific');
+    expect(actionRows[0].project_id).toBe('proj-carreira');
+    expect(actionRows[0].suggested_project_name).toBeNull();
+  });
+
+  it('projectAssignment "specific" sem projeto correspondente nunca cria projeto — cai para "none" preservando o nome sugerido', async () => {
+    fakeSupabase = createFakeSupabase({ source_documents: [sourceDocRow()] });
+    fakeSupabase.auth.getUser = async () => ({ data: { user: { id: 'user-1' } } });
+    const proposal = minimalProposal([
+      baseTestAction({ title: 'Estudo de japonês', projectAssignment: 'specific', projectName: 'Idiomas' }),
+    ]);
+    setPlanStructurerFactory(() => mockStructurer(proposal));
+    const { POST } = await import('@/app/api/planos/processar/route');
+
+    const res = await POST(jsonRequest({ documentId: DOC_ID, startDate: '2026-08-05' }));
+    expect(res.status).toBe(200);
+
+    const actionRows = fakeSupabase.tables.plan_actions as Record<string, unknown>[];
+    expect(actionRows[0].project_assignment).toBe('none');
+    expect(actionRows[0].project_id).toBeNull();
+    expect(actionRows[0].suggested_project_name).toBe('Idiomas');
+    expect(fakeSupabase.tables.projects ?? []).toHaveLength(0);
+  });
+
+  it('projectAssignment "none" persiste sem projeto, mesmo com o plano tendo um projeto principal', async () => {
+    fakeSupabase = createFakeSupabase({
+      source_documents: [sourceDocRow({ project_id: 'plan-project' })],
+      projects: [{ id: 'plan-project', workspace_id: WORKSPACE_ID, name: 'Almeida Ambiental', status: 'active', deleted_at: null }],
+    });
+    fakeSupabase.auth.getUser = async () => ({ data: { user: { id: 'user-1' } } });
+    const proposal = minimalProposal([
+      baseTestAction({ title: 'Estudo de japonês', projectAssignment: 'none' }),
+    ]);
+    setPlanStructurerFactory(() => mockStructurer(proposal));
+    const { POST } = await import('@/app/api/planos/processar/route');
+
+    const res = await POST(jsonRequest({ documentId: DOC_ID, startDate: '2026-08-05' }));
+    expect(res.status).toBe(200);
+
+    const actionRows = fakeSupabase.tables.plan_actions as Record<string, unknown>[];
+    expect(actionRows[0].project_assignment).toBe('none');
+    expect(actionRows[0].project_id).toBeNull();
+  });
+
+  it('Bloco C: quatro atividades diferentes no mesmo horário persistem como quatro rotinas distintas, nunca uma única recorrência', async () => {
+    fakeSupabase = createFakeSupabase({ source_documents: [sourceDocRow()] });
+    fakeSupabase.auth.getUser = async () => ({ data: { user: { id: 'user-1' } } });
+
+    const blocoC = [
+      { title: 'Prospecção e captação', day: 1 },
+      { title: 'Aplicação para vagas e estudo de caso', day: 2 },
+      { title: 'Manutenção de projetos entregues', day: 3 },
+      { title: 'Prospecção e follow-up', day: 4 },
+    ].map(({ title, day }) =>
+      baseTestAction({
+        title,
+        actionType: 'routine',
+        projectAssignment: 'none',
+        recurrence: { frequency: 'weekly', interval: 1, daysOfWeek: [day], dayOfMonth: null, localTime: '16:30' },
+      })
+    );
+
+    setPlanStructurerFactory(() => mockStructurer(minimalProposal(blocoC)));
+    const { POST } = await import('@/app/api/planos/processar/route');
+    const res = await POST(jsonRequest({ documentId: DOC_ID, startDate: '2026-08-05' }));
+    expect(res.status).toBe(200);
+
+    const actionRows = fakeSupabase.tables.plan_actions as Record<string, unknown>[];
+    const ruleRows = fakeSupabase.tables.recurrence_rules as Record<string, unknown>[];
+    expect(actionRows).toHaveLength(4);
+    expect(ruleRows).toHaveLength(4);
+    expect(new Set(actionRows.map((a) => a.title))).toEqual(
+      new Set([
+        'Prospecção e captação',
+        'Aplicação para vagas e estudo de caso',
+        'Manutenção de projetos entregues',
+        'Prospecção e follow-up',
+      ])
+    );
+    for (const rule of ruleRows) {
+      expect((rule.days_of_week as number[]).length).toBe(1);
+    }
+  });
+
+  it('estudo de japonês (mesma atividade todo dia útil) permanece UMA única rotina com cinco dias', async () => {
+    fakeSupabase = createFakeSupabase({ source_documents: [sourceDocRow()] });
+    fakeSupabase.auth.getUser = async () => ({ data: { user: { id: 'user-1' } } });
+
+    const japones = baseTestAction({
+      title: 'Estudo de japonês',
+      actionType: 'routine',
+      estimatedMinutes: 30,
+      projectAssignment: 'none',
+      recurrence: { frequency: 'weekly', interval: 1, daysOfWeek: [1, 2, 3, 4, 5], dayOfMonth: null, localTime: '18:00' },
+    });
+
+    setPlanStructurerFactory(() => mockStructurer(minimalProposal([japones])));
+    const { POST } = await import('@/app/api/planos/processar/route');
+    const res = await POST(jsonRequest({ documentId: DOC_ID, startDate: '2026-08-05' }));
+    expect(res.status).toBe(200);
+
+    const actionRows = fakeSupabase.tables.plan_actions as Record<string, unknown>[];
+    const ruleRows = fakeSupabase.tables.recurrence_rules as Record<string, unknown>[];
+    expect(actionRows).toHaveLength(1);
+    expect(actionRows[0].title).toBe('Estudo de japonês');
+    expect(actionRows[0].estimated_minutes).toBe(30);
+    expect(ruleRows).toHaveLength(1);
+    expect(ruleRows[0].days_of_week).toEqual([1, 2, 3, 4, 5]);
   });
 });
