@@ -36,8 +36,8 @@ const validProposal = {
       actionType: 'task',
       priority: 'high',
       estimatedMinutes: 120,
-      suggestedStart: '2026-08-03',
-      suggestedDue: '2026-08-07',
+      suggestedDue: { type: 'fixed', date: '2026-08-07' },
+      suggestedSchedule: { dateRule: { type: 'fixed', date: '2026-08-03' }, localTime: '09:00' },
       recurrence: null,
       dependencies: [],
       waitingOn: null,
@@ -51,8 +51,8 @@ const validProposal = {
       actionType: 'routine',
       priority: 'normal',
       estimatedMinutes: 30,
-      suggestedStart: null,
       suggestedDue: null,
+      suggestedSchedule: null,
       recurrence: {
         frequency: 'weekly',
         interval: 1,
@@ -100,6 +100,69 @@ describe('Parsing estruturado da proposta de plano (IA)', () => {
 
   it('rejeita proposta sem nome de plano', () => {
     const bad = { ...validProposal, planName: '' };
+    expect(() => parsePlanProposal(JSON.stringify(bad))).toThrow();
+  });
+
+  it('rejeita suggestedDue com texto livre (caso real do bug: "Semana 2, sexta-feira")', () => {
+    const bad = {
+      ...validProposal,
+      actions: [
+        { ...validProposal.actions[0], suggestedDue: 'Semana 2, sexta-feira' },
+        validProposal.actions[1],
+      ],
+    };
+    expect(() => parsePlanProposal(JSON.stringify(bad))).toThrow(/suggestedDue/);
+  });
+
+  it('rejeita suggestedDue "fixed" com data fora do formato YYYY-MM-DD', () => {
+    const bad = {
+      ...validProposal,
+      actions: [
+        { ...validProposal.actions[0], suggestedDue: { type: 'fixed', date: '05/08/2026' } },
+        validProposal.actions[1],
+      ],
+    };
+    expect(() => parsePlanProposal(JSON.stringify(bad))).toThrow();
+  });
+
+  it('aceita suggestedDue relativo (offset_from_phase) sem exigir data absoluta', () => {
+    const ok = {
+      ...validProposal,
+      actions: [
+        { ...validProposal.actions[0], suggestedDue: { type: 'offset_from_phase', days: 4 } },
+        validProposal.actions[1],
+      ],
+    };
+    const proposal = parsePlanProposal(JSON.stringify(ok));
+    expect(proposal.actions[0].suggestedDue).toEqual({ type: 'offset_from_phase', days: 4 });
+  });
+
+  it('aceita suggestedSchedule com dateRule relativo + horário (grade semanal)', () => {
+    const ok = {
+      ...validProposal,
+      actions: [
+        {
+          ...validProposal.actions[0],
+          suggestedSchedule: {
+            dateRule: { type: 'offset_from_phase', days: 1 },
+            localTime: '14:00',
+          },
+        },
+        validProposal.actions[1],
+      ],
+    };
+    const proposal = parsePlanProposal(JSON.stringify(ok));
+    expect(proposal.actions[0].suggestedSchedule).toEqual({
+      dateRule: { type: 'offset_from_phase', days: 1 },
+      localTime: '14:00',
+    });
+  });
+
+  it('rejeita suggestedReminders.date fora do formato YYYY-MM-DD', () => {
+    const bad = {
+      ...validProposal,
+      suggestedReminders: [{ message: 'Cobrar retorno', date: 'próxima sexta', localTime: '09:00' }],
+    };
     expect(() => parsePlanProposal(JSON.stringify(bad))).toThrow();
   });
 

@@ -21,9 +21,16 @@ const sql = readFileSync(join(MIGRATIONS_DIR, MIGRATION_FILE), 'utf8').toLowerCa
 const NEXT_FINANCE_MIGRATION_FILE = '20260731130000_finance_batch_import.sql';
 
 describe('Migration do módulo Finanças — ordem no histórico', () => {
-  it('tem timestamp posterior a todas as migrations existentes, exceto a migration aditiva seguinte do mesmo módulo', () => {
+  it('tem timestamp posterior a todas as migrations que a precedem, exceto a migration aditiva seguinte do mesmo módulo', () => {
+    // Comparado só contra migrations anteriores a ela (não "todas as que
+    // existem hoje"): a intenção real é provar que esta migration não ficou
+    // presa entre migrations mais antigas (mesma lacuna de RLS/GRANT já
+    // documentada para shopping_lists) — não fazer uma afirmação sobre
+    // migrations futuras de outros módulos, que naturalmente vêm depois.
     const allMigrations = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
-    const others = allMigrations.filter((f) => f !== MIGRATION_FILE && f !== NEXT_FINANCE_MIGRATION_FILE);
+    const others = allMigrations.filter(
+      (f) => f !== MIGRATION_FILE && f !== NEXT_FINANCE_MIGRATION_FILE && f < NEXT_FINANCE_MIGRATION_FILE
+    );
     expect(others.every((f) => MIGRATION_FILE > f)).toBe(true);
   });
 

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AlertCircle, CheckCircle, PlayCircle, PauseCircle, PencilLine } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
+import { DataErrorNotice } from '@/components/data-error-notice';
 import type { PlanStatus } from '@/modules/plans/domain/plan.schema';
 
 const STATUS_LABEL: Record<PlanStatus, string> = {
@@ -32,7 +33,7 @@ export default function PlanoDetalhePage({ params }: { params: Promise<{ planId:
   const { plan: planQueries, project: projectQueries } = useQueries();
   const { plan: planCmds } = useCommands();
 
-  const { data: detail, isLoading, error } = useReactiveQuery(
+  const { data: detail, isLoading, error, isOffline, refetch } = useReactiveQuery(
     () => planQueries.getPlanDetail(planId),
     [planId]
   );
@@ -57,10 +58,21 @@ export default function PlanoDetalhePage({ params }: { params: Promise<{ planId:
     return <div className="p-8 text-sm text-gray-500">Carregando plano…</div>;
   }
 
-  if (error || !detail) {
+  if (error) {
+    return (
+      <div className="p-4 md:p-8 max-w-5xl mx-auto">
+        <DataErrorNotice isOffline={isOffline} onRetry={refetch} />
+        <Link href="/planos" className="mt-3 inline-block text-sm text-blue-600 hover:underline">
+          ← Voltar aos planos
+        </Link>
+      </div>
+    );
+  }
+
+  if (!detail) {
     return (
       <div className="p-8">
-        <p role="alert" className="text-sm text-red-700">{error ?? 'Plano não encontrado.'}</p>
+        <p className="text-sm text-gray-500">Plano não encontrado.</p>
         <Link href="/planos" className="mt-3 inline-block text-sm text-blue-600 hover:underline">
           ← Voltar aos planos
         </Link>

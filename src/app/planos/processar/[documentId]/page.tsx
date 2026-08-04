@@ -22,10 +22,22 @@ export default function ProcessarDocumentoPage({
   const [status, setStatus] = useState<'processing' | 'error'>('processing');
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
+  const attemptsRef = useRef(0);
+
+  // O processamento roda inteiramente no servidor: se o navegador perder a
+  // conexão, recarregar a página ou o fetch for interrompido, o servidor
+  // continua até concluir. `/api/planos/processar` é idempotente por
+  // documento — reenviar a mesma requisição nunca duplica o plano; se já
+  // concluiu, devolve o draft existente. Enquanto o servidor ainda está
+  // processando (HTTP 409), tentamos de novo automaticamente em vez de
+  // mostrar um erro — não é uma falha, é um estado a aguardar.
+  const MAX_WAIT_ATTEMPTS = 24; // ~2 minutos (24 × 5s)
+  const RETRY_DELAY_MS = 5000;
 
   useEffect(() => {
     if (startedRef.current) return; // evita disparo duplo no StrictMode
     startedRef.current = true;
+    let cancelled = false;
 
     const run = async () => {
       try {
@@ -35,17 +47,36 @@ export default function ProcessarDocumentoPage({
           body: JSON.stringify({ documentId, ...(startDate ? { startDate } : {}) }),
         });
         const json = await res.json();
+
+        if (res.status === 409 && json.stillProcessing) {
+          attemptsRef.current += 1;
+          if (cancelled) return;
+          if (attemptsRef.current >= MAX_WAIT_ATTEMPTS) {
+            throw new Error(
+              'O processamento está demorando mais que o esperado. Recarregue esta página em alguns minutos — o documento original está preservado.'
+            );
+          }
+          setTimeout(() => {
+            if (!cancelled) void run();
+          }, RETRY_DELAY_MS);
+          return;
+        }
+
         if (!res.ok) {
           throw new Error(json.error ?? `Falha no processamento (HTTP ${res.status})`);
         }
         router.replace(`/planos/${json.planId}/revisar`);
       } catch (e) {
+        if (cancelled) return;
         setError(e instanceof Error ? e.message : 'Erro inesperado no processamento.');
         setStatus('error');
       }
     };
 
     void run();
+    return () => {
+      cancelled = true;
+    };
   }, [documentId, startDate, router]);
 
   return (

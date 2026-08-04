@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { sha256Hex } from '@/lib/text-hash';
 
 /**
@@ -108,9 +108,22 @@ async function mockAuthed(item: Record<string, unknown>, aiRun: Record<string, u
   });
 }
 
+// "Agora" fixo, anterior a todas as datas fixas usadas nas fixtures (2026-08-05)
+// por margem suficiente para os lembretes de 1440min/60min sempre estarem
+// ativos. Sem isso, os testes de lembrete são uma bomba-relógio: dependem do
+// relógio real da máquina em relação a uma data fixa no fixture, e quebram
+// sozinhos assim que o tempo real alcança essa data (como aconteceu aqui).
+const FIXED_NOW = new Date('2026-08-01T12:00:00.000Z');
+
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  vi.useFakeTimers();
+  vi.setSystemTime(FIXED_NOW);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('POST /api/audio/confirm-calendar-event', () => {

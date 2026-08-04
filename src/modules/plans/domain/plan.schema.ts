@@ -155,16 +155,32 @@ export const ActionTypeSchema = z.enum([
   'waiting',
 ]);
 
-export const DueRuleSchema = z
-  .union([
-    z.object({ type: z.literal('fixed'), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
-    z.object({ type: z.literal('offset_from_start'), days: z.number().int().min(0) }),
-    z.object({ type: z.literal('offset_from_phase'), days: z.number().int().min(0) }),
-  ])
-  .optional();
+/**
+ * Uma data relativa ao plano/fase, ou fixa. Único vocabulário para "quando"
+ * em todo o domínio de planos — reaproveitado por DueRuleSchema (prazo) e
+ * por ScheduleRuleSchema.dateRule (dia do agendamento), nunca duplicado.
+ * Planos organizados por fase (ex.: "Semana 3") devem preferir
+ * offset_from_phase a fixed — a IA nunca deve inventar uma data absoluta a
+ * partir de uma referência relativa do documento.
+ */
+export const PlanDateRuleSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('fixed'), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
+  z.object({ type: z.literal('offset_from_start'), days: z.number().int().min(0) }),
+  z.object({ type: z.literal('offset_from_phase'), days: z.number().int().min(0) }),
+]);
+export type PlanDateRule = z.infer<typeof PlanDateRuleSchema>;
 
+/** Prazo (deadline) da ação — distinto de agendamento (ver ScheduleRuleSchema). */
+export const DueRuleSchema = PlanDateRuleSchema.optional();
+
+/**
+ * Agendamento (dia + horário planejado) da ação — distinto de prazo. `dateRule`
+ * só é necessário para ações não recorrentes com dia próprio; ações recorrentes
+ * têm o dia derivado da recurrence_rule, nunca daqui.
+ */
 export const ScheduleRuleSchema = z
   .object({
+    dateRule: PlanDateRuleSchema.optional(),
     time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
     durationMinutes: z.number().int().positive().optional(),
   })

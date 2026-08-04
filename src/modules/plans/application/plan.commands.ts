@@ -11,8 +11,11 @@ import {
   ExecutionPlan,
   ExecutionPlanSchema,
   PlanPhase,
+  PlanPhaseSchema,
   PlanAction,
+  PlanActionSchema,
   RecurrenceRule,
+  RecurrenceRuleSchema,
   PlanStatus,
 } from '../domain/plan.schema';
 
@@ -81,14 +84,17 @@ export class PlanCommands {
   }
 
   async savePhases(phases: PlanPhase[]): Promise<void> {
+    phases.forEach((p) => PlanPhaseSchema.parse(p));
     await this.planRepo.savePhases(phases);
   }
 
   async saveActions(actions: PlanAction[]): Promise<void> {
+    actions.forEach((a) => PlanActionSchema.parse(a));
     await this.planRepo.saveActions(actions);
   }
 
   async saveRecurrenceRules(rules: RecurrenceRule[]): Promise<void> {
+    rules.forEach((r) => RecurrenceRuleSchema.parse(r));
     await this.planRepo.saveRecurrenceRules(rules);
   }
 

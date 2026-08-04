@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getSupabaseServerClient } from '@/platform/supabase/server-client';
 import { OpenAIPlanStructurer, estimateCostUsd } from '@/platform/ai/openai-plan-structurer';
 import { PROMPT_VERSION, resolvePlanStructurer } from '@/platform/ai/plan-structurer';
-import type { PlanProposal } from '@/modules/plans/domain/plan-proposal.schema';
+import { PlanProposalSchema, type PlanProposal } from '@/modules/plans/domain/plan-proposal.schema';
 
 /**
  * POST /api/planos/processar
@@ -50,6 +50,49 @@ export async function POST(request: Request) {
   }
 
   const workspaceId: string = doc.workspace_id;
+
+  // ---------------------------------------------------------------------------
+  // Recuperação idempotente: reprocessar o mesmo documento (retry manual, reload
+  // durante o processamento anterior, requisição duplicada) nunca duplica plano
+  // nem ai_run. Se o processamento anterior já concluiu, devolve o plano
+  // existente; se ainda está em andamento (recente), pede para aguardar em vez
+  // de disparar uma segunda chamada de IA em paralelo.
+  // ---------------------------------------------------------------------------
+  if (doc.processing_status === 'completed') {
+    const { data: existingPlan } = await supabase
+      .from('execution_plans')
+      .select('id')
+      .eq('source_document_id', doc.id)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existingPlan) {
+      const { data: latestRun } = await supabase
+        .from('ai_runs')
+        .select('id')
+        .eq('execution_plan_id', existingPlan.id)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return NextResponse.json({ planId: existingPlan.id, aiRunId: latestRun?.id ?? null });
+    }
+  }
+
+  const STALE_PROCESSING_MS = 3 * 60_000; // acima do timeout esperado da IA (2 min)
+  if (
+    doc.processing_status === 'processing' &&
+    Date.now() - new Date(doc.updated_at).getTime() < STALE_PROCESSING_MS
+  ) {
+    return NextResponse.json(
+      {
+        error: 'Este documento já está sendo processado. Aguarde alguns instantes.',
+        stillProcessing: true,
+      },
+      { status: 409 }
+    );
+  }
 
   // Nome do projeto (contexto mínimo para o modelo).
   let projectName: string | undefined;
@@ -107,7 +150,18 @@ export async function POST(request: Request) {
       startDate: body.startDate,
       timezone: 'America/Sao_Paulo',
     });
-    proposal = result.proposal;
+    // Segunda validação na fronteira, independente da implementação do
+    // structurer: nenhuma proposta chega a plan_actions sem ter passado pelo
+    // contrato Zod aqui, mesmo que um provider (ou um mock de teste) devolva
+    // dado fora do formato esperado sem ter validado internamente.
+    const validated = PlanProposalSchema.safeParse(result.proposal);
+    if (!validated.success) {
+      const issue = validated.error.issues[0];
+      throw new Error(
+        `A resposta da IA não segue o formato esperado (${issue?.path.join('.')}: ${issue?.message}).`
+      );
+    }
+    proposal = validated.data;
     usage = result.usage;
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Erro desconhecido na IA';
@@ -222,30 +276,43 @@ export async function POST(request: Request) {
     }
 
     // Ações (dependências por índice → UUIDs pré-gerados).
+    // due_rule/schedule_rule já vêm validados pelo PlanProposalSchema na
+    // fronteira da IA (parsePlanProposal) — mesmo formato de PlanDateRuleSchema
+    // do domínio, sem transformação ad-hoc que possa introduzir dado inválido.
     const actionIds = proposal.actions.map(() => crypto.randomUUID());
-    const actionRows = proposal.actions.map((action, i) => ({
-      id: actionIds[i],
-      workspace_id: workspaceId,
-      execution_plan_id: planId,
-      phase_id:
-        action.phaseIndex != null && action.phaseIndex < phaseIds.length
-          ? phaseIds[action.phaseIndex]
-          : null,
-      title: action.title,
-      description: action.description,
-      action_type: action.actionType,
-      priority: action.priority,
-      estimated_minutes: action.estimatedMinutes,
-      due_rule: action.suggestedDue ? { type: 'fixed', date: action.suggestedDue } : null,
-      schedule_rule: action.suggestedStart ? { suggestedStart: action.suggestedStart } : null,
-      recurrence_rule_id: actionRuleIds[i],
-      dependency_action_ids: action.dependencies
-        .filter((d) => d >= 0 && d < actionIds.length && d !== i)
-        .map((d) => actionIds[d]),
-      waiting_on: action.waitingOn,
-      requires_confirmation: action.needsConfirmation,
-      position: i,
-    }));
+    const actionRows = proposal.actions.map((action, i) => {
+      const schedule = action.suggestedSchedule;
+      const scheduleRule =
+        schedule && (schedule.dateRule || schedule.localTime)
+          ? {
+              ...(schedule.dateRule ? { dateRule: schedule.dateRule } : {}),
+              ...(schedule.localTime ? { time: schedule.localTime } : {}),
+            }
+          : null;
+      return {
+        id: actionIds[i],
+        workspace_id: workspaceId,
+        execution_plan_id: planId,
+        phase_id:
+          action.phaseIndex != null && action.phaseIndex < phaseIds.length
+            ? phaseIds[action.phaseIndex]
+            : null,
+        title: action.title,
+        description: action.description,
+        action_type: action.actionType,
+        priority: action.priority,
+        estimated_minutes: action.estimatedMinutes,
+        due_rule: action.suggestedDue,
+        schedule_rule: scheduleRule,
+        recurrence_rule_id: actionRuleIds[i],
+        dependency_action_ids: action.dependencies
+          .filter((d) => d >= 0 && d < actionIds.length && d !== i)
+          .map((d) => actionIds[d]),
+        waiting_on: action.waitingOn,
+        requires_confirmation: action.needsConfirmation,
+        position: i,
+      };
+    });
 
     // Rotinas viram ações do tipo routine vinculadas às regras.
     const routineRows = routineEntries.map(({ routine }, i) => ({

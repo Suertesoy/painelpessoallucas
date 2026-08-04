@@ -957,3 +957,104 @@ Nesta ordem, quando alguém com acesso ao projeto Supabase for aplicá-las:
 
 1. `20260731120000_finance.sql`
 2. `20260731130000_finance_batch_import.sql` (aditiva sobre a anterior — nunca editada)
+3. `20260804100000_plan_actions_date_repair.sql` (repara `plan_actions` gravadas antes da correção descrita em "Planos — contrato de datas" abaixo; ver essa seção para o que ela faz e por que é segura/não destrutiva)
+
+## Planos — contrato de datas entre IA, domínio e materialização
+
+Causa raiz de um bug real em produção: `PlanProposalSchema` (fronteira da IA)
+aceitava `suggestedStart`/`suggestedDue` como `string` livre (comentário dizia
+`YYYY-MM-DD`, mas nada garantia o formato), enquanto `DueRuleSchema` do
+domínio exige `^\d{4}-\d{2}-\d{2}$`. Uma resposta da IA com texto como
+`"Semana 2, sexta-feira"` em vez de uma data passava pela validação da
+proposta, era persistida sem checagem em `plan_actions.due_rule` por
+`POST /api/planos/processar`, e só quebrava depois — como um `ZodError` cru
+renderizado na página do plano (`actionRowToDomain` valida na leitura; nada
+validava na escrita). Havia ainda um segundo problema: `schedule_rule` era
+gravado como `{ suggestedStart: ... }`, um formato que `ScheduleRuleSchema`
+nunca modelou — o Zod descarta chaves desconhecidas silenciosamente, então
+esse dado só desaparecia sem erro.
+
+Correção (`modules/plans/domain/plan.schema.ts`,
+`modules/plans/domain/plan-proposal.schema.ts`):
+
+- `PlanDateRuleSchema` (discriminated union `fixed | offset_from_start |
+  offset_from_phase`) é o único vocabulário de "quando" no domínio de
+  planos — reaproveitado por `DueRuleSchema` (prazo) e pelo novo campo
+  `ScheduleRuleSchema.dateRule` (dia do agendamento). Nenhuma segunda
+  representação concorrente do mesmo conceito.
+- Na fronteira da IA, `ProposedDateRuleSchema` espelha esse formato (mantido
+  separado do domínio de propósito, mesmo padrão já usado por
+  `ProposedRecurrenceSchema`). `ProposedActionSchema.suggestedDue` agora é
+  `ProposedDateRuleSchema.nullable()` — nunca mais texto livre.
+  `suggestedStart` foi substituído por `suggestedSchedule: { dateRule,
+  localTime }`, separando explicitamente prazo de agendamento.
+- `buildPrompt` instrui a IA a nunca calcular uma data de calendário a partir
+  de uma referência relativa do documento ("Semana 3", "sexta da segunda
+  semana"): usar `offset_from_phase`/`offset_from_start` nesses casos,
+  `fixed` só quando o documento cita uma data explícita. Isso faz o próprio
+  formato estruturado da OpenAI (JSON Schema com `pattern`/enum) impedir a
+  IA de gerar uma data fora do contrato, em vez de depender só do texto do
+  prompt.
+- `POST /api/planos/processar` valida a proposta uma segunda vez com
+  `PlanProposalSchema.safeParse` logo após `structurer.structure(...)`,
+  independente da implementação do provider — mesmo um `PlanStructurer`
+  (real ou mock de teste) que devolva dado fora do contrato nunca chega a
+  `plan_actions`. `due_rule`/`schedule_rule` são gravados 1:1 a partir do
+  formato já validado, sem transformação ad-hoc.
+- `PlanCommands.saveActions/savePhases/saveRecurrenceRules` (chamados pela
+  tela de revisão) agora validam com Zod antes de persistir — a mesma
+  assimetria leitura valida/escrita não valida que permitiu o dado inválido
+  original.
+
+### Reprocessamento idempotente (o "problema de conexão" investigado)
+
+O relato de "problema de conexão" durante a importação real não era da rede:
+`/api/planos/processar` roda inteiramente no servidor (até ~2 min de IA) sem
+checar `request.signal` — se o navegador perder a conexão, a aba for
+recarregada ou o usuário fechar a página, o servidor continua processando até
+o fim e cria o draft normalmente. O problema era a UI (`/planos/processar/
+[documentId]`) não ter como saber disso: "Tentar novamente" apenas recarregava
+a página e reenviava a mesma requisição do zero, criando um SEGUNDO plano
+para o mesmo documento.
+
+Correção: a rota agora é idempotente por `documentId`. Se
+`source_documents.processing_status` já é `completed`, devolve o
+`execution_plan` existente sem chamar a IA de novo. Se está `processing` há
+menos de 3 minutos (mais que o timeout esperado da IA), responde 409 pedindo
+para aguardar — o cliente entra em polling automático (a cada 5s, até ~2 min)
+em vez de mostrar erro. Se `processing` está "travado" há mais de 3 minutos
+(tentativa anterior morta sem atualizar o status), permite reprocessar. Nada
+disso depende de estado no cliente — funciona mesmo se a aba foi fechada e
+reaberta em outro dispositivo.
+
+### Ações únicas do plano viram items na ativação
+
+`activatePlan` já materializava `recurrence_rules` (rotinas), mas ações não
+recorrentes ficavam só em `plan_actions` — nunca apareciam em Hoje/Agenda,
+que leem `items`. `modules/plans/application/plan-action-materializer.ts`
+(`materializeOneOffActions`, chamado em paralelo com
+`activateAndMaterializePlanRules` no callback de ativação em
+`repository.provider.tsx`) resolve `due_rule`/`schedule_rule.dateRule` de
+cada ação sem `recurrence_rule_id` (fixo, ou relativo ao início do
+plano/fase — mesma aritmética de dias local já usada pelo motor de
+recorrências) e faz upsert em `items` com `onConflict: 'plan_action_id'` +
+`ignoreDuplicates` — chave única (`items_plan_action_idx`, criada pela
+migration de reparo). Ativar de novo, recarregar ou reexecutar a automação
+nunca duplica.
+
+Mapeamento: prazo (`due_rule`) vira `items.due_at` (23:59 local); agendamento
+(`schedule_rule` com `time`) vira `items.scheduled_at` — os dois continuam
+distintos, uma ação pode ter só um, os dois, ou nenhum (nesse caso não vira
+item ainda). `action_type: 'waiting'` vira `status: 'blocked'` (aparece em
+"Aguardando" em Hoje) com o motivo (`waiting_on`) anexado ao conteúdo;
+`decision`/`reminder` mapeiam para os `item.type` homônimos; `task`/
+`milestone` viram `task`. Rotinas (`action_type: 'routine'`) nunca passam por
+aqui — só pela recorrência.
+
+### Experiência de erro segura
+
+`/planos/[planId]` renderizava `error` (a `.message` bruta de uma exceção,
+incluindo `ZodError` — uma lista JSON de issues) direto num `<p>`. Corrigido
+para usar `DataErrorNotice` (mesmo componente já usado em `/planos/[planId]/
+revisar`, Agenda, Hoje): mensagem curta em português, nunca o erro técnico,
+com "Tentar novamente".

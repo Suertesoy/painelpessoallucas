@@ -32,6 +32,19 @@ Entregue na branch `feat/cloud-sync-ai-automations`:
 **Critério de saída:** login em 2 dispositivos com os mesmos dados, um plano
 importado/aprovado gerando ocorrências, digest recebido, cron estável por 1 semana.
 
+**Correção (importação de planos)**: um plano de 6 semanas real (fases
+"Semana N", ações por dia com grade de horários) revelou que a IA podia
+gravar texto livre em `due_rule`/perder `schedule_rule` silenciosamente,
+quebrando a página do plano com um erro técnico cru, e que ações únicas
+aprovadas nunca viravam `items` (só rotinas recorrentes materializavam).
+Corrigido: contrato de datas validado de ponta a ponta (`PlanDateRuleSchema`
+compartilhado, relativo sempre que possível — nunca a IA inventa uma data
+absoluta a partir de "Semana N"), reprocessamento idempotente por documento,
+ações únicas materializadas em `items` na ativação (idempotente, prazo
+distinto de agendamento), e erro sempre exibido de forma segura. Ver
+`docs/ARCHITECTURE.md` § "Planos — contrato de datas entre IA, domínio e
+materialização".
+
 ## Aprendizado — Learning Engine ✅ (Fase 1 do módulo)
 Motor de aprendizado genérico (`modules/learning`), preparado para vários
 cursos futuros. Japonês é o primeiro curso cadastrado — nada é hardcoded para

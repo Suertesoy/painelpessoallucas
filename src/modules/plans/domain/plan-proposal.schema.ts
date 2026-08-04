@@ -13,6 +13,26 @@ import { z } from 'zod';
 
 const PrioritySchema = z.enum(['low', 'normal', 'high', 'critical']);
 
+/**
+ * Data relativa ao início do plano/fase, ou fixa — espelha
+ * `PlanDateRuleSchema` do domínio (modules/plans/domain/plan.schema.ts),
+ * mas mantida separada de propósito: este é o contrato validado na
+ * FRONTEIRA da IA (nunca importa o schema de domínio), enquanto aquele é a
+ * verdade interna após a resolução determinística na ativação.
+ *
+ * A IA nunca deve calcular uma data absoluta a partir de referências
+ * relativas do documento (ex.: "Semana 3", "sexta-feira da segunda semana").
+ * Para essas, use offset_from_phase (dias a partir do início da fase
+ * indicada por phaseIndex) ou offset_from_start (dias a partir do início do
+ * plano). type fixed só quando o documento cita uma data de calendário
+ * explícita (ex.: "reunião em 15/09").
+ */
+export const ProposedDateRuleSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('fixed'), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
+  z.object({ type: z.literal('offset_from_start'), days: z.number().int().min(0) }),
+  z.object({ type: z.literal('offset_from_phase'), days: z.number().int().min(0) }),
+]);
+
 export const ProposedRecurrenceSchema = z.object({
   frequency: z.enum(['daily', 'weekly', 'monthly', 'once']),
   interval: z.number().int().min(1),
@@ -28,8 +48,19 @@ export const ProposedActionSchema = z.object({
   actionType: z.enum(['task', 'routine', 'reminder', 'milestone', 'decision', 'waiting']),
   priority: PrioritySchema,
   estimatedMinutes: z.number().int().positive().nullable(),
-  suggestedStart: z.string().nullable(), // YYYY-MM-DD
-  suggestedDue: z.string().nullable(),   // YYYY-MM-DD
+  /** Prazo (deadline) real da ação — nunca o dia planejado de execução. */
+  suggestedDue: ProposedDateRuleSchema.nullable(),
+  /**
+   * Agendamento: dia + horário planejados para executar a ação (ex.: grade
+   * semanal de horários do documento). Distinto de suggestedDue — uma ação
+   * pode ter só agendamento, só prazo, os dois, ou nenhum.
+   */
+  suggestedSchedule: z
+    .object({
+      dateRule: ProposedDateRuleSchema.nullable(),
+      localTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
+    })
+    .nullable(),
   recurrence: ProposedRecurrenceSchema.nullable(),
   dependencies: z.array(z.number().int().min(0)),
   waitingOn: z.string().nullable(),
@@ -55,7 +86,7 @@ export const ProposedRoutineSchema = z.object({
 
 export const ProposedReminderSchema = z.object({
   message: z.string().min(1),
-  date: z.string().nullable(), // YYYY-MM-DD
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   localTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
 });
 
