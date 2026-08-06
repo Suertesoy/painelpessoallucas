@@ -77,11 +77,15 @@ function formatDateTime(iso: string): string {
 export function ItemDetailModal() {
   const { item: itemQueries, project: projectQueries, reminder: reminderQueries } = useQueries();
   const { item: itemCmds, reminder: reminderCmds } = useCommands();
-  const { eventRepository, audioProvenanceRepository } = useRepositories();
+  const { eventRepository, audioProvenanceRepository, changeNotifier } = useRepositories();
 
   const [itemId, setItemId] = useState<string | null>(null);
   const [item, setItem] = useState<Item | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Projetos elegíveis para NOVA atribuição (mesma regra de
+  // ProjectQueries.listAssignableProjects — filtrada aqui em memória porque
+  // `projects` já é buscado por inteiro para resolver nomes históricos).
+  const assignableProjects = projects.filter((p) => p.status === 'active');
   const [migrationCompletedAt, setMigrationCompletedAt] = useState<string | null>(null);
   const [originalTranscript, setOriginalTranscript] = useState<string | null>(null);
   const [triageRun, setTriageRun] = useState<AudioTriageRunSummary | null>(null);
@@ -182,6 +186,20 @@ export function ItemDetailModal() {
     },
     [eventRepository, audioProvenanceRepository]
   );
+
+  // Uma análise em segundo plano (disparada pela captura rápida, por outra
+  // aba ou por outro dispositivo) pode terminar enquanto este modal já está
+  // aberto na mesma captura. Sem isto, o botão "Revisar sugestões" só
+  // apareceria depois de fechar e reabrir o modal. Assina o mesmo canal
+  // realtime já usado pela Caixa de Entrada e só atualiza a proveniência
+  // (triagem/calendário) — nunca o item nem os campos do formulário, então
+  // uma edição manual em andamento no formulário nunca é sobrescrita.
+  useEffect(() => {
+    if (!itemId) return;
+    return changeNotifier.subscribe(() => {
+      void refreshCaptureProvenance(itemId);
+    });
+  }, [itemId, changeNotifier, refreshCaptureProvenance]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -580,7 +598,19 @@ export function ItemDetailModal() {
                   className="w-full rounded-md border p-2 text-sm outline-none focus:border-blue-500"
                 >
                   <option value="">Sem projeto</option>
-                  {projects.map((p) => (
+                  {/* Item já atribuído a um projeto que não está mais ativo
+                      (arquivado/pausado/concluído) continua aparecendo, só
+                      não entra na lista de novas atribuições abaixo — nunca
+                      vira "projeto desconhecido" para um vínculo histórico. */}
+                  {projectId && !assignableProjects.some((p) => p.id === projectId) && (
+                    (() => {
+                      const historical = projects.find((p) => p.id === projectId);
+                      return historical ? (
+                        <option value={historical.id}>{historical.name} (já atribuído — não ativo)</option>
+                      ) : null;
+                    })()
+                  )}
+                  {assignableProjects.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
                     </option>
@@ -891,7 +921,7 @@ export function ItemDetailModal() {
                   itemId={item.id}
                   aiRunId={triageAiRunId}
                   proposal={triageProposal}
-                  availableProjects={projects.map((p) => ({ id: p.id, name: p.name }))}
+                  availableProjects={assignableProjects.map((p) => ({ id: p.id, name: p.name }))}
                   initialActionOutcomes={triageRun?.actionsOutcome}
                   initialCalendarOutcome={triageRun?.calendarOutcome}
                   onClose={closeTriageReview}

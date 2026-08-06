@@ -63,8 +63,14 @@ vi.mock('@/providers/auth.provider', () => ({
   useWorkspace: () => ({ workspaceId: 'ws-1' }),
 }));
 
+let searchParamsValue = '';
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(searchParamsValue),
+}));
+
 afterEach(() => {
   cleanup();
+  searchParamsValue = '';
 });
 
 describe('ProjetosPage — filtros', () => {
@@ -113,5 +119,26 @@ describe('ProjetosPage — filtros', () => {
     render(<ProjetosPage />);
     await waitFor(() => expect(screen.getByText('Ativo 1')).toBeTruthy());
     expect(screen.getAllByText(/^Ativo \d$/)).toHaveLength(5);
+  });
+
+  it('aba "Arquivados" mostra só projetos com status archived', async () => {
+    const { default: ProjetosPage } = await import('@/app/projetos/page');
+    render(<ProjetosPage />);
+
+    await waitFor(() => expect(screen.getByText('Ativo 1')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Arquivados' }));
+
+    await waitFor(() => expect(screen.getByText('Arquivado 1')).toBeTruthy());
+    expect(screen.queryByText('Ativo 1')).toBeNull();
+    expect(screen.queryByText('Pausado 1')).toBeNull();
+  });
+
+  it('?filter=archived na URL pré-seleciona a aba Arquivados', async () => {
+    searchParamsValue = 'filter=archived';
+    const { default: ProjetosPage } = await import('@/app/projetos/page');
+    render(<ProjetosPage />);
+
+    await waitFor(() => expect(screen.getByText('Arquivado 1')).toBeTruthy());
+    expect(screen.queryByText('Ativo 1')).toBeNull();
   });
 });

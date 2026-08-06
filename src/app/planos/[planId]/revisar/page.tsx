@@ -62,7 +62,13 @@ export default function RevisarPlanoPage({ params }: { params: Promise<{ planId:
     () => planQueries.getPlanProposal(planId),
     [planId]
   );
+  // `projects` (todos, exceto soft-deleted) resolve nomes históricos — uma
+  // ação já vinculada a um projeto que foi arquivado depois continua
+  // legível. `assignableProjects` (só status active) é a única fonte das
+  // opções de NOVA atribuição no select — nunca oferece archived/paused/
+  // completed para uma escolha nova (mesma regra usada em /planos/novo).
   const { data: projects } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const { data: assignableProjects } = useReactiveQuery(() => projectQueries.listAssignableProjects(), []);
   const error = detailError ?? proposalError;
 
   if (isLoading) {
@@ -96,6 +102,7 @@ export default function RevisarPlanoPage({ params }: { params: Promise<{ planId:
       detail={detail}
       proposal={proposal ?? null}
       projects={projects ?? []}
+      assignableProjects={assignableProjects ?? []}
     />
   );
 }
@@ -105,11 +112,13 @@ function ReviewEditor({
   detail,
   proposal,
   projects,
+  assignableProjects,
 }: {
   planId: string;
   detail: PlanDetail;
   proposal: PlanProposal | null;
   projects: Project[];
+  assignableProjects: Project[];
 }) {
   const router = useRouter();
   const { plan: planCmds } = useCommands();
@@ -133,6 +142,7 @@ function ReviewEditor({
 
   const projectById = new Map(projects.map((p) => [p.id, p]));
   const planProjectName = plan.projectId ? projectById.get(plan.projectId)?.name ?? null : null;
+  const assignableProjectIds = new Set(assignableProjects.map((p) => p.id));
 
   // A barra inferior fixa não pode esconder o final da revisão: mede a
   // própria altura renderizada (ela pode quebrar em duas linhas no mobile) e
@@ -552,7 +562,20 @@ function ReviewEditor({
                     Usar projeto do plano{planProjectName ? ` — ${planProjectName}` : ''}
                   </option>
                   <option value="none">Sem projeto</option>
-                  {projects.map((p) => (
+                  {/* Projeto já atribuído (specific) que não está mais em
+                      assignableProjects (arquivado/pausado/concluído desde a
+                      atribuição) continua aparecendo — sozinho, marcado como
+                      histórico — para nunca virar "projeto desconhecido".
+                      Não entra na lista de novas opções abaixo. */}
+                  {action.projectAssignment === 'specific' &&
+                    action.projectId &&
+                    !assignableProjectIds.has(action.projectId) &&
+                    projectById.get(action.projectId) && (
+                      <option value={`specific:${action.projectId}`}>
+                        {projectById.get(action.projectId)!.name} (já atribuído — não ativo)
+                      </option>
+                  )}
+                  {assignableProjects.map((p) => (
                     <option key={p.id} value={`specific:${p.id}`}>
                       {p.name}
                     </option>

@@ -72,6 +72,7 @@ export class ProjectCommands {
     const updated: Project = {
       ...existing,
       status: 'archived',
+      archivedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
@@ -89,5 +90,51 @@ export class ProjectCommands {
     });
 
     return updated;
+  }
+
+  async restoreProject(id: string): Promise<Project> {
+    const existing = await this.projectRepo.findById(id);
+    if (!existing) throw new Error("Projeto não encontrado");
+    if (existing.status !== 'archived') {
+      throw new Error("Só é possível restaurar um projeto arquivado");
+    }
+
+    const updated: Project = {
+      ...existing,
+      status: 'active',
+      archivedAt: undefined,
+      updatedAt: new Date().toISOString()
+    };
+
+    ProjectSchema.parse(updated);
+    await this.projectRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'project.restored',
+      entityId: updated.id,
+      workspaceId: updated.workspaceId,
+      source: 'manual',
+      payload: updated,
+      createdAt: new Date().toISOString(),
+    });
+
+    return updated;
+  }
+
+  /**
+   * Exclusão permanente e irreversível. Guarda também no cliente (defesa em
+   * profundidade) — a guarda real e definitiva vive na RPC
+   * `delete_project_permanently`, que reprocessa a mesma checagem no
+   * servidor antes de remover a linha.
+   */
+  async deleteProjectPermanently(id: string): Promise<void> {
+    const existing = await this.projectRepo.findById(id);
+    if (!existing) throw new Error("Projeto não encontrado");
+    if (existing.status !== 'archived') {
+      throw new Error("Só é possível excluir permanentemente um projeto arquivado");
+    }
+
+    await this.projectRepo.deletePermanently(id);
   }
 }

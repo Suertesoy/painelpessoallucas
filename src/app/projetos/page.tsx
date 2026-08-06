@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { Suspense, useState, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { useWorkspace } from '@/providers/auth.provider';
@@ -8,7 +9,10 @@ import { DataErrorNotice } from '@/components/data-error-notice';
 import { Folder, Plus, AlertCircle, Clock, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 
-export default function ProjetosPage() {
+type ProjectFilter = 'all' | 'active' | 'paused' | 'completed' | 'archived';
+const VALID_FILTERS: ProjectFilter[] = ['all', 'active', 'paused', 'completed', 'archived'];
+
+function ProjetosContent() {
   const { project: projectQueries, item: itemQueries } = useQueries();
   const { project: projectCmds } = useCommands();
   const { workspaceId } = useWorkspace();
@@ -21,9 +25,15 @@ export default function ProjetosPage() {
   } = useReactiveQuery(() => projectQueries.listProjects(), []);
   const { data: items } = useReactiveQuery(() => itemQueries.listItems(), []);
 
+  const searchParams = useSearchParams();
+  // ?filter=archived (ex.: após excluir permanentemente um projeto) pré-seleciona a aba.
+  const filterParam = searchParams.get('filter');
+  const initialFilter: ProjectFilter =
+    filterParam && (VALID_FILTERS as string[]).includes(filterParam) ? (filterParam as ProjectFilter) : 'active';
+
   const [isCreating, setIsCreating] = useState(false);
   const [newProject, setNewProject] = useState({ name: '', objective: '' });
-  const [filter, setFilter] = useState<'all' | 'active' | 'paused' | 'completed' | 'archived'>('active');
+  const [filter, setFilter] = useState<ProjectFilter>(initialFilter);
 
   const filteredProjects = useMemo(() => {
     if (!projects) return [];
@@ -198,5 +208,13 @@ export default function ProjetosPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function ProjetosPage() {
+  return (
+    <Suspense>
+      <ProjetosContent />
+    </Suspense>
   );
 }

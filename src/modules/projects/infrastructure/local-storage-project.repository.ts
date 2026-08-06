@@ -29,7 +29,7 @@ export class LocalStorageProjectRepository extends LocalStorageAdapter<Project> 
     return Promise.resolve(this.getItems());
   }
 
-  public delete(id: string): Promise<void> {
+  public deletePermanently(id: string): Promise<void> {
     const projects = this.getItems();
     const filtered = projects.filter(p => p.id !== id);
     this.saveItems(filtered);

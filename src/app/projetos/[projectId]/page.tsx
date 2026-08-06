@@ -1,6 +1,7 @@
 'use client';
 
-import React, { use, useMemo } from 'react';
+import React, { use, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { Item } from '@/modules/items/domain/item.schema';
@@ -9,15 +10,19 @@ import { ItemCommands } from '@/modules/items/application/item.commands';
 import { dateInputToISO, isoToDateInput } from '@/lib/dates';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import { ItemCompleteButton } from '@/components/item-complete-button';
+import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
 import { openItemDetail } from '@/lib/ui-events';
-import { ArrowLeft, CheckCircle, Lightbulb, FileText, Target, Archive } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Lightbulb, FileText, Target, Archive, RotateCcw, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ProjetoDetalhePage({ params }: { params: Promise<{ projectId: string }> }) {
   // No Next.js 15+, `params` é uma Promise — precisa ser desembrulhada com React.use()
   const { projectId } = use(params);
+  const router = useRouter();
   const { project: projectQueries, item: itemQueries } = useQueries();
   const { project: projectCmds, item: itemCmds } = useCommands();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   const {
     data: project,
@@ -53,6 +58,21 @@ export default function ProjetoDetalhePage({ params }: { params: Promise<{ proje
     if (confirm('Tem certeza que deseja arquivar este projeto?')) {
       await projectCmds.archiveProject(projectId);
     }
+  };
+
+  const handleRestoreProject = async () => {
+    setRestoreError(null);
+    try {
+      await projectCmds.restoreProject(projectId);
+    } catch (e) {
+      setRestoreError(e instanceof Error ? e.message : 'Erro ao restaurar o projeto.');
+    }
+  };
+
+  const handleDeletePermanently = async () => {
+    await projectCmds.deleteProjectPermanently(projectId);
+    setShowDeleteDialog(false);
+    router.push('/projetos?filter=archived');
   };
 
   if (isLoadingProject || isLoadingItems) {
@@ -104,22 +124,45 @@ export default function ProjetoDetalhePage({ params }: { params: Promise<{ proje
             aria-label="Nome do projeto"
           />
           <div className="flex items-center gap-2 shrink-0">
-            <select
-              value={project.status}
-              onChange={e => handleUpdateProject({ status: e.target.value as ProjectStatus })}
-              className="text-sm border rounded p-1 bg-gray-50 outline-none"
-              aria-label="Status do projeto"
-            >
-              <option value="active">Ativo</option>
-              <option value="paused">Pausado</option>
-              <option value="completed">Concluído</option>
-              <option value="archived">Arquivado</option>
-            </select>
-            <button onClick={handleArchiveProject} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="Arquivar Projeto" aria-label="Arquivar projeto">
-              <Archive size={18} />
-            </button>
+            {project.status === 'archived' ? (
+              <span className="text-sm rounded p-1 bg-gray-100 text-gray-600">Arquivado</span>
+            ) : (
+              <select
+                value={project.status}
+                onChange={e => handleUpdateProject({ status: e.target.value as ProjectStatus })}
+                className="text-sm border rounded p-1 bg-gray-50 outline-none"
+                aria-label="Status do projeto"
+              >
+                <option value="active">Ativo</option>
+                <option value="paused">Pausado</option>
+                <option value="completed">Concluído</option>
+              </select>
+            )}
+            {project.status !== 'archived' && (
+              <button onClick={handleArchiveProject} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="Arquivar Projeto" aria-label="Arquivar projeto">
+                <Archive size={18} />
+              </button>
+            )}
+            {project.status === 'archived' && (
+              <>
+                <button onClick={handleRestoreProject} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded" title="Restaurar projeto" aria-label="Restaurar projeto">
+                  <RotateCcw size={18} />
+                </button>
+                <button
+                  onClick={() => setShowDeleteDialog(true)}
+                  className="p-1.5 text-red-500 hover:bg-red-50 rounded"
+                  title="Excluir permanentemente"
+                  aria-label="Excluir projeto permanentemente"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </>
+            )}
           </div>
         </div>
+        {restoreError && (
+          <p role="alert" className="mt-2 text-sm text-red-700">{restoreError}</p>
+        )}
 
         <div className="flex gap-4 mb-6">
           <div className="flex items-center gap-2 text-sm">
@@ -192,6 +235,15 @@ export default function ProjetoDetalhePage({ params }: { params: Promise<{ proje
           )}
         </div>
       </div>
+
+      {showDeleteDialog && (
+        <ConfirmDeleteDialog
+          entityName={project.name}
+          warningText="Esta ação não pode ser desfeita. O projeto será removido permanentemente. Tarefas e registros relacionados serão preservados quando possível e poderão ficar sem projeto."
+          onConfirm={handleDeletePermanently}
+          onClose={() => setShowDeleteDialog(false)}
+        />
+      )}
     </div>
   );
 }

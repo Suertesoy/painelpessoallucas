@@ -55,6 +55,22 @@ const cancelReminder = vi.fn();
 
 const fakeRepo = { subscribe: () => () => {} };
 
+// Simula o canal realtime compartilhado (ChangeNotifier): dispara em QUALQUER
+// mudança de tabela, inclusive ai_runs de uma análise concluída em segundo
+// plano — os testes usam `triggerRealtimeChange()` para simular isso.
+let realtimeListeners: Array<() => void> = [];
+const fakeChangeNotifier = {
+  subscribe: (fn: () => void) => {
+    realtimeListeners.push(fn);
+    return () => {
+      realtimeListeners = realtimeListeners.filter((l) => l !== fn);
+    };
+  },
+};
+function triggerRealtimeChange() {
+  realtimeListeners.forEach((l) => l());
+}
+
 vi.mock('@/providers/repository.provider', () => ({
   useRepositories: () => ({
     itemRepository: fakeRepo,
@@ -62,6 +78,7 @@ vi.mock('@/providers/repository.provider', () => ({
     dailyPlanRepository: fakeRepo,
     eventRepository: { findMigrationCompletedAt, findByEntityId },
     audioProvenanceRepository: { findLatestTriageRun, findCalendarEventLink },
+    changeNotifier: fakeChangeNotifier,
   }),
   useQueries: () => ({
     item: { getItemById },
@@ -99,6 +116,7 @@ const originalFetch = global.fetch;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  realtimeListeners = [];
   // Padrões de proveniência de áudio (sem histórico/triagem/evento) — testes
   // específicos de captura por áudio sobrescrevem antes de chamar openModalWith.
   findByEntityId.mockResolvedValue([]);
@@ -159,6 +177,30 @@ describe('ItemDetailModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }));
 
     await waitFor(() => expect(updateItem).toHaveBeenCalledWith('item-1', expect.objectContaining({ projectId: 'proj-1' })));
+  });
+
+  it('select de projeto só oferece projetos ativos para nova atribuição, mas preserva um projeto arquivado já vinculado', async () => {
+    const archivedProject: Project = {
+      id: 'proj-archived',
+      workspaceId: 'ws-1',
+      name: 'Teste nuvem',
+      status: 'archived',
+      attentionLevel: 'normal',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const itemWithArchivedProject: Item = { ...MIGRATED_ITEM, projectId: archivedProject.id };
+    getItemById.mockResolvedValue(itemWithArchivedProject);
+    listProjects.mockResolvedValue([...PROJECTS, archivedProject]);
+
+    render(<ItemDetailModal />);
+    openItemDetail(itemWithArchivedProject.id);
+    await waitFor(() => expect(screen.getByLabelText('Título')).toBeTruthy());
+
+    const select = screen.getByLabelText('Projeto') as HTMLSelectElement;
+    expect(select.value).toBe(archivedProject.id);
+    expect(screen.getByText(/Teste nuvem \(já atribuído — não ativo\)/)).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Sartec Digital' })).toBeTruthy();
   });
 
   it('conclui a tarefa', async () => {
@@ -527,5 +569,60 @@ describe('ItemDetailModal — analisar com IA a partir do detalhe', () => {
     expect(screen.getByText(new RegExp(`run run-2`))).toBeTruthy();
     // A revisão nova substitui o aviso — a área de "Analisar novamente" não é mais exibida.
     expect(screen.queryByText(STALE_MESSAGE)).toBeNull();
+  });
+});
+
+/**
+ * Uma análise disparada em segundo plano (captura rápida, outra aba, outro
+ * dispositivo) pode terminar enquanto o modal já está aberto na mesma
+ * captura. O modal precisa refletir isso sem que o usuário precise fechar e
+ * reabrir — e, ao atualizar, nunca pode sobrescrever uma edição manual em
+ * andamento no formulário (título, descrição, etc.), já que a proveniência
+ * (triagem/calendário) e os campos do formulário são estados independentes.
+ */
+describe('ItemDetailModal — análise concluída em segundo plano enquanto o modal está aberto', () => {
+  const COMPLETED_RUN = {
+    id: 'run-bg-1',
+    model: 'gpt-4.1-mini',
+    status: 'completed' as const,
+    createdAt: '2026-07-24T09:00:05.000Z',
+    completedAt: '2026-07-24T09:00:07.000Z',
+    errorMessage: null,
+    proposal: { proposedActions: [] },
+    actionsOutcome: [],
+    calendarOutcome: null,
+  };
+
+  it('mostra "Revisar sugestões" assim que o realtime avisa que a análise terminou, sem precisar fechar e reabrir', async () => {
+    // Abre o modal enquanto a análise ainda está rodando em segundo plano
+    // (nenhum run concluído encontrado ainda).
+    findLatestTriageRun.mockResolvedValue(null);
+    await openModalWith(AUDIO_ITEM);
+
+    expect(screen.queryByRole('button', { name: /Revisar sugestões/ })).toBeNull();
+
+    // A análise termina em segundo plano: a próxima consulta de proveniência
+    // já encontra o run concluído; o realtime (ai_runs atualizado) avisa.
+    findLatestTriageRun.mockResolvedValue(COMPLETED_RUN);
+    triggerRealtimeChange();
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Revisar sugestões/ })).toBeTruthy()
+    );
+  });
+
+  it('a atualização em segundo plano nunca sobrescreve uma edição manual em andamento no formulário', async () => {
+    findLatestTriageRun.mockResolvedValue(null);
+    await openModalWith(AUDIO_ITEM);
+
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Título editado manualmente' } });
+
+    findLatestTriageRun.mockResolvedValue(COMPLETED_RUN);
+    triggerRealtimeChange();
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Revisar sugestões/ })).toBeTruthy()
+    );
+    expect(screen.getByLabelText('Título')).toHaveProperty('value', 'Título editado manualmente');
   });
 });

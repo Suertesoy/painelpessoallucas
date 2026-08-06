@@ -30,7 +30,7 @@ export default function NovoPlanoPage() {
     error: projectsQueryError,
     isOffline: isProjectsOffline,
     refetch: refetchProjects,
-  } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  } = useReactiveQuery(() => projectQueries.listAssignableProjects(), []);
 
   const [title, setTitle] = useState('');
   const [documentType, setDocumentType] = useState<DocumentType>('project_plan');
@@ -43,7 +43,7 @@ export default function NovoPlanoPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const activeProjects = (projects ?? []).filter((p) => p.status === 'active');
+  const activeProjects = projects ?? [];
 
   const handleFile = async (file: File) => {
     setError(null);

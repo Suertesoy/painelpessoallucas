@@ -96,11 +96,8 @@ export class SupabaseProjectRepository implements ProjectRepository {
     return (data as ProjectRow[]).map(rowToProject);
   }
 
-  async delete(id: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('projects')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', id);
+  async deletePermanently(id: string): Promise<void> {
+    const { error } = await this.supabase.rpc('delete_project_permanently', { p_project_id: id });
     if (error) {
       throw new Error(`Não foi possível excluir o projeto: ${error.message}`);
     }
