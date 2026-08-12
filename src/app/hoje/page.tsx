@@ -1,527 +1,278 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { useReactiveQuery, useMounted } from '@/lib/hooks';
+import React, { useMemo, useState, useEffect } from 'react';
+import { useReactiveQuery, useMounted, useNow } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { Item } from '@/modules/items/domain/item.schema';
-import { useWorkspace } from '@/providers/auth.provider';
 import { todayDateStr } from '@/lib/dates';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
-import { CheckCircle, AlertCircle, Clock, Layout, Target, Plus, X, Hourglass, CalendarCheck } from 'lucide-react';
-import Link from 'next/link';
-import { TodayCalendarCard } from '@/components/today-calendar-card';
-import { HojeLearningCard } from '@/components/learning/hoje-learning-card';
 import { DataErrorNotice } from '@/components/data-error-notice';
-import { ItemCompleteButton } from '@/components/item-complete-button';
 import { openItemDetail } from '@/lib/ui-events';
-import { selectActiveTasks } from '@/lib/item-filters';
+import { formatMinutes } from '@/lib/capacity';
 import {
-  formatMinutes,
-  suggestFreeSlot,
-  itemSourceLabel,
-  type CapacitySummary,
-  type TimeInterval,
-} from '@/lib/capacity';
+  getBlocksForDate,
+  getCurrentBlock,
+  getNextBlock,
+  findNextCompatibleBlockToday,
+  nextBusinessDayStr,
+  minutesRemainingInBlock,
+  blockDurationMinutes,
+  roleCapacityMinutesForDate,
+  selectTasksForBlock,
+  computeLoad,
+  classifyPendingItems,
+  blockStartIso,
+  localDateTimeToIso,
+  tasksScheduledOnDate,
+  localTimeParts,
+  isBusinessDay,
+  type RoutineSlotRole,
+  type LoadSummary,
+} from '@/modules/routine/domain/routine-engine';
+import { NowCard } from '@/components/routine/now-card';
+import { DayTimeline } from '@/components/routine/day-timeline';
+import { NextEventCard } from '@/components/routine/next-event-card';
+import { PendingItemsCard } from '@/components/routine/pending-items-card';
 
-const PRIORITY_ORDER: Record<string, number> = { critical: 4, high: 3, normal: 2, low: 1 };
+interface RoutineAssignment {
+  primaryProjectId: string | null;
+  secondaryProjectId: string | null;
+}
 
 export default function HojePage() {
-  const { item: itemQueries, project: projectQueries, dailyPlan: dailyPlanQueries } = useQueries();
-  const { item: itemCmds, dailyPlan: dailyPlanCmds } = useCommands();
-  const { workspaceId } = useWorkspace();
+  const { item: itemQueries, project: projectQueries, learning: learningQueries } = useQueries();
+  const { item: itemCmds } = useCommands();
   const mounted = useMounted();
+  const now = useNow();
   const today = todayDateStr();
 
-  const {
-    data: todayOverview,
-    error: todayOverviewError,
-    isOffline,
-    refetch: refetchTodayOverview,
-  } = useReactiveQuery(() => itemQueries.getTodayOverview(today), [today]);
-  const { data: reviewOverview, error: reviewOverviewError, refetch: refetchReviewOverview } = useReactiveQuery(() => itemQueries.getReviewOverview(), []);
-  const { data: projects, error: projectsError, refetch: refetchProjects } = useReactiveQuery(() => projectQueries.listProjects(), []);
-  const { data: dailyPlan, error: dailyPlanError, refetch: refetchDailyPlan } = useReactiveQuery(() => dailyPlanQueries.getDailyPlan(today), [today]);
-  const { data: allItems, error: allItemsError, refetch: refetchAllItems } = useReactiveQuery(() => itemQueries.listItems(), []);
-
-  // Cada seção de Hoje falha de forma independente: um bloco quebrado não
-  // pode esconder ou substituir os demais (ver DataErrorNotice por seção
-  // abaixo). refetchFocus cobre Foco do Dia, que depende de duas fontes.
-  const refetchFocus = () => {
-    refetchDailyPlan();
-    refetchAllItems();
-  };
-
-  const [isAddingFocus, setIsAddingFocus] = useState(false);
-  const [focusSelectId, setFocusSelectId] = useState('');
-  const [focusError, setFocusError] = useState('');
-  const [capacity, setCapacity] = useState<CapacitySummary | null>(null);
-  const [busyBlocks, setBusyBlocks] = useState<{ start: string; end: string }[]>([]);
-  const [overflowWarning, setOverflowWarning] = useState<{
-    itemId: string;
-    impactMinutes: number;
-    movable: Item[];
-    suggestedTime: string | null;
-  } | null>(null);
-
-  const focusItems = useMemo<Item[]>(() => {
-    if (!dailyPlan || !allItems) return [];
-    return dailyPlan.focusItemIds
-      .map(id => allItems.find(i => i.id === id))
-      .filter((i): i is Item => Boolean(i));
-  }, [dailyPlan, allItems]);
-
-  const activeTasks = useMemo(() => selectActiveTasks(allItems ?? []), [allItems]);
-
-  const activeProjects = useMemo(() => {
-    return projects?.filter(p => p.status === 'active') || [];
-  }, [projects]);
-
-  // Atividades geradas por planos e recorrências (hoje ou sem data).
-  const planItemsToday = useMemo(() => {
-    return (allItems ?? []).filter(
-      i =>
-        i.executionPlanId &&
-        i.status !== 'completed' &&
-        i.status !== 'archived' &&
-        (!i.scheduledAt || i.scheduledAt.slice(0, 10) === today || (i.occurrenceAt ?? '').slice(0, 10) === today)
-    );
-  }, [allItems, today]);
-
-  const recurrentItemsToday = useMemo(
-    () => planItemsToday.filter(i => i.recurrenceRuleId),
-    [planItemsToday]
+  const { data: allItems, error: allItemsError, isOffline, refetch: refetchAllItems } = useReactiveQuery(
+    () => itemQueries.listItems(),
+    []
+  );
+  const { data: projects, error: projectsError } = useReactiveQuery(() => projectQueries.listProjects(), []);
+  const { data: learningToday } = useReactiveQuery(
+    () => learningQueries.getTodayStudySummary(today, 30),
+    [today]
   );
 
-  // Itens aguardando (bloqueados).
-  const waitingItems = useMemo(
-    () => (allItems ?? []).filter(i => i.status === 'blocked'),
-    [allItems]
-  );
-
-  // Próxima revisão: domingo (ou hoje, se for domingo).
-  const nextReviewLabel = useMemo(() => {
-    const now = new Date();
-    const dow = now.getDay();
-    if (dow === 0) return 'hoje (domingo)';
-    const days = 7 - dow;
-    return days === 1 ? 'amanhã (domingo)' : `em ${days} dias (domingo)`;
+  const [assignment, setAssignment] = useState<RoutineAssignment>({ primaryProjectId: null, secondaryProjectId: null });
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/settings/routine');
+        if (res.ok) setAssignment(await res.json());
+      } catch {
+        // Sem atribuição configurada ainda: a Home mostra o aviso de configuração.
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
-  const confirmAddFocus = async (itemId: string) => {
-    const currentFocus = dailyPlan?.focusItemIds || [];
-    try {
-      await dailyPlanCmds.setDailyFocus(workspaceId, today, [...currentFocus, itemId]);
-      setFocusSelectId('');
-      setFocusError('');
-      setIsAddingFocus(false);
-      setOverflowWarning(null);
-    } catch (err) {
-      setFocusError(err instanceof Error ? err.message : 'Erro ao definir foco');
+  const blocks = useMemo(() => getBlocksForDate(today), [today]);
+  const nowLocal = mounted ? localTimeParts(now).time : null;
+  const currentBlock = useMemo(
+    () => (nowLocal ? getCurrentBlock(blocks, nowLocal) : null),
+    [blocks, nowLocal]
+  );
+  const nextBlock = useMemo(() => getNextBlock(blocks, currentBlock), [blocks, currentBlock]);
+
+  const roleProjectId = (role: RoutineSlotRole | undefined): string | undefined => {
+    if (role === 'deep_work_primary') return assignment.primaryProjectId ?? undefined;
+    if (role === 'deep_work_secondary') return assignment.secondaryProjectId ?? undefined;
+    return undefined;
+  };
+  const projectNameById = (id?: string) => (id ? projects?.find((p) => p.id === id)?.name : undefined);
+
+  const currentRoleProjectId = roleProjectId(currentBlock?.role);
+  const currentRoleProjectName = projectNameById(currentRoleProjectId) ?? null;
+  const hasRoleAssignment =
+    currentBlock?.role === 'deep_work_primary'
+      ? Boolean(assignment.primaryProjectId)
+      : currentBlock?.role === 'deep_work_secondary'
+        ? Boolean(assignment.secondaryProjectId)
+        : true;
+
+  const tasksInCurrentBlock = useMemo(() => {
+    if (!currentBlock || !allItems) return [] as Item[];
+    return selectTasksForBlock(currentBlock, allItems, today, currentRoleProjectId);
+  }, [currentBlock, allItems, today, currentRoleProjectId]);
+
+  const currentBlockLoad: LoadSummary | null =
+    currentBlock && (currentBlock.role === 'deep_work_primary' || currentBlock.role === 'deep_work_secondary')
+      ? computeLoad(tasksInCurrentBlock, blockDurationMinutes(currentBlock))
+      : null;
+
+  const minutesRemaining = currentBlock && nowLocal ? minutesRemainingInBlock(currentBlock, nowLocal) : 0;
+
+  const canMoveToNextCompatibleBlock = Boolean(
+    currentBlock && findNextCompatibleBlockToday(blocks, currentBlock)
+  );
+
+  const pendingGroups = useMemo(() => {
+    if (!allItems) return [];
+    return classifyPendingItems(allItems, today);
+  }, [allItems, today]);
+
+  const roleProjectNames = {
+    deep_work_primary: projectNameById(assignment.primaryProjectId ?? undefined),
+    deep_work_secondary: projectNameById(assignment.secondaryProjectId ?? undefined),
+  };
+
+  const [pendingMove, setPendingMove] = useState<{
+    itemId: string;
+    itemTitle: string;
+    newScheduledAt: string;
+    projected: LoadSummary;
+  } | null>(null);
+
+  const requestMove = (item: Item, newScheduledAt: string, projected: LoadSummary | null) => {
+    if (projected?.overCapacity) {
+      setPendingMove({ itemId: item.id, itemTitle: item.title ?? 'tarefa', newScheduledAt, projected });
+    } else {
+      void itemCmds.scheduleItem(item.id, newScheduledAt);
     }
   };
 
-  const handleAddFocus = async () => {
-    if (!focusSelectId) return;
-    const currentFocus = dailyPlan?.focusItemIds || [];
-    if (currentFocus.length >= 3) {
-      setFocusError('No máximo 3 itens no foco diário.');
-      return;
-    }
-    if (currentFocus.includes(focusSelectId)) return;
-
-    // Impacto na capacidade do dia: a IA/painel sugere; você decide.
-    const candidate = allItems?.find(i => i.id === focusSelectId);
-    const estimate = candidate?.estimatedMinutes ?? 30;
-    if (capacity && !candidate?.scheduledAt && capacity.remainingMinutes - estimate < 0) {
-      const movable = (todayOverview?.scheduled ?? [])
-        .filter((i): i is Item => Boolean(i.estimatedMinutes))
-        .sort((a, b) => (b.estimatedMinutes ?? 0) - (a.estimatedMinutes ?? 0))
-        .slice(0, 3);
-      const dayStart = new Date(`${today}T08:00:00-03:00`).getTime();
-      const dayEnd = new Date(`${today}T18:00:00-03:00`).getTime();
-      const intervals: TimeInterval[] = [
-        ...busyBlocks.map(b => ({ startMs: new Date(b.start).getTime(), endMs: new Date(b.end).getTime() })),
-        ...(todayOverview?.scheduled ?? [])
-          .filter(i => i.scheduledAt)
-          .map(i => {
-            const startMs = new Date(i.scheduledAt!).getTime();
-            return { startMs, endMs: startMs + (i.estimatedMinutes ?? 30) * 60000 };
-          }),
-      ];
-      const slot = suggestFreeSlot(intervals, dayStart, dayEnd, estimate);
-      setOverflowWarning({
-        itemId: focusSelectId,
-        impactMinutes: estimate - Math.max(0, capacity.remainingMinutes),
-        movable,
-        suggestedTime: slot
-          ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(new Date(slot))
-          : null,
-      });
-      return;
-    }
-
-    await confirmAddFocus(focusSelectId);
+  const confirmPendingMove = async () => {
+    if (!pendingMove) return;
+    await itemCmds.scheduleItem(pendingMove.itemId, pendingMove.newScheduledAt);
+    setPendingMove(null);
   };
 
-  const handleRemoveFocus = async (id: string) => {
-    await dailyPlanCmds.removeDailyFocusItem(workspaceId, today, id);
+  const projectedLoadForRoleOnDate = (
+    destDateStr: string,
+    role: RoutineSlotRole,
+    movingItem: Item,
+    newScheduledAt: string
+  ): LoadSummary => {
+    const destRoleProjectId = roleProjectId(role);
+    const already = tasksScheduledOnDate(allItems ?? [], destDateStr, destRoleProjectId).filter(
+      (t) => t.id !== movingItem.id
+    );
+    return computeLoad(
+      [...already, { ...movingItem, scheduledAt: newScheduledAt }],
+      roleCapacityMinutesForDate(destDateStr, role)
+    );
   };
 
-  const handleCompleteItem = async (id: string) => {
-    await itemCmds.completeItem(id);
+  const handleComplete = (id: string) => itemCmds.completeItem(id);
+
+  const handleMoveNextCompatibleBlock = (item: Item) => {
+    if (!currentBlock) return;
+    const target = findNextCompatibleBlockToday(blocks, currentBlock);
+    if (!target) return;
+    const newScheduledAt = blockStartIso(today, target);
+    const projected = projectedLoadForRoleOnDate(today, target.role, item, newScheduledAt);
+    requestMove(item, newScheduledAt, projected);
+  };
+
+  const handleMoveNextBusinessDay = (item: Item) => {
+    if (!currentBlock) return;
+    const destDate = nextBusinessDayStr(today);
+    const time = item.scheduledAt ? localTimeParts(new Date(item.scheduledAt)).time : currentBlock.startTime;
+    const newScheduledAt = localDateTimeToIso(destDate, time);
+    const isWorkRole = currentBlock.role === 'deep_work_primary' || currentBlock.role === 'deep_work_secondary';
+    const projected = isWorkRole ? projectedLoadForRoleOnDate(destDate, currentBlock.role, item, newScheduledAt) : null;
+    requestMove(item, newScheduledAt, projected);
+  };
+
+  const handleBringPendingToToday = (item: Item) => {
+    const role: RoutineSlotRole | undefined =
+      item.projectId && item.projectId === assignment.primaryProjectId
+        ? 'deep_work_primary'
+        : item.projectId && item.projectId === assignment.secondaryProjectId
+          ? 'deep_work_secondary'
+          : undefined;
+
+    const targetBlock = role
+      ? currentBlock?.role === role
+        ? currentBlock
+        : blocks.find((b) => b.role === role) ?? null
+      : null;
+
+    const time = targetBlock?.startTime ?? (item.scheduledAt ? localTimeParts(new Date(item.scheduledAt)).time : '09:00');
+    const newScheduledAt = localDateTimeToIso(today, time);
+    const projected = role ? projectedLoadForRoleOnDate(today, role, item, newScheduledAt) : null;
+    requestMove(item, newScheduledAt, projected);
   };
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <div className="mb-8">
+    <div className="mx-auto max-w-3xl p-4 md:p-8">
+      <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Hoje</h1>
-        {/* A data real só é conhecida no cliente; evita mismatch de hidratação */}
-        <p className="text-gray-600 capitalize min-h-6">
-          {mounted ? format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR }) : ''}
+        <p className="min-h-6 capitalize text-gray-600">
+          {mounted ? format(now, "EEEE, d 'de' MMMM", { locale: ptBR }) : ''}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* Coluna Principal */}
-        <div className="lg:col-span-2 space-y-6">
-
-          {/* Foco do Dia */}
-          <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold flex items-center gap-2"><Target className="text-blue-500" /> Foco do Dia</h2>
-              <span className="text-sm text-gray-500">{focusItems.length}/3</span>
-            </div>
-
-            <div className="space-y-3">
-              {dailyPlanError || allItemsError ? (
-                <DataErrorNotice isOffline={isOffline} onRetry={refetchFocus} />
-              ) : focusItems.length === 0 ? (
-                <div className="text-gray-500 text-sm text-center py-4 bg-gray-50 rounded-lg border border-dashed">
-                  Nenhum foco definido para hoje.
-                </div>
-              ) : (
-                focusItems.map(item => (
-                  <div key={item.id} className="flex justify-between items-start p-3 border rounded-lg bg-blue-50/30">
-                    <div className="flex-1 min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => openItemDetail(item.id)}
-                        className={`text-left font-medium hover:underline ${item.status === 'completed' ? 'line-through text-gray-400' : ''}`}
-                      >
-                        {item.title}
-                      </button>
-                      {item.nextAction && <div className="text-xs text-gray-500 mt-1">Ação: {item.nextAction}</div>}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {item.type === 'task' && (
-                        <ItemCompleteButton
-                          itemId={item.id}
-                          title={item.title ?? 'item'}
-                          isCompleted={item.status === 'completed'}
-                          onComplete={handleCompleteItem}
-                        />
-                      )}
-                      <button onClick={() => handleRemoveFocus(item.id)} className="text-red-500 hover:bg-red-50 p-1 rounded" title="Remover do foco" aria-label={`Remover ${item.title} do foco`}>
-                        <X size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-
-              {focusError && <p className="text-sm text-red-600" role="alert">{focusError}</p>}
-
-              {overflowWarning && (
-                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">
-                  <p className="font-medium">Esta atividade ultrapassa a capacidade do dia.</p>
-                  <ul className="mt-2 space-y-1 text-xs">
-                    <li>Impacto estimado: +{formatMinutes(overflowWarning.impactMinutes)} além da capacidade.</li>
-                    {overflowWarning.movable.length > 0 && (
-                      <li>
-                        Candidatas a remanejar:{' '}
-                        {overflowWarning.movable.map(m => `${m.title} (${formatMinutes(m.estimatedMinutes ?? 0)})`).join(', ')}
-                      </li>
-                    )}
-                    <li>
-                      {overflowWarning.suggestedTime
-                        ? `Sugestão: começar às ${overflowWarning.suggestedTime}.`
-                        : 'Sem janela livre suficiente hoje — considere mover para amanhã.'}
-                    </li>
-                  </ul>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={() => void confirmAddFocus(overflowWarning.itemId)}
-                      className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
-                    >
-                      Manter mesmo assim
-                    </button>
-                    <button
-                      onClick={() => setOverflowWarning(null)}
-                      className="rounded border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {focusItems.length < 3 && !isAddingFocus && (
-                <button
-                  onClick={() => setIsAddingFocus(true)}
-                  className="w-full text-left p-3 text-sm text-gray-500 hover:bg-gray-50 border border-dashed rounded-lg flex items-center gap-2"
-                >
-                  <Plus size={16} /> Adicionar ao Foco
-                </button>
-              )}
-
-              {isAddingFocus && (
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <select
-                    value={focusSelectId}
-                    onChange={e => setFocusSelectId(e.target.value)}
-                    className="flex-1 border p-2 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    aria-label="Selecionar item para o foco"
-                  >
-                    <option value="">Selecione um item (priorize tarefas ativas)</option>
-                    {activeTasks.filter(t => !focusItems.some(f => f.id === t.id)).map(task => (
-                      <option key={task.id} value={task.id}>{task.title}</option>
-                    ))}
-                  </select>
-                  <div className="flex gap-2">
-                    <button onClick={handleAddFocus} className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">Salvar</button>
-                    <button onClick={() => { setIsAddingFocus(false); setFocusError(''); }} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded text-sm">Cancelar</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* Próximas Ações */}
-          <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
-            <h2 className="text-xl font-bold flex items-center gap-2 mb-4"><CheckCircle className="text-green-500" /> Próximas Ações (Tarefas)</h2>
-            <div className="space-y-2 max-h-96 overflow-auto pr-2">
-              {allItemsError ? (
-                <DataErrorNotice isOffline={isOffline} onRetry={refetchAllItems} />
-              ) : activeTasks.length === 0 ? (
-                <p className="text-gray-500 text-sm">Nenhuma tarefa aberta.</p>
-              ) : (
-                activeTasks
-                  .slice()
-                  .sort((a, b) => {
-                    // Priorizar agendados de hoje, depois prioridade
-                    const aToday = a.scheduledAt?.startsWith(today) ?? false;
-                    const bToday = b.scheduledAt?.startsWith(today) ?? false;
-                    if (aToday !== bToday) return aToday ? -1 : 1;
-                    return (PRIORITY_ORDER[b.priority] || 0) - (PRIORITY_ORDER[a.priority] || 0);
-                  })
-                  .slice(0, 10)
-                  .map(task => (
-                    <div key={task.id} className="flex justify-between items-center p-3 hover:bg-gray-50 border-b last:border-0">
-                      <button
-                        type="button"
-                        onClick={() => openItemDetail(task.id)}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <div className="font-medium text-sm flex items-center gap-2">
-                          <span className="truncate hover:underline">{task.title}</span>
-                          {task.priority === 'critical' && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded shrink-0">Crítica</span>}
-                          {task.priority === 'high' && <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded shrink-0">Alta</span>}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          {projects?.find(p => p.id === task.projectId)?.name || 'Sem Projeto'}
-                        </div>
-                      </button>
-                      <ItemCompleteButton
-                        itemId={task.id}
-                        title={task.title ?? 'tarefa'}
-                        isCompleted={task.status === 'completed'}
-                        onComplete={handleCompleteItem}
-                      />
-                    </div>
-                  ))
-              )}
-            </div>
-          </section>
-
+      {pendingMove && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">
+          <p className="font-medium">
+            Você tem {formatMinutes(pendingMove.projected.plannedMinutes)} de trabalho planejado para{' '}
+            {formatMinutes(pendingMove.projected.capacityMinutes)} de capacidade nesse dia/bloco.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => void confirmPendingMove()}
+              className="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+            >
+              Mover mesmo assim
+            </button>
+            <button
+              onClick={() => setPendingMove(null)}
+              className="rounded border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+            >
+              Cancelar
+            </button>
+          </div>
         </div>
+      )}
 
-        {/* Coluna Secundária */}
-        <div className="space-y-6">
+      {(allItemsError || projectsError) && (
+        <div className="mb-6">
+          <DataErrorNotice isOffline={isOffline} onRetry={refetchAllItems} />
+        </div>
+      )}
 
-          {/* Capacidade + Google Calendar */}
-          {todayOverviewError && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              Capacidade indisponível: a agenda de hoje não pôde ser carregada. Os compromissos do
-              Google Calendar abaixo continuam independentes desta falha.
-            </div>
-          )}
-          <TodayCalendarCard
-            date={today}
-            scheduledItems={todayOverview?.scheduled ?? []}
-            focusItems={focusItems}
-            onCapacityChange={(summary, busy) => {
-              setCapacity(summary);
-              setBusyBlocks(busy);
-            }}
+      <div className="space-y-6">
+        <NowCard
+          mounted={mounted}
+          isBusinessDay={isBusinessDay(today)}
+          currentBlock={currentBlock}
+          nextBlock={nextBlock}
+          roleProjectName={currentRoleProjectName}
+          hasRoleAssignment={hasRoleAssignment}
+          tasks={tasksInCurrentBlock}
+          load={currentBlockLoad}
+          minutesRemaining={minutesRemaining}
+          learningSummary={learningToday ? { ...learningToday } : null}
+          canMoveToNextCompatibleBlock={canMoveToNextCompatibleBlock}
+          onComplete={handleComplete}
+          onMoveNextCompatibleBlock={handleMoveNextCompatibleBlock}
+          onMoveNextBusinessDay={handleMoveNextBusinessDay}
+          onOpenDetail={openItemDetail}
+        />
+
+        <DayTimeline
+          mounted={mounted}
+          isBusinessDay={isBusinessDay(today)}
+          blocks={blocks}
+          nowTime={nowLocal}
+          currentBlockId={currentBlock?.id ?? null}
+          roleProjectNames={roleProjectNames}
+          learningGoalMet={Boolean(learningToday?.goalMet)}
+        />
+
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+          <NextEventCard date={today} now={now} />
+          <PendingItemsCard
+            groups={pendingGroups}
+            onComplete={handleComplete}
+            onBringToToday={handleBringPendingToToday}
+            onOpenDetail={openItemDetail}
           />
-
-          {/* Linha do Tempo */}
-          <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
-            <h2 className="text-lg font-bold flex items-center gap-2 mb-4"><Clock className="text-purple-500" /> Agendado para Hoje</h2>
-            <p className="mb-3 text-xs text-gray-400">Horário planejado ≠ prazo — prazos aparecem em Atenção.</p>
-            {todayOverviewError ? (
-              <DataErrorNotice isOffline={isOffline} onRetry={refetchTodayOverview} />
-            ) : todayOverview?.scheduled.length === 0 ? (
-              <p className="text-gray-500 text-sm">Nada agendado para hoje.</p>
-            ) : (
-              <ol className="space-y-3 border-l-2 border-purple-200 pl-4">
-                {todayOverview?.scheduled.map(item => {
-                  const sourceLabel = itemSourceLabel(item);
-                  return (
-                    <li key={item.id} className="relative">
-                      <span className="absolute -left-[1.35rem] top-1.5 w-2.5 h-2.5 rounded-full bg-purple-500" aria-hidden="true" />
-                      <div className="text-xs font-bold text-purple-700">{format(parseISO(item.scheduledAt!), 'HH:mm')}</div>
-                      <button
-                        type="button"
-                        onClick={() => openItemDetail(item.id)}
-                        className="flex min-w-0 items-center gap-1.5 text-left text-sm font-medium text-gray-900 hover:underline"
-                      >
-                        <span className="truncate">{item.title}</span>
-                        {sourceLabel && (
-                          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{sourceLabel}</span>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </section>
-
-          {/* Atividades de planos e recorrências */}
-          <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
-            <h2 className="text-lg font-bold flex items-center gap-2 mb-3"><CalendarCheck className="text-emerald-500" /> Dos planos ativos</h2>
-            {allItemsError ? (
-              <DataErrorNotice isOffline={isOffline} onRetry={refetchAllItems} />
-            ) : planItemsToday.length === 0 ? (
-              <p className="text-gray-500 text-sm">Nenhuma atividade de plano para hoje.</p>
-            ) : (
-              <ul className="space-y-1.5 text-sm">
-                {planItemsToday.slice(0, 8).map(item => (
-                  <li key={item.id} className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openItemDetail(item.id)}
-                      className="min-w-0 truncate text-left hover:underline"
-                    >
-                      {item.title}
-                    </button>
-                    <span className="ml-auto shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">
-                      {item.recurrenceRuleId ? 'Recorrente' : 'Plano'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {recurrentItemsToday.length > 0 && (
-              <p className="mt-2 text-xs text-gray-400">
-                {recurrentItemsToday.length} recorrente(s) hoje.
-              </p>
-            )}
-          </section>
-
-          {/* Aguardando + próxima revisão */}
-          <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
-            <h2 className="text-lg font-bold flex items-center gap-2 mb-3"><Hourglass className="text-amber-500" /> Aguardando</h2>
-            {allItemsError ? (
-              <DataErrorNotice isOffline={isOffline} onRetry={refetchAllItems} />
-            ) : waitingItems.length === 0 ? (
-              <p className="text-gray-500 text-sm">Nada aguardando terceiros.</p>
-            ) : (
-              <ul className="space-y-1.5 text-sm">
-                {waitingItems.slice(0, 5).map(item => (
-                  <li key={item.id} className="truncate">
-                    <button type="button" onClick={() => openItemDetail(item.id)} className="hover:underline">
-                      {item.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="mt-4 border-t pt-3 text-xs text-gray-500">
-              Próxima revisão: {nextReviewLabel} ·{' '}
-              <Link href="/revisao" className="text-blue-600 hover:underline">abrir Revisão</Link>
-            </p>
-          </section>
-
-          {/* Atenção Necessária */}
-          <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
-            <h2 className="text-lg font-bold flex items-center gap-2 mb-4"><AlertCircle className="text-red-500" /> Atenção Necessária</h2>
-            <div className="space-y-2 text-sm">
-              {reviewOverviewError ? (
-                <DataErrorNotice isOffline={isOffline} onRetry={refetchReviewOverview} />
-              ) : (
-              <>
-              {reviewOverview?.overdue.length ? (
-                <Link href="/revisao" className="block p-2 bg-red-50 text-red-800 rounded hover:bg-red-100">
-                  <span className="font-bold">{reviewOverview.overdue.length}</span> item(s) com prazo estourado.
-                </Link>
-              ) : null}
-              {reviewOverview?.blocked.length ? (
-                <Link href="/revisao" className="block p-2 bg-orange-50 text-orange-800 rounded hover:bg-orange-100">
-                  <span className="font-bold">{reviewOverview.blocked.length}</span> item(s) bloqueados.
-                </Link>
-              ) : null}
-              {reviewOverview?.oldInbox.length ? (
-                <Link href="/revisao" className="block p-2 bg-yellow-50 text-yellow-800 rounded hover:bg-yellow-100">
-                  <span className="font-bold">{reviewOverview.oldInbox.length}</span> item(s) na Inbox &gt; 30 dias.
-                </Link>
-              ) : null}
-
-              {!reviewOverview?.overdue.length && !reviewOverview?.blocked.length && !reviewOverview?.oldInbox.length && (
-                <p className="text-gray-500">Tudo sob controle.</p>
-              )}
-              </>
-              )}
-            </div>
-          </section>
-
-          {/* Pulso dos Projetos */}
-          <section className="bg-white rounded-xl shadow-sm border p-4 md:p-6">
-            <h2 className="text-lg font-bold flex items-center gap-2 mb-4"><Layout className="text-indigo-500" /> Pulso dos Projetos</h2>
-            <div className="space-y-3">
-              {projectsError ? (
-                <DataErrorNotice isOffline={isOffline} onRetry={refetchProjects} />
-              ) : activeProjects.length === 0 ? (
-                <p className="text-gray-500 text-sm">Nenhum projeto ativo.</p>
-              ) : (
-                activeProjects.slice(0, 5).map(proj => (
-                  <Link key={proj.id} href={`/projetos/${proj.id}`} className="block p-3 border rounded-lg hover:bg-gray-50 transition-colors">
-                    <div className="flex justify-between items-start mb-1">
-                      <div className="font-medium text-sm text-gray-900 truncate">{proj.name}</div>
-                      {proj.attentionLevel === 'critical' && <AlertCircle size={14} className="text-red-500 shrink-0" />}
-                    </div>
-                    {proj.nextMilestone ? (
-                      <div className="text-xs text-gray-500 truncate">Próx: {proj.nextMilestone}</div>
-                    ) : (
-                      <div className="text-xs text-orange-500">Sem próximo marco definido</div>
-                    )}
-                  </Link>
-                ))
-              )}
-              {activeProjects.length > 5 && (
-                <Link href="/projetos" className="text-sm text-blue-600 hover:underline block text-center mt-2">
-                  Ver todos os {activeProjects.length} projetos
-                </Link>
-              )}
-            </div>
-          </section>
-
-          {/* Aprendizado (compacto) */}
-          <HojeLearningCard />
-
         </div>
       </div>
     </div>

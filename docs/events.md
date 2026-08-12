@@ -11,7 +11,7 @@ O sistema utiliza arquitetura orientada a eventos para notificar mudanças de es
 - `project.created`
 - `project.updated`
 - `project.archived`
-- `daily_plan.focus_updated`
+- `daily_plan.focus_updated` — **@deprecated** (Fase 12): "Foco do Dia" saiu da Home; nenhuma tela nova emite este evento.
 
 ## Formato dos Eventos
 Todo evento respeita uma estrutura mínima:

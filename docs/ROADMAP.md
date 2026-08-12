@@ -3,7 +3,7 @@
 > Fases pequenas e verificáveis. Uma fase só começa quando a anterior está estável em uso real.
 
 ## Fase 1 — Fundação local funcional ✅ (atual)
-Entregue: captura rápida universal (atalho + botões + FAB mobile), inbox com processamento, projetos com detalhe, foco diário (máx. 3), agenda (agendado vs. prazo, fuso local correto), revisão determinística, busca global, eventos de domínio registrados, testes, lint/typecheck/build limpos, deploy Vercel corrigido.
+Entregue: captura rápida universal (atalho + botões + FAB mobile), inbox com processamento, projetos com detalhe, foco diário (máx. 3 — **substituído pela Home de blocos de rotina, ver Fase 12**), agenda (agendado vs. prazo, fuso local correto), revisão determinística, busca global, eventos de domínio registrados, testes, lint/typecheck/build limpos, deploy Vercel corrigido.
 
 **Critério de saída:** uso diário por ≥2 semanas sem perda de dados nem fricção bloqueante.
 
@@ -336,3 +336,36 @@ completa.
   Até serem aplicadas (nesta ordem), `/financas` mostra uma orientação
   segura de "migration ainda não aplicada" — não derruba o restante do
   painel, e nunca expõe a mensagem interna do Postgres.
+
+## Fase 12 — Home de execução diária por blocos de rotina ✅ (atual)
+`/hoje` deixou de ser um dashboard de tudo que existe no sistema e passou a
+responder "o que eu deveria estar fazendo agora": **Agora** (bloco atual,
+tarefas associadas, tempo restante — o elemento de maior peso da tela),
+**Seu dia** (linha do tempo compacta dos blocos), **Próximo evento**
+(card compacto, não a agenda completa) e **Pendências** (só tarefas
+atrasadas, agrupadas por dia de origem — nunca a lista completa de itens
+abertos). Ver `docs/ARCHITECTURE.md` § "Home — execução diária por blocos".
+- **"Foco do Dia" (máx. 3 itens) saiu da experiência principal** — decidir
+  3 focos todo dia virava mais uma tarefa de organização em vez de ajudar a
+  começar a trabalhar. O módulo (`src/modules/planning`) foi marcado
+  `@deprecated` e continua funcionando por baixo (sem migration destrutiva),
+  mas nenhuma tela nova depende dele.
+- Rotina fixa de segunda a sexta (09:00–18:00+ Japonês); **sábado e domingo
+  nunca geram blocos de trabalho padrão**, e tarefas adiadas de sexta nunca
+  caem no fim de semana (vão para a segunda seguinte).
+- "Projeto principal"/"Frente secundária" são papéis reutilizáveis — qual
+  projeto ocupa cada papel é configurável em Configurações → Rotina diária,
+  nunca hardcoded (hoje aponta para o Grupo Almeida, mas isso é dado, não
+  código).
+- Buffer (17:00–18:00) nunca é preenchido automaticamente — só capacidade de
+  segurança para mover tarefas manualmente.
+- Japonês é a rotina de estudo já existente (`src/modules/learning`), não um
+  Plano de Execução novo — o bloco só lê o resumo do dia.
+- Mover uma tarefa (próximo bloco compatível/próximo dia útil) nunca
+  reorganiza o resto do dia silenciosamente: tarefas adiadas se acumulam com
+  as já planejadas no destino, e uma sobrecarga é avisada, nunca escondida
+  ou resolvida automaticamente.
+- Fora do escopo desta fase: a padronização/template de Plano de Execução
+  (fase futura separada), redesenho visual completo (só hierarquia e
+  funcionalidade), e a migration de limpeza que removeria
+  `daily_plans`/`daily_plan_items` definitivamente.

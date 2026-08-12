@@ -2,6 +2,11 @@ import { DailyPlanRepository } from './daily-plan.repository';
 import { EventRepository } from '@/platform/events/event.repository';
 import { DailyPlan, DailyPlanSchema } from '../domain/daily-plan.schema';
 
+/**
+ * @deprecated "Foco do Dia" saiu da Home (Fase 1 — blocos de rotina). Não
+ * chamar a partir de código novo. Ver DailyPlanSchema para o motivo de não
+ * remover ainda.
+ */
 export class DailyPlanCommands {
   constructor(
     private dailyPlanRepo: DailyPlanRepository,

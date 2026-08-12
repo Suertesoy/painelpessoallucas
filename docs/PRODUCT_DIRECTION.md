@@ -15,7 +15,10 @@ Lucas (Product Designer / Design Engineer) não sofre de falta de ferramentas �
 
 ## 3. Fluxo diário pretendido
 
-1. Manhã: abrir **Hoje** → escolher até 3 focos → ver agendados e alertas.
+1. Manhã: abrir **Hoje** e ver imediatamente o bloco de rotina atual e as
+   tarefas associadas — não mais "escolher até 3 focos" (esse passo saiu da
+   experiência: virou mais uma tarefa de organização em vez de ajudar a
+   começar a trabalhar; ver `docs/ROADMAP.md` Fase 12).
 2. Durante o dia: `Ctrl+Shift+Espaço` (ou botão Capturar / FAB no celular) para despejar qualquer coisa na **Entrada**, sem interromper o trabalho.
 3. Pausas: processar a **Entrada** (definir tipo, projeto, próxima ação, agendar ou arquivar).
 4. Fim do dia / semana: **Revisão** aponta prazos estourados, bloqueios, inbox estagnada e projetos sem marco.
@@ -27,7 +30,7 @@ Lucas (Product Designer / Design Engineer) não sofre de falta de ferramentas �
 ## 5. Priorização de funcionalidades (candidatas da visão)
 
 ### Essencial agora (implementado)
-Caixa de entrada universal · captura livre por texto/áudio · triagem com confirmação humana · sincronização instantânea entre dispositivos · foco do dia (máx. 3) · próxima ação por item · notas e decisões · revisão determinística · busca global · agenda separando agendamento de prazo.
+Caixa de entrada universal · captura livre por texto/áudio · triagem com confirmação humana · sincronização instantânea entre dispositivos · Home de execução por blocos de rotina (substituiu o foco do dia) · próxima ação por item · notas e decisões · revisão determinística · busca global · agenda separando agendamento de prazo.
 
 ### Próxima fase (Fase 1.5 — ainda local)
 - Área **"Aguardando"** (itens esperando terceiros, com "quem" e "desde quando") — dor direta do Grupo Almeida (respostas da Priscila etc.).

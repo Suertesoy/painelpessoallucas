@@ -16,6 +16,7 @@ src/
       domain/             # Zod schemas + tipos (fonte única de verdade)
       application/        # Commands, Queries e interfaces de Repository
       infrastructure/     # Adaptadores Supabase e legado localStorage
+    routine/domain/       # Motor da rotina diária (Home) — só domínio, sem persistência própria
     global/application/   # Busca global (composição de queries)
   platform/
     storage/              # Adaptadores legados e infraestrutura compartilhada
@@ -40,8 +41,20 @@ Queries são assíncronas (retornam `Promise`), então a UI usa o padrão **effe
 
 - `ItemCommands`: create, update, schedule, complete, archive — todos validam com `ItemSchema.parse` e emitem eventos (`item.created`, `item.updated`, `item.scheduled` com valor anterior/novo, `item.completed`, `item.archived`).
 - `ProjectCommands`: create, update, archive (+ eventos).
-- `DailyPlanCommands`: `setDailyFocus` (regra de máx. 3 itens aplicada no domínio) e `removeDailyFocusItem`.
-- Queries correspondentes (`ItemQueries`, `ProjectQueries`, `DailyPlanQueries`, `GlobalQueries`) são somente leitura.
+- `DailyPlanCommands` (`setDailyFocus`/`removeDailyFocusItem`): **@deprecated**. "Foco do Dia" saiu da Home na Fase 1 da Home de execução (ver seção "Home — execução diária por blocos"). Nenhuma tela nova depende disso; mantido sem migration destrutiva até uma limpeza dedicada.
+- Queries correspondentes (`ItemQueries`, `ProjectQueries`, `GlobalQueries`) são somente leitura.
+
+## Home — execução diária por blocos (Fase 1)
+
+A Home (`/hoje`) responde "o que eu deveria estar fazendo agora", não "organize seu dia":
+
+- **Rotina é código, não dado.** `src/modules/routine/domain/routine-engine.ts` define os blocos de segunda a sexta (horário, papel — `deep_work_primary`/`deep_work_secondary`/`break`/`lunch`/`buffer`/`learning`) como constante pura, testável por horário. Sábado e domingo nunca geram blocos.
+- **Só a atribuição de projeto ao papel é configuração.** Qual projeto ocupa "Projeto principal"/"Frente secundária" fica em `workspace_settings.routine_primary_project_id`/`routine_secondary_project_id` (Configurações → Rotina diária, `/api/settings/routine`) — nunca hardcoded, para poder trocar sem deploy.
+- **Bloco ≠ tarefa.** Uma tarefa continua sendo o `Item` existente; a associação ao bloco é derivada (projeto do papel + horário), nunca uma cópia nem uma nova entidade de vínculo.
+- **Buffer (17:00–18:00) nunca é preenchido automaticamente** — só tarefas explicitamente agendadas nele aparecem lá.
+- **Japonês pertence à rotina, não a um Plano de Execução** — o bloco lê `LearningQueries.getTodayStudySummary`, sem duplicar o módulo de Aprendizado.
+- **Sobrecarga nunca reorganiza silenciosamente**: mover uma tarefa (próximo bloco compatível/próximo dia útil) calcula a carga projetada (`computeLoad`/`roleCapacityMinutesForDate`) e só avisa — quem decide é o usuário.
+- Planos de Execução (`plan_action_id`/`execution_plan_id`/proveniência) continuam fora de escopo desta fase — a padronização do template de plano é uma fase futura separada.
 
 ## Datas e fuso horário
 

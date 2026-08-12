@@ -146,6 +146,22 @@ export function useOnlineStatus(): boolean {
  */
 const emptySubscribe = () => () => {};
 
+/**
+ * Instante atual, atualizado periodicamente — para telas que precisam
+ * reagir à passagem do tempo (ex.: bloco de rotina atual). O valor inicial
+ * usa o snapshot do servidor apenas até a montagem (evita mismatch de
+ * hidratação); componentes que exibem esse valor devem usar `useMounted`
+ * para não renderizar o snapshot do servidor como se fosse "agora" real.
+ */
+export function useNow(intervalMs = 30000): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return now;
+}
+
 export function useMounted(): boolean {
   // useSyncExternalStore com snapshots distintos servidor/cliente é a forma
   // recomendada (sem setState em effect) de detectar a hidratação concluída.

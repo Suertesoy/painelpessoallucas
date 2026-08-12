@@ -17,10 +17,15 @@ const MIGRATION_FILE = '20260805130000_project_hard_delete.sql';
 const sql = readFileSync(join(MIGRATIONS_DIR, MIGRATION_FILE), 'utf8').toLowerCase();
 
 describe('Migration de exclusão permanente de projeto — ordem no histórico', () => {
-  it('tem timestamp posterior a todas as migrations existentes', () => {
+  // Compara só com as migrations que já existiam quando esta foi escrita (não
+  // com "todas", que cresce a cada feature nova e tornaria este teste
+  // inevitavelmente falso mais tarde) — a garantia real é não preceder
+  // `plan_action_project_assignment`, de quem depende estruturalmente.
+  it('é posterior à migration de plan_action_project_assignment, de quem depende', () => {
     const allMigrations = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
-    const others = allMigrations.filter((f) => f !== MIGRATION_FILE);
-    expect(others.every((f) => MIGRATION_FILE > f)).toBe(true);
+    const dependency = allMigrations.find((f) => f.includes('plan_action_project_assignment'));
+    expect(dependency).toBeDefined();
+    expect(MIGRATION_FILE > dependency!).toBe(true);
   });
 });
 
