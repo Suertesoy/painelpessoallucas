@@ -2,7 +2,7 @@
 
 import type { MonthProjection } from '@/modules/finance/cash/domain/projection';
 import type { ProjectedInstallment } from '@/modules/finance/cash/domain/installments';
-import { CARD_LABELS, monthLabel, monthShortLabel } from '@/modules/finance/cash/domain/month';
+import { CARD_FULL_LABELS, monthLabel, monthShortLabel } from '@/modules/finance/cash/domain/month';
 import { Card, Chip, Eyebrow, Money } from './ui';
 
 export function CoverageCard({ month, balanceInformed }: { month: MonthProjection; balanceInformed: boolean }) {
@@ -25,7 +25,7 @@ export function CoverageCard({ month, balanceInformed }: { month: MonthProjectio
       </div>
       <dl className="mt-4 space-y-1.5 text-sm">
         <div className="flex justify-between"><dt className="text-[var(--text-muted)]">Disponível</dt><dd><Money cents={month.openingCents} size="sm" /></dd></div>
-        <div className="flex justify-between"><dt className="text-[var(--text-muted)]">+ A receber (confirmado)</dt><dd><Money cents={month.receiptsCents} size="sm" tone="positive" /></dd></div>
+        <div className="flex justify-between"><dt className="text-[var(--text-muted)]">+ A receber (confirmado)</dt><dd><Money cents={month.inflowCents} size="sm" tone="positive" /></dd></div>
         <div className="flex justify-between"><dt className="text-[var(--text-muted)]">− Comprometido</dt><dd><Money cents={month.committedCents} size="sm" /></dd></div>
         <div className="flex justify-between border-t border-[var(--line)] pt-1.5"><dt>Resultado projetado</dt><dd><Money cents={month.resultCents} size="sm" tone={month.resultCents < 0 ? 'negative' : 'default'} /></dd></div>
       </dl>
@@ -51,7 +51,8 @@ function MonthRow({ m, installments }: { m: MonthProjection; installments: Proje
       </summary>
       <div className="space-y-1.5 border-t border-[var(--line)] p-3.5 text-sm">
         <Line label="Saldo inicial considerado" cents={m.openingCents} />
-        <Line label="Recebimentos confirmados" cents={m.receiptsCents} tone="positive" />
+        <Line label="Entradas fixas previstas" cents={m.fixedIncomeCents} tone="positive" />
+        <Line label="Recebimentos pontuais confirmados" cents={m.receiptsCents} tone="positive" />
         <Line label="Contas fora dos cartões" cents={m.directCents} />
         {m.invoiceLines.map((l) => (
           <Line key={l.id} label={`${l.label}${l.hasAmount ? '' : ' (sem valor)'}`} cents={l.amountCents} />
@@ -69,7 +70,7 @@ function MonthRow({ m, installments }: { m: MonthProjection; installments: Proje
             </p>
             <ul className="mt-1 list-inside list-disc">
               {mine.slice(0, 6).map((i, idx) => (
-                <li key={idx}>{CARD_LABELS[i.card]} · {i.baseDescription} {i.installmentNo}/{i.installmentTotal}</li>
+                <li key={idx}>{CARD_FULL_LABELS[i.card]} · {i.baseDescription} {i.installmentNo}/{i.installmentTotal}</li>
               ))}
             </ul>
           </div>

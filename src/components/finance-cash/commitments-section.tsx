@@ -5,7 +5,7 @@ import { Check, Plus } from 'lucide-react';
 import { useCommands } from '@/providers/repository.provider';
 import type { Commitment } from '@/modules/finance/cash/domain/types';
 import type { CardFixedLine, CardFixedState, MonthLine, MonthProjection } from '@/modules/finance/cash/domain/projection';
-import { CARD_IDS, CARD_LABELS, monthOf, type CardId } from '@/modules/finance/cash/domain/month';
+import { CARD_IDS, CARD_FULL_LABELS, monthOf, type CardId } from '@/modules/finance/cash/domain/month';
 import {
   Card, Chip, Dialog, ErrorText, Eyebrow, Field, Money, MoneyField, buttonGhost, buttonPrimary, buttonSecondary,
   formatDateBR, inputClass, parseMoneyInput, centsToInput, useAction,
@@ -89,7 +89,7 @@ function CommitmentForm({ initial, currentMonth, onDone, onCancel }: {
         <Field label="Cartão">
           {(id) => (
             <select id={id} className={inputClass} value={card} onChange={(e) => setCard(e.target.value as CardId)}>
-              {CARD_IDS.map((c) => <option key={c} value={c}>{CARD_LABELS[c]}</option>)}
+              {CARD_IDS.map((c) => <option key={c} value={c}>{CARD_FULL_LABELS[c]}</option>)}
             </select>
           )}
         </Field>
@@ -154,7 +154,7 @@ export function CommitmentsSection({ commitments, month }: { commitments: Commit
           <Money cents={l.amountCents} tone={l.countedCents > 0 ? 'default' : 'muted'} />
         </div>
         <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]">
-          {CARD_LABELS[l.card]}
+          {CARD_FULL_LABELS[l.card]}
           <Chip tone={STATE_LABEL[l.state].tone}>{STATE_LABEL[l.state].text}</Chip>
           {l.state !== 'reconciled' && (
             <button type="button" className={buttonGhost} onClick={() => void financeCash.setIncludedInInvoice(l.id, monthOfLine(l), !included)}>

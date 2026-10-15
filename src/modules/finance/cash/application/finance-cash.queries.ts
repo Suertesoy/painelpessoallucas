@@ -4,7 +4,7 @@ import {
 } from '../domain/projection';
 import { projectFutureInstallments, type ProjectedInstallment } from '../domain/installments';
 import { addMonths, monthOf } from '../domain/month';
-import { effectiveInvoiceAmount, type Balance, type CardInvoice, type Commitment, type InvoiceItem, type Occurrence, type Receivable } from '../domain/types';
+import { effectiveInvoiceAmount, type Balance, type CardInvoice, type Commitment, type FixedIncome, type IncomeOccurrence, type InvoiceItem, type Occurrence, type Receivable } from '../domain/types';
 
 export const PROJECTION_MONTHS = 4;
 
@@ -16,6 +16,8 @@ export interface FinanceCashSnapshot {
   occurrences: Occurrence[];
   invoices: CardInvoice[];
   items: InvoiceItem[];
+  fixedIncomes: FixedIncome[];
+  incomeOccurrences: IncomeOccurrence[];
   projection: MonthProjection[];
   /** Parcelas futuras estimadas — informativas, fora de qualquer total. */
   projectedInstallments: ProjectedInstallment[];
@@ -25,9 +27,10 @@ export class FinanceCashQueries {
   constructor(private repo: SupabaseFinanceCashRepository) {}
 
   async getSnapshot(today: string): Promise<FinanceCashSnapshot> {
-    const [balance, receivables, commitments, occurrences, invoices, items] = await Promise.all([
+    const [balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences] = await Promise.all([
       this.repo.getBalance(), this.repo.listReceivables(), this.repo.listCommitments(),
       this.repo.listOccurrences(), this.repo.listInvoices(), this.repo.listItems(),
+      this.repo.listFixedIncomes(), this.repo.listIncomeOccurrences(),
     ]);
 
     const invoiceById = new Map(invoices.map((i) => [i.id, i]));
@@ -50,6 +53,8 @@ export class FinanceCashQueries {
       receivables: receivables.map<ReceivableInput>((r) => ({
         id: r.id, description: r.description, amountCents: r.amountCents, expectedDate: r.expectedDate, status: r.status,
       })),
+      fixedIncomes: fixedIncomes.map((i) => ({ ...i })),
+      incomeOccurrences: incomeOccurrences.map((o) => ({ incomeId: o.incomeId, month: o.month, amountCents: o.amountCents, status: o.status })),
       commitments: commitments.map<CommitmentInput>((c) => ({ ...c })),
       occurrences: occurrences.map<OccurrenceInput>((o) => ({
         commitmentId: o.commitmentId, month: o.month, amountCents: o.amountCents, status: o.status,
@@ -75,7 +80,7 @@ export class FinanceCashQueries {
       addMonths(current, PROJECTION_MONTHS - 1)
     );
 
-    return { today, balance, receivables, commitments, occurrences, invoices, items, projection, projectedInstallments };
+    return { today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments };
   }
 
   listTransfers() {

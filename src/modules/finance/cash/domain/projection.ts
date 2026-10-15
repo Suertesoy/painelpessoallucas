@@ -1,4 +1,4 @@
-import { addMonths, compareMonths, dateInMonth, monthOf, type CardId, type MonthKey } from './month';
+import { addMonths, CARD_FULL_LABELS, compareMonths, dateInMonth, monthOf, type CardId, type MonthKey } from './month';
 
 /**
  * Motor de projeção do caixa — função pura, sem acesso a banco ou relógio.
@@ -19,6 +19,7 @@ import { addMonths, compareMonths, dateInMonth, monthOf, type CardId, type Month
 export type ReceivableStatus = 'confirmed' | 'uncertain' | 'received' | 'cancelled';
 export type InvoiceStatus = 'open' | 'closed' | 'paid';
 export type OccurrenceStatus = 'pending' | 'paid' | 'included_in_invoice' | 'skipped';
+export type IncomeOccurrenceStatus = 'pending' | 'received' | 'cancelled';
 
 export interface ReceivableInput {
   id: string;
@@ -42,6 +43,24 @@ export interface CommitmentInput {
   billing: 'direct' | 'card';
   card: CardId | null;
   active: boolean;
+}
+
+/** Entrada fixa: receita mensal recorrente, com término opcional (inclusivo). */
+export interface FixedIncomeInput {
+  id: string;
+  description: string;
+  amountCents: number;
+  dayOfMonth: number;
+  startMonth: MonthKey;
+  endMonth: MonthKey | null;
+  active: boolean;
+}
+
+export interface IncomeOccurrenceInput {
+  incomeId: string;
+  month: MonthKey;
+  amountCents: number | null;
+  status: IncomeOccurrenceStatus;
 }
 
 export interface OccurrenceInput {
@@ -69,6 +88,9 @@ export interface ProjectionInput {
   months: number;
   availableCents: number;
   receivables: readonly ReceivableInput[];
+  /** Entradas fixas e suas exceções mensais (opcionais). */
+  fixedIncomes?: readonly FixedIncomeInput[];
+  incomeOccurrences?: readonly IncomeOccurrenceInput[];
   commitments: readonly CommitmentInput[];
   occurrences: readonly OccurrenceInput[];
   invoices: readonly InvoiceInput[];
@@ -97,8 +119,14 @@ export interface MonthProjection {
   month: MonthKey;
   isCurrent: boolean;
   openingCents: number;
+  /** Recebimentos PONTUAIS confirmados e ainda não recebidos. */
   receipts: MonthLine[];
   receiptsCents: number;
+  /** Ocorrências de entradas fixas previstas e ainda não recebidas. */
+  fixedIncomeLines: MonthLine[];
+  fixedIncomeCents: number;
+  /** Total que entra na conta do mês: pontuais confirmados + entradas fixas. */
+  inflowCents: number;
   uncertainReceipts: MonthLine[];
   uncertainReceiptsCents: number;
   directLines: MonthLine[];
@@ -111,6 +139,12 @@ export interface MonthProjection {
   resultCents: number;
   needCents: number;
   warnings: string[];
+}
+
+function sharesWord(a: string, b: string): boolean {
+  const words = (s: string) => new Set(s.toLowerCase().split(/[^p{L}p{N}]+/u).filter((w) => w.length >= 5));
+  const wb = words(b);
+  return [...words(a)].some((w) => wb.has(w));
 }
 
 export function occurrenceKey(commitmentId: string, month: MonthKey): string {
@@ -127,6 +161,55 @@ interface Occurrence {
   date: string;
   amountCents: number;
   status: OccurrenceStatus;
+}
+
+function expandIncome(
+  income: FixedIncomeInput,
+  lastMonth: MonthKey,
+  overrides: Map<string, IncomeOccurrenceInput>
+): { income: FixedIncomeInput; month: MonthKey; date: string; amountCents: number; status: IncomeOccurrenceStatus }[] {
+  if (!income.active) return [];
+  const out: ReturnType<typeof expandIncome> = [];
+  let month = income.startMonth;
+  while (compareMonths(month, lastMonth) <= 0) {
+    // Término inclusivo: o mês final ainda tem ocorrência.
+    if (income.endMonth && compareMonths(month, income.endMonth) > 0) break;
+    const o = overrides.get(occurrenceKey(income.id, month));
+    out.push({ income, month, date: dateInMonth(month, income.dayOfMonth), amountCents: o?.amountCents ?? income.amountCents, status: o?.status ?? 'pending' });
+    month = addMonths(month, 1);
+  }
+  return out;
+}
+
+export interface IncomeMonthRow {
+  incomeId: string;
+  description: string;
+  month: MonthKey;
+  date: string;
+  amountCents: number;
+  status: IncomeOccurrenceStatus;
+  hasAmountOverride: boolean;
+}
+
+/** Ocorrências de entradas fixas de UM mês, em qualquer estado (para exibição e ações). */
+export function incomeOccurrencesInMonth(
+  month: MonthKey,
+  incomes: readonly FixedIncomeInput[],
+  occurrences: readonly IncomeOccurrenceInput[]
+): IncomeMonthRow[] {
+  const overrides = new Map(occurrences.map((o) => [occurrenceKey(o.incomeId, o.month), o]));
+  return incomes
+    .flatMap((i) => expandIncome(i, month, overrides))
+    .filter((o) => o.month === month)
+    .map((o) => ({
+      incomeId: o.income.id,
+      description: o.income.description,
+      month: o.month,
+      date: o.date,
+      amountCents: o.amountCents,
+      status: o.status,
+      hasAmountOverride: overrides.get(occurrenceKey(o.income.id, o.month))?.amountCents != null,
+    }));
 }
 
 function expandOccurrences(
@@ -170,6 +253,8 @@ export function projectCash(input: ProjectionInput): MonthProjection[] {
   const lastMonth = addMonths(currentMonth, input.months - 1);
   const overrides = new Map(input.occurrences.map((o) => [occurrenceKey(o.commitmentId, o.month), o]));
   const occurrences = input.commitments.flatMap((c) => expandOccurrences(c, lastMonth, overrides));
+  const incomeOverrides = new Map((input.incomeOccurrences ?? []).map((o) => [occurrenceKey(o.incomeId, o.month), o]));
+  const incomeOccurrences = (input.fixedIncomes ?? []).flatMap((i) => expandIncome(i, lastMonth, incomeOverrides));
   const invoiceByCardMonth = new Map(input.invoices.map((i) => [`${i.card}|${i.month}`, i]));
 
   const bucketMonth = (month: MonthKey): MonthKey => (compareMonths(month, currentMonth) < 0 ? currentMonth : month);
@@ -196,6 +281,19 @@ export function projectCash(input: ProjectionInput): MonthProjection[] {
     });
     const receipts = receivablesHere.filter((r) => r.status === 'confirmed').map(toLine);
     const uncertainReceipts = receivablesHere.filter((r) => r.status === 'uncertain').map(toLine);
+
+    // Só ocorrências PENDENTES entram: o que já foi recebido está no saldo
+    // e o cancelado não vai acontecer. Pendentes de meses anteriores são
+    // atrasados e entram no mês atual.
+    const fixedIncomeLines: MonthLine[] = incomeOccurrences
+      .filter((o) => o.status === 'pending' && bucketMonth(o.month) === month)
+      .map((o) => ({
+        id: o.income.id,
+        label: o.income.description,
+        amountCents: o.amountCents,
+        date: o.date,
+        overdue: isOverdueDate(o.date, o.month),
+      }));
 
     const directLines: MonthLine[] = [];
     const cardFixedLines: CardFixedLine[] = [];
@@ -240,7 +338,7 @@ export function projectCash(input: ProjectionInput): MonthProjection[] {
         id: inv.id,
         invoiceId: inv.id,
         card: inv.card,
-        label: `Fatura ${inv.card === 'nubank_1' ? 'Nubank 1' : 'Nubank 2'}`,
+        label: `Fatura ${CARD_FULL_LABELS[inv.card]}`,
         amountCents: inv.amountCents ?? 0,
         hasAmount: inv.amountCents !== null,
         date: inv.dueDate,
@@ -248,19 +346,29 @@ export function projectCash(input: ProjectionInput): MonthProjection[] {
       });
       if (inv.missingItemsCount) {
         warnings.push(
-          `${inv.card === 'nubank_1' ? 'Nubank 1' : 'Nubank 2'}: ${inv.missingItemsCount} lançamento(s) sumiram do último CSV e seguem somados até você revisar.`
+          `${CARD_FULL_LABELS[inv.card]}: ${inv.missingItemsCount} lançamento(s) sumiram do último CSV e seguem somados até você revisar.`
         );
       }
-      if (inv.amountCents === null) warnings.push(`A fatura ${inv.card === 'nubank_1' ? 'Nubank 1' : 'Nubank 2'} deste mês ainda não tem valor informado.`);
+      if (inv.amountCents === null) warnings.push(`A fatura ${CARD_FULL_LABELS[inv.card]} deste mês ainda não tem valor informado.`);
     }
 
     const sum = (lines: readonly { amountCents: number }[]) => lines.reduce((s, l) => s + l.amountCents, 0);
     const receiptsCents = sum(receipts);
+    const fixedIncomeCents = sum(fixedIncomeLines);
+    const inflowCents = receiptsCents + fixedIncomeCents;
     const directCents = sum(directLines);
     const invoicesCents = sum(invoiceLines);
     const cardFixedEstimatedCents = cardFixedLines.reduce((s, l) => s + l.countedCents, 0);
     const committedCents = directCents + invoicesCents + cardFixedEstimatedCents;
-    const resultCents = opening + receiptsCents - committedCents;
+    const resultCents = opening + inflowCents - committedCents;
+
+    // Possível duplicidade: recebimento pontual parecido com entrada fixa do mesmo mês.
+    for (const r of receipts) {
+      const twin = fixedIncomeLines.find((f) => f.amountCents === r.amountCents || sharesWord(f.label, r.label));
+      if (twin) {
+        warnings.push(`"${r.label}" (pontual) parece repetir a entrada fixa "${twin.label}" neste mês. Confira para não contar duas vezes.`);
+      }
+    }
 
     if (cardFixedLines.some((l) => l.state === 'not_found_in_invoice')) {
       warnings.push('Há gastos fixos no cartão que não foram encontrados na fatura fechada. Confira.');
@@ -272,6 +380,9 @@ export function projectCash(input: ProjectionInput): MonthProjection[] {
       openingCents: opening,
       receipts,
       receiptsCents,
+      fixedIncomeLines,
+      fixedIncomeCents,
+      inflowCents,
       uncertainReceipts,
       uncertainReceiptsCents: sum(uncertainReceipts),
       directLines,

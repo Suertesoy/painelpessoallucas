@@ -4,9 +4,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ChangeNotifier } from '@/platform/supabase/change-notifier';
 import type { CardId, MonthKey } from '../domain/month';
 import type {
-  Balance, BalanceTransfer, CardInvoice, Commitment, InvoiceImportRecord, InvoiceItem, Occurrence, Receivable,
+  Balance, BalanceTransfer, CardInvoice, Commitment, FixedIncome, IncomeOccurrence, InvoiceImportRecord, InvoiceItem, Occurrence, Receivable,
 } from '../domain/types';
-import type { CommitmentInputT, InvoiceManualInputT, ReceivableInputT } from '../domain/cash.schema';
+import type { CommitmentInputT, FixedIncomeInputT, InvoiceManualInputT, ReceivableInputT } from '../domain/cash.schema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
@@ -45,6 +45,15 @@ const toItem = (r: Row): InvoiceItem => ({
   normalizedDescription: r.normalized_description, amountCents: num(r.amount_cents), kind: r.kind,
   occurrenceIndex: r.occurrence_index, installmentNo: r.installment_no ?? null, installmentTotal: r.installment_total ?? null,
   baseDescription: r.base_description, status: r.status, commitmentId: r.commitment_id ?? null, reviewNote: r.review_note ?? null,
+  category: r.category ?? null, purpose: r.purpose ?? null,
+});
+const toIncome = (r: Row): FixedIncome => ({
+  id: r.id, description: r.description, amountCents: num(r.amount_cents), dayOfMonth: r.day_of_month,
+  startMonth: r.start_month, endMonth: r.end_month ?? null, notes: r.notes ?? null, active: r.active,
+});
+const toIncomeOccurrence = (r: Row): IncomeOccurrence => ({
+  id: r.id, incomeId: r.income_id, month: r.month, amountCents: numOrNull(r.amount_cents), status: r.status,
+  receivedCents: numOrNull(r.received_cents), receivedAt: r.received_at ?? null, addedToBalance: Boolean(r.added_to_balance),
 });
 const toImport = (r: Row): InvoiceImportRecord => ({
   id: r.id, invoiceId: r.invoice_id, fileName: r.file_name, rowCount: r.row_count, recognizedCount: r.recognized_count,
@@ -69,6 +78,7 @@ export class SupabaseFinanceCashRepository {
 
   private fail(context: string, error: { message: string; code?: string }): never {
     if (error.message.includes('RESERVE_INSUFFICIENT')) throw new Error('A reserva não tem saldo suficiente para essa transferência.');
+    if (error.message.includes('BALANCE_CHANGED_SINCE')) throw new Error('O saldo mudou depois dessa confirmação, então não dá para reverter sozinho. Desfaça sem remover do saldo e ajuste o saldo manualmente.');
     if (error.message.includes('INVOICE_PAID')) throw new Error('Esta fatura já está paga. Reabra-a para revisar os lançamentos.');
     if (error.message.includes('STALE_INVOICE')) throw new Error('A fatura mudou desde a pré-visualização. Envie o arquivo de novo para revisar.');
     if (error.code === '42P01' || error.code === 'PGRST205' || error.code === 'PGRST202') {
@@ -253,6 +263,78 @@ export class SupabaseFinanceCashRepository {
     const { data, error } = await q.order('purchase_date', { ascending: false });
     if (error) this.fail('Não foi possível carregar os lançamentos da fatura', error);
     return (data ?? []).map(toItem);
+  }
+
+  /** Só rótulos: nunca toca em valores. undefined = não altera; null = limpa. */
+  async classifyItems(itemIds: string[], patch: { category?: string | null; purpose?: string | null }): Promise<void> {
+    const row: Row = {};
+    if (patch.category !== undefined) row.category = patch.category;
+    if (patch.purpose !== undefined) row.purpose = patch.purpose;
+    const { error } = await this.supabase.from('finance_invoice_items').update(row)
+      .eq('workspace_id', this.workspaceId).in('id', itemIds);
+    if (error) this.fail('Não foi possível classificar os lançamentos', error);
+    this.notifier.notify();
+  }
+
+  // ------------------------------------------------------- entradas fixas
+  async listFixedIncomes(): Promise<FixedIncome[]> {
+    const { data, error } = await this.supabase.from('finance_recurring_incomes').select('*')
+      .eq('workspace_id', this.workspaceId).order('created_at');
+    if (error) this.fail('Não foi possível carregar as entradas fixas', error);
+    return (data ?? []).map(toIncome);
+  }
+
+  async createFixedIncome(input: FixedIncomeInputT): Promise<FixedIncome> {
+    const { data, error } = await this.supabase.from('finance_recurring_incomes').insert({
+      workspace_id: this.workspaceId, description: input.description, amount_cents: input.amountCents,
+      day_of_month: input.dayOfMonth, start_month: input.startMonth, end_month: input.endMonth, notes: input.notes || null,
+    }).select().single();
+    if (error) this.fail('Não foi possível salvar a entrada fixa', error);
+    this.notifier.notify();
+    return toIncome(data);
+  }
+
+  async updateFixedIncome(id: string, input: FixedIncomeInputT): Promise<void> {
+    const { error } = await this.supabase.from('finance_recurring_incomes').update({
+      description: input.description, amount_cents: input.amountCents, day_of_month: input.dayOfMonth,
+      start_month: input.startMonth, end_month: input.endMonth, notes: input.notes || null,
+    }).eq('id', id).eq('workspace_id', this.workspaceId);
+    if (error) this.fail('Não foi possível atualizar a entrada fixa', error);
+    this.notifier.notify();
+  }
+
+  async setFixedIncomeActive(id: string, active: boolean): Promise<void> {
+    const { error } = await this.supabase.from('finance_recurring_incomes').update({ active }).eq('id', id).eq('workspace_id', this.workspaceId);
+    if (error) this.fail('Não foi possível alterar a entrada fixa', error);
+    this.notifier.notify();
+  }
+
+  async listIncomeOccurrences(): Promise<IncomeOccurrence[]> {
+    const { data, error } = await this.supabase.from('finance_recurring_income_occurrences').select('*').eq('workspace_id', this.workspaceId);
+    if (error) this.fail('Não foi possível carregar os recebimentos das entradas fixas', error);
+    return (data ?? []).map(toIncomeOccurrence);
+  }
+
+  /** Valor só deste mês. Não mexe no status (recebida segue recebida). */
+  async setIncomeMonthAmount(incomeId: string, month: MonthKey, amountCents: number | null): Promise<void> {
+    const { error } = await this.supabase.from('finance_recurring_income_occurrences')
+      .upsert({ workspace_id: this.workspaceId, income_id: incomeId, month, amount_cents: amountCents }, { onConflict: 'income_id,month' });
+    if (error) this.fail('Não foi possível alterar o valor deste mês', error);
+    this.notifier.notify();
+  }
+
+  async markIncomeReceived(incomeId: string, month: MonthKey, addToBalance: boolean): Promise<void> {
+    const { error } = await this.supabase.rpc('finance_mark_income_received', { p_income_id: incomeId, p_month: month, p_add_to_balance: addToBalance });
+    if (error) this.fail('Não foi possível confirmar o recebimento', error);
+    this.notifier.notify();
+  }
+
+  async resetIncomeOccurrence(incomeId: string, month: MonthKey, status: 'pending' | 'cancelled', removeFromBalance: boolean): Promise<void> {
+    const { error } = await this.supabase.rpc('finance_reset_income_occurrence', {
+      p_income_id: incomeId, p_month: month, p_new_status: status, p_remove_from_balance: removeFromBalance,
+    });
+    if (error) this.fail('Não foi possível alterar o recebimento', error);
+    this.notifier.notify();
   }
 
   async linkItem(itemId: string, commitmentId: string | null): Promise<void> {

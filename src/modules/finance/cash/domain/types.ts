@@ -1,6 +1,6 @@
 import type { CardId, MonthKey } from './month';
 import type { InvoiceItemKind } from './nubank-invoice-csv';
-import type { InvoiceStatus, OccurrenceStatus, ReceivableStatus } from './projection';
+import type { IncomeOccurrenceStatus, InvoiceStatus, OccurrenceStatus, ReceivableStatus } from './projection';
 
 export interface Balance {
   availableCents: number;
@@ -78,6 +78,31 @@ export interface InvoiceItem {
   status: 'active' | 'missing' | 'removed';
   commitmentId: string | null;
   reviewNote: string | null;
+  /** Rótulos opcionais; null = ainda não classificado. Não afetam valores. */
+  category: string | null;
+  purpose: string | null;
+}
+
+export interface FixedIncome {
+  id: string;
+  description: string;
+  amountCents: number;
+  dayOfMonth: number;
+  startMonth: MonthKey;
+  endMonth: MonthKey | null;
+  notes: string | null;
+  active: boolean;
+}
+
+export interface IncomeOccurrence {
+  id: string;
+  incomeId: string;
+  month: MonthKey;
+  amountCents: number | null;
+  status: IncomeOccurrenceStatus;
+  receivedCents: number | null;
+  receivedAt: string | null;
+  addedToBalance: boolean;
 }
 
 export interface InvoiceImportRecord {

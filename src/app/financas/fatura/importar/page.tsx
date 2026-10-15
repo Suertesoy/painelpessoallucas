@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, FileUp } from 'lucide-react';
 import { useRepositories } from '@/providers/repository.provider';
-import { CARD_IDS, CARD_LABELS, isMonthKey, monthLabel, type CardId } from '@/modules/finance/cash/domain/month';
+import { CARD_IDS, CARD_FULL_LABELS, isMonthKey, monthLabel, type CardId } from '@/modules/finance/cash/domain/month';
 import type { ConfirmPayload, ConfirmResult, ImportPreview, PreviewItem } from '@/modules/finance/cash/domain/import-preview';
 import type { DivergenceDecision, MissingDecision } from '@/modules/finance/cash/domain/import-plan';
 import {
@@ -125,14 +125,14 @@ function ImportFlow() {
             <Field label="Cartão">
               {(id) => (
                 <select id={id} className={inputClass} value={card} onChange={(e) => setCard(e.target.value as CardId)}>
-                  {CARD_IDS.map((c) => <option key={c} value={c}>{CARD_LABELS[c]}</option>)}
+                  {CARD_IDS.map((c) => <option key={c} value={c}>{CARD_FULL_LABELS[c]}</option>)}
                 </select>
               )}
             </Field>
             <Field label="Mês de vencimento da fatura" hint={monthFromName ? 'Sugerido pelo nome do arquivo — confirme se está certo.' : 'O mês é escolhido por você; as datas das compras não definem a fatura.'}>
               {(id) => <input id={id} type="month" className={inputClass} value={month} onChange={(e) => { setMonth(e.target.value); setMonthFromName(false); }} required />}
             </Field>
-            <Field label="Arquivo CSV do Nubank" hint="Pode enviar de novo uma fatura aberta mais recente: o que já existe é reconhecido, não duplicado.">
+            <Field label="Arquivo CSV da fatura Nubank" hint="Pode enviar de novo uma fatura aberta mais recente: o que já existe é reconhecido, não duplicado.">
               {(id) => (
                 <input
                   id={id}
@@ -162,7 +162,10 @@ function ImportFlow() {
       {step === 'review' && preview && (
         <>
           <Card>
-            <Eyebrow>{CARD_LABELS[preview.card]} · vencimento em {monthLabel(preview.month)}</Eyebrow>
+            <Eyebrow>{CARD_FULL_LABELS[preview.card]} · vencimento em {monthLabel(preview.month)}</Eyebrow>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              Confira: este arquivo vai para a fatura do cartão <strong>{CARD_FULL_LABELS[preview.card]}</strong> de {monthLabel(preview.month)}. Se não for esse, volte e corrija.
+            </p>
             <div className="mt-2 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
               <Stat label="Novos" value={preview.counts.new} />
               <Stat label="Já reconhecidos" value={preview.counts.recognized} />

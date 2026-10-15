@@ -7,7 +7,8 @@ import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import { todayDateStr } from '@/lib/dates';
-import { CARD_LABELS, monthLabel } from '@/modules/finance/cash/domain/month';
+import { ClassifierControls, SimilarToggle, useClassification } from '@/components/finance-cash/item-classifier';
+import { CARD_FULL_LABELS, monthLabel } from '@/modules/finance/cash/domain/month';
 import { invoiceAmountCents, invoicePaymentsCents } from '@/modules/finance/cash/domain/nubank-invoice-csv';
 import {
   Card, Chip, Eyebrow, Money, buttonGhost, formatDateBR, formatDateTimeBR,
@@ -28,6 +29,8 @@ export default function FaturaDetalhePage({ params }: { params: Promise<{ invoic
   }, [invoiceId]);
 
   const invoice = data?.snapshot.invoices.find((i) => i.id === invoiceId);
+  // O histórico de TODAS as faturas alimenta as sugestões (mesmo estabelecimento).
+  const classification = useClassification(data?.snapshot.items ?? []);
   const commitments = data?.snapshot.commitments.filter((c) => c.billing === 'card' && c.card === invoice?.card && c.active) ?? [];
   const commitmentName = new Map((data?.snapshot.commitments ?? []).map((c) => [c.id, c.description]));
 
@@ -40,7 +43,7 @@ export default function FaturaDetalhePage({ params }: { params: Promise<{ invoic
       {!error && data && invoice && (
         <>
           <header>
-            <h1 className="text-2xl font-bold">{CARD_LABELS[invoice.card]}</h1>
+            <h1 className="text-2xl font-bold">{CARD_FULL_LABELS[invoice.card]}</h1>
             <p className="mt-1 text-sm capitalize text-[var(--text-muted)]">Vencimento em {monthLabel(invoice.month)}</p>
           </header>
 
@@ -81,6 +84,7 @@ export default function FaturaDetalhePage({ params }: { params: Promise<{ invoic
                       </>
                     )}
                     {it.commitmentId && <Chip tone="positive">gasto fixo: {commitmentName.get(it.commitmentId) ?? '—'}</Chip>}
+                    {it.category === null && it.kind !== 'payment' && <Chip>sem categoria</Chip>}
                     {it.kind === 'purchase' && commitments.length > 0 && (
                       <select
                         aria-label={`Vincular ${it.description} a um gasto fixo`}
@@ -93,9 +97,11 @@ export default function FaturaDetalhePage({ params }: { params: Promise<{ invoic
                       </select>
                     )}
                   </div>
+                  {it.kind !== 'payment' && <ClassifierControls item={it} classification={classification} />}
                 </li>
               ))}
             </ul>
+            <div className="mt-3"><SimilarToggle classification={classification} /></div>
           </Card>
 
           {data.imports.length > 0 && (

@@ -11,6 +11,8 @@ import { AvailableBalanceCard, ReserveCard } from '@/components/finance-cash/bal
 import { ReceivablesSection } from '@/components/finance-cash/receivables-section';
 import { CommitmentsSection } from '@/components/finance-cash/commitments-section';
 import { CardsSection } from '@/components/finance-cash/cards-section';
+import Link from 'next/link';
+import { Card, Eyebrow, buttonPrimary, buttonSecondary } from '@/components/finance-cash/ui';
 import { CoverageCard, ProjectionSection } from '@/components/finance-cash/projection-section';
 
 /** Heurística segura: nunca exibe o erro cru, só decide qual aviso mostrar. */
@@ -62,10 +64,18 @@ export default function FinancasPage() {
             <AvailableBalanceCard balance={data.balance} />
             <ReserveCard balance={data.balance} />
           </div>
-          <ReceivablesSection receivables={data.receivables} month={current} />
+          <ReceivablesSection receivables={data.receivables} month={current} fixedIncomes={data.fixedIncomes} incomeOccurrences={data.incomeOccurrences} balanceUpdatedAt={data.balance.availableUpdatedAt} />
           <CoverageCard month={current} balanceInformed={data.balance.availableUpdatedAt !== null} />
           <CommitmentsSection commitments={data.commitments} month={current} />
           <CardsSection invoices={data.invoices} currentMonth={current.month} missingByInvoice={missingByInvoice} />
+          <Card aria-label="Gastos por categoria">
+            <Eyebrow>Gastos nas faturas</Eyebrow>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">Veja por categoria e finalidade, e descubra quanto vai em tecnologia e serviços profissionais.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link href="/financas/gastos?preset=tech" className={buttonPrimary}>Tecnologia e profissional</Link>
+              <Link href="/financas/gastos" className={buttonSecondary}>Todos os gastos</Link>
+            </div>
+          </Card>
           <ProjectionSection months={data.projection} installments={data.projectedInstallments} />
         </>
       )}

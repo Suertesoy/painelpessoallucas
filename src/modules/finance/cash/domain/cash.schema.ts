@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isMonthKey, CARD_IDS } from './month';
+import { isCategoryId, isPurposeId } from './categories';
 
 /** Entradas validadas pelos Commands. Dinheiro sempre em centavos inteiros. */
 
@@ -57,6 +58,32 @@ export const InvoiceManualInput = z.object({
   status: z.enum(['open', 'closed']).optional(),
 });
 
+export const FixedIncomeInput = z
+  .object({
+    description: z.string().trim().min(1, 'Informe a descrição.').max(200),
+    amountCents: positiveCents,
+    dayOfMonth: z.number().int().min(1, 'Dia entre 1 e 31.').max(31, 'Dia entre 1 e 31.'),
+    startMonth: monthKey,
+    endMonth: monthKey.nullable(),
+    notes: z.string().trim().max(1000).nullable().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.endMonth && v.endMonth < v.startMonth) {
+      ctx.addIssue({ code: 'custom', message: 'O término não pode ser antes do início.', path: ['endMonth'] });
+    }
+  });
+
+export const ClassifyInput = z
+  .object({
+    itemIds: z.array(z.string().uuid()).min(1).max(500),
+    category: z.string().refine(isCategoryId, 'Categoria inválida.').nullable().optional(),
+    purpose: z.string().refine(isPurposeId, 'Finalidade inválida.').nullable().optional(),
+  })
+  .refine((v) => v.category !== undefined || v.purpose !== undefined, 'Nada a alterar.');
+
+export type FixedIncomeInputT = z.infer<typeof FixedIncomeInput>;
+/** Entrada aberta (strings); a validação de categoria/finalidade acontece no Zod. */
+export type ClassifyInputT = { itemIds: string[]; category?: string | null; purpose?: string | null };
 export type SetBalanceInputT = z.infer<typeof SetBalanceInput>;
 export type TransferInputT = z.infer<typeof TransferInput>;
 export type ReceivableInputT = z.infer<typeof ReceivableInput>;

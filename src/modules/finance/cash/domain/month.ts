@@ -7,9 +7,20 @@ export type MonthKey = string; // 'YYYY-MM'
 export type CardId = 'nubank_1' | 'nubank_2';
 
 export const CARD_IDS: readonly CardId[] = ['nubank_1', 'nubank_2'];
+/**
+ * Os identificadores internos (`nubank_1`, `nubank_2`) são estáveis e estão
+ * gravados no banco; só a APRESENTAÇÃO muda. Lucas e Matheus identificam o
+ * cartão — as finanças continuam compartilhadas.
+ */
 export const CARD_LABELS: Record<CardId, string> = {
-  nubank_1: 'Nubank 1',
-  nubank_2: 'Nubank 2',
+  nubank_1: 'Lucas',
+  nubank_2: 'Matheus',
+};
+
+/** Forma longa, para onde ajuda a compreensão (ex.: seletores). */
+export const CARD_FULL_LABELS: Record<CardId, string> = {
+  nubank_1: 'Lucas · Nubank',
+  nubank_2: 'Matheus · Nubank',
 };
 
 export function isMonthKey(value: string): boolean {

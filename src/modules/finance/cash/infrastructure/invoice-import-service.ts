@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { CARD_LABELS, isMonthKey, monthLabel, type CardId, type MonthKey } from '../domain/month';
+import { CARD_FULL_LABELS, isMonthKey, monthLabel, type CardId, type MonthKey } from '../domain/month';
 import {
   invoiceAmountCents, parseNubankInvoiceBuffer, type InvoiceItemKind, type ParsedInvoiceRow,
 } from '../domain/nubank-invoice-csv';
@@ -129,7 +129,7 @@ export async function buildPreview(
       const inv = otherInvoices.find((i) => i.id === matchId)!;
       paymentMatches.push({
         description: n.row.description, amountCents: n.row.amountCents, invoiceId: matchId,
-        invoiceLabel: `${CARD_LABELS[card]} — vencimento em ${monthLabel(inv.month)}`,
+        invoiceLabel: `${CARD_FULL_LABELS[card]} — vencimento em ${monthLabel(inv.month)}`,
       });
     }
   }

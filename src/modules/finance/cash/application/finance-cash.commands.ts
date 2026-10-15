@@ -1,6 +1,7 @@
 import type { EventRepository } from '@/platform/events/event.repository';
 import type { SupabaseFinanceCashRepository } from '../infrastructure/supabase-finance-cash.repository';
 import {
+  ClassifyInput, FixedIncomeInput, type ClassifyInputT, type FixedIncomeInputT,
   CommitmentInput, InvoiceManualInput, ReceivableInput, SetBalanceInput, TransferInput,
   type CommitmentInputT, type InvoiceManualInputT, type ReceivableInputT, type SetBalanceInputT, type TransferInputT,
 } from '../domain/cash.schema';
@@ -125,6 +126,47 @@ export class FinanceCashCommands {
   async resolveMissingItem(itemId: string, action: 'keep' | 'remove') {
     await this.repo.resolveMissingItem(itemId, action);
     await this.emit('finance.invoice_item_reviewed', itemId, { action });
+  }
+
+  // -------- classificação (só rótulos; nunca altera valores) --------
+  async classifyItems(input: ClassifyInputT) {
+    const v = ClassifyInput.parse(input);
+    await this.repo.classifyItems(v.itemIds, { category: v.category, purpose: v.purpose });
+    await this.emit('finance.invoice_items_classified', v.itemIds[0], { count: v.itemIds.length });
+  }
+
+  // -------- entradas fixas --------
+  async createFixedIncome(input: FixedIncomeInputT) {
+    const created = await this.repo.createFixedIncome(FixedIncomeInput.parse(input));
+    await this.emit('finance.fixed_income_created', created.id);
+    return created;
+  }
+
+  async updateFixedIncome(id: string, input: FixedIncomeInputT) {
+    await this.repo.updateFixedIncome(id, FixedIncomeInput.parse(input));
+    await this.emit('finance.fixed_income_updated', id);
+  }
+
+  async deactivateFixedIncome(id: string) {
+    await this.repo.setFixedIncomeActive(id, false);
+    await this.emit('finance.fixed_income_deactivated', id);
+  }
+
+  async setIncomeMonthAmount(incomeId: string, month: MonthKey, amountCents: number | null) {
+    if (amountCents !== null && (!Number.isInteger(amountCents) || amountCents <= 0)) throw new Error('O valor deve ser maior que zero.');
+    await this.repo.setIncomeMonthAmount(incomeId, month, amountCents);
+    await this.emit('finance.fixed_income_amount_changed', incomeId, { month });
+  }
+
+  /** addToBalance: ligado por padrão na tela; desligue se o saldo já foi atualizado. Idempotente. */
+  async markIncomeReceived(incomeId: string, month: MonthKey, addToBalance: boolean) {
+    await this.repo.markIncomeReceived(incomeId, month, addToBalance);
+    await this.emit('finance.fixed_income_received', incomeId, { month, addedToBalance: addToBalance });
+  }
+
+  async resetIncomeOccurrence(incomeId: string, month: MonthKey, status: 'pending' | 'cancelled', removeFromBalance: boolean) {
+    await this.repo.resetIncomeOccurrence(incomeId, month, status, removeFromBalance);
+    await this.emit('finance.fixed_income_occurrence_changed', incomeId, { month, status });
   }
 
   async linkInvoiceItem(itemId: string, commitmentId: string | null) {
