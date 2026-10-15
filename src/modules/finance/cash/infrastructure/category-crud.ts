@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { DEFAULT_CATEGORIES, type Category } from '../domain/categories';
+import { DEFAULT_CATEGORIES, LEGACY_CATEGORY_ALIAS, type Category } from '../domain/categories';
 import { CategoryLearningError } from './category-learning';
 
 /**
@@ -26,6 +26,9 @@ export interface CategoriesResult {
 }
 
 const toCategory = (r: Row): Category => ({ id: r.id, label: r.label });
+
+/** O id da categoria e os ids antigos que ela passou a representar (ex.: ai/software => subscriptions). */
+const idsOf = (id: string): string[] => [id, ...Object.entries(LEGACY_CATEGORY_ALIAS).filter(([, target]) => target === id).map(([legacy]) => legacy)];
 
 /**
  * Lista as categorias do workspace. Na primeira leitura semeia a lista inicial
@@ -83,7 +86,7 @@ export async function renameCategory(supabase: SupabaseClient, workspaceId: stri
 /** Quantos lançamentos (faturas e despesas pontuais) usam a categoria. */
 export async function countCategoryUse(supabase: SupabaseClient, workspaceId: string, id: string): Promise<number> {
   const { count, error } = await supabase.from('finance_invoice_items').select('id', { count: 'exact', head: true })
-    .eq('workspace_id', workspaceId).eq('category', id).neq('status', 'removed');
+    .eq('workspace_id', workspaceId).in('category', idsOf(id)).neq('status', 'removed');
   if (error) fail('Não foi possível contar os lançamentos da categoria', error);
   const { count: expenses, error: expensesError } = await supabase.from('finance_expenses').select('id', { count: 'exact', head: true })
     .eq('workspace_id', workspaceId).eq('category', id);
@@ -104,8 +107,9 @@ export async function deleteCategory(supabase: SupabaseClient, workspaceId: stri
   const itemPatch = replacementId
     ? { category: replacementId, category_source: 'user', category_rule_id: null }
     : { category: null, category_source: null, category_rule_id: null };
+  // Inclui ids antigos que esta categoria representa na leitura (ex.: ai/software => subscriptions).
   const { error: itemsError } = await supabase.from('finance_invoice_items').update(itemPatch)
-    .eq('workspace_id', workspaceId).eq('category', id);
+    .eq('workspace_id', workspaceId).in('category', idsOf(id));
   if (itemsError) fail('Não foi possível atualizar os lançamentos da categoria', itemsError);
   const { error: expensesError } = await supabase.from('finance_expenses').update({ category: replacementId })
     .eq('workspace_id', workspaceId).eq('category', id);

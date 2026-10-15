@@ -215,4 +215,26 @@ describe('média móvel de 3 meses por cartão', () => {
     expect(last.cumulativeCents).toBe(e.months.reduce((s, m) => s + m.cents, 0));
     expect(p[3].resultCents - last.cumulativeCents).toBeLessThan(p[3].resultCents);
   });
+
+  it('fatura aberta: a estimativa é só a diferença até a média (nunca soma por cima do já lançado)', () => {
+    const hist = [paid('nubank_1', '2026-07', 300000), paid('nubank_1', '2026-08', 300000), paid('nubank_1', '2026-09', 300000)];
+    const invoices = [...hist, inv('o', 'nubank_1', '2026-11', 100000, 'open')];
+    const p = projectCash(household({ invoices }));
+    const e = estimateCardSpending(invoices, p, '2026-10');
+    const nov = e.months.find((m) => m.month === '2026-11')!;
+    expect(nov.cents).toBe(300000 - 100000); // lançado + estimativa = a média, não a média + lançado
+    const novLines = p.find((m) => m.month === '2026-11')!;
+    expect(novLines.invoicesCents + nov.cents).toBe(300000);
+  });
+
+  it('não duplica com gastos fixos no cartão ainda sem fatura nem com despesas pontuais (que não entram na projeção)', () => {
+    const hist = [paid('nubank_1', '2026-07', 300000), paid('nubank_1', '2026-08', 300000), paid('nubank_1', '2026-09', 300000)];
+    const streaming: CommitmentInput = { ...monthly('s', 'Streaming', 5000, 9, '2026-11'), billing: 'card', card: 'nubank_1' };
+    const p = projectCash(household({ commitments: [streaming], invoices: hist }));
+    const e = estimateCardSpending(hist, p, '2026-10');
+    const nov = e.months.find((m) => m.month === '2026-11')!;
+    expect(p.find((m) => m.month === '2026-11')!.cardFixedEstimatedCents + nov.cents).toBe(300000);
+    // despesas pontuais (Pix/débito/dinheiro) já saíram do saldo: a projeção não recebe nem soma esse tipo de gasto
+    expect(Object.keys(household())).not.toContain('expenses');
+  });
 });

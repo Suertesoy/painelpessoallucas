@@ -44,6 +44,8 @@ function ExpenseForm({ categories, persistedCategories, expenses, rules, onDone 
 }) {
   const { financeCash } = useCommands();
   const { pending, error, run } = useAction();
+  // Uma chave por abertura do formulário: se o toque em Salvar repetir, o banco devolve o mesmo gasto.
+  const [requestId] = useState(() => crypto.randomUUID());
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [spentOn, setSpentOn] = useState(() => todayDateStr());
@@ -69,7 +71,7 @@ function ExpenseForm({ categories, persistedCategories, expenses, rules, onDone 
       let categoryId = category;
       if (creating) categoryId = await financeCash.createCategory(newName);
       await financeCash.recordExpense(
-        { description, amountCents: cents as number, spentOn, paymentMethod: method, category: categoryId, deductFromBalance: deduct },
+        { description, amountCents: cents as number, spentOn, paymentMethod: method, category: categoryId, deductFromBalance: deduct, requestId },
         learn && categoryId ? learnMode : undefined
       );
     });

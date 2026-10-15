@@ -322,7 +322,7 @@ export class SupabaseFinanceCashRepository {
     const { data, error } = await this.supabase.rpc('finance_record_expense', {
       p_workspace_id: this.workspaceId, p_description: input.description, p_amount_cents: input.amountCents,
       p_spent_on: input.spentOn, p_payment_method: input.paymentMethod, p_category: input.category ?? '',
-      p_deduct_from_balance: input.deductFromBalance,
+      p_deduct_from_balance: input.deductFromBalance, p_request_id: input.requestId ?? null,
     });
     if (error) this.fail('Não foi possível registrar o gasto', error);
     this.notifier.notify();

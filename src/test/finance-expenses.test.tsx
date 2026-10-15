@@ -120,7 +120,7 @@ describe('registrar gasto (tela)', () => {
     fireEvent.change(screen.getByLabelText('Categoria'), { target: { value: 'health' } });
     fireEvent.click(screen.getByText('Salvar'));
     await waitFor(() => expect(cmds.recordExpense).toHaveBeenCalledWith(
-      { description: 'Corte de cabelo', amountCents: 5000, spentOn: todayDateStr(), paymentMethod: 'pix', category: 'health', deductFromBalance: true },
+      { description: 'Corte de cabelo', amountCents: 5000, spentOn: todayDateStr(), paymentMethod: 'pix', category: 'health', deductFromBalance: true, requestId: expect.stringMatching(/^[0-9a-f-]{36}$/) },
       undefined
     ));
   });
@@ -190,6 +190,12 @@ describe('migration de despesas pontuais', () => {
     expect(sql).toMatch(/available_cents = available_cents - p_amount_cents/);
     expect(sql).toMatch(/v_row\.deducted_from_balance/); // só devolve ao saldo o que foi descontado
     expect(sql).toMatch(/revoke execute on function public\.finance_record_expense[^;]* from public, anon/);
+  });
+
+  it('é idempotente por solicitação: duplo toque ou nova tentativa não duplicam gasto nem desconto', () => {
+    expect(sql).toMatch(/create unique index finance_expenses_request_idx/);
+    expect(sql).toMatch(/on conflict \(workspace_id, request_id\) where request_id is not null do nothing/);
+    expect(sql).toMatch(/if not found then/);
   });
 
   it('não cria compromisso nem altera dados existentes', () => {

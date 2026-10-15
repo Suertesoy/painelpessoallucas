@@ -37,9 +37,14 @@ create table public.finance_expenses (
   source text not null default 'manual' check (source in ('manual', 'bank_statement')),
   external_ref text,
   reconciled_at timestamptz,
+  -- Chave de idempotência gerada pela tela: duplo toque ou nova tentativa não duplicam o gasto nem o desconto.
+  request_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+create unique index finance_expenses_request_idx
+  on public.finance_expenses (workspace_id, request_id) where request_id is not null;
 
 create index finance_expenses_workspace_date_idx on public.finance_expenses (workspace_id, spent_on desc);
 
@@ -71,7 +76,8 @@ create or replace function public.finance_record_expense(
   p_spent_on date,
   p_payment_method text,
   p_category text,
-  p_deduct_from_balance boolean
+  p_deduct_from_balance boolean,
+  p_request_id uuid default null
 )
 returns public.finance_expenses
 language plpgsql
@@ -83,10 +89,17 @@ declare
 begin
   perform public.finance_assert_member(p_workspace_id);
   insert into public.finance_expenses
-    (workspace_id, description, amount_cents, spent_on, payment_method, category, deducted_from_balance)
+    (workspace_id, description, amount_cents, spent_on, payment_method, category, deducted_from_balance, request_id)
   values
-    (p_workspace_id, btrim(p_description), p_amount_cents, p_spent_on, p_payment_method, nullif(p_category, ''), coalesce(p_deduct_from_balance, false))
+    (p_workspace_id, btrim(p_description), p_amount_cents, p_spent_on, p_payment_method, nullif(p_category, ''), coalesce(p_deduct_from_balance, false), p_request_id)
+  on conflict (workspace_id, request_id) where request_id is not null do nothing
   returning * into v_row;
+
+  if not found then
+    -- Mesma solicitação repetida (duplo toque, nova tentativa): devolve o gasto já gravado, sem descontar de novo.
+    select * into v_row from public.finance_expenses where workspace_id = p_workspace_id and request_id = p_request_id;
+    return v_row;
+  end if;
 
   if coalesce(p_deduct_from_balance, false) then
     insert into public.finance_balance (workspace_id) values (p_workspace_id)
@@ -126,7 +139,7 @@ begin
 end;
 $$;
 
-revoke execute on function public.finance_record_expense(uuid, text, bigint, date, text, text, boolean) from public, anon;
+revoke execute on function public.finance_record_expense(uuid, text, bigint, date, text, text, boolean, uuid) from public, anon;
 revoke execute on function public.finance_delete_expense(uuid, boolean) from public, anon;
-grant execute on function public.finance_record_expense(uuid, text, bigint, date, text, text, boolean) to authenticated;
+grant execute on function public.finance_record_expense(uuid, text, bigint, date, text, text, boolean, uuid) to authenticated;
 grant execute on function public.finance_delete_expense(uuid, boolean) to authenticated;

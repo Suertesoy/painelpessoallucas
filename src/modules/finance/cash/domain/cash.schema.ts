@@ -91,6 +91,8 @@ export const ExpenseInput = z.object({
   category: z.string().refine(isValidCategoryId, 'Categoria inválida.').nullable().optional(),
   /** Desconta do saldo disponível (foto manual) na mesma transação. */
   deductFromBalance: z.boolean(),
+  /** Gerado pela tela: repetir a mesma solicitação (duplo toque) não duplica o gasto nem o desconto. */
+  requestId: z.string().uuid().optional(),
 });
 
 export type ExpenseInputT = z.infer<typeof ExpenseInput>;

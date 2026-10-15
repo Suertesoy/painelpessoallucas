@@ -355,6 +355,7 @@ describe('gerenciar categorias', () => {
         item(UB, 'netflix', 5590, { category: 'subscriptions', category_source: 'rule', category_rule_id: 'rule-1' }),
         item(UC, 'padaria', 1200, { category: 'groceries', category_source: 'user' }),
         item('x', 'netflix', 5590, { workspace_id: OTHER, category: 'subscriptions' }),
+        item('legacy-ai', 'openai', 9699, { category: 'ai', category_source: 'user' }),
       ],
       finance_category_rules: [
         { id: 'rule-1', workspace_id: WS, merchant_key: 'netflix', amount_cents: 5590, category: 'subscriptions' },
@@ -405,6 +406,7 @@ describe('gerenciar categorias', () => {
     const before = JSON.stringify(financial(db.tables.finance_invoice_items));
     await commands.deleteCategory('subscriptions');
     expect([cat(UA), cat(UB), cat(UC)]).toEqual([null, null, 'groceries']);
+    expect(cat('legacy-ai')).toBeNull(); // id antigo que lia como esta categoria também sai
     expect(db.tables.finance_invoice_items.find((r) => r.id === UA)).toMatchObject({ category_source: null, category_rule_id: null });
     expect(db.tables.finance_category_rules.map((r) => r.id)).toEqual(['rule-2']); // nenhuma regra aponta para categoria inexistente
     expect(cat('x')).toBe('subscriptions'); // outro workspace intocado
@@ -415,6 +417,7 @@ describe('gerenciar categorias', () => {
   it('excluir COM substituta (escolha explícita): lançamentos e regras vão para ela', async () => {
     await commands.deleteCategory('subscriptions', 'streaming');
     expect([cat(UA), cat(UB), cat(UC)]).toEqual(['streaming', 'streaming', 'groceries']);
+    expect(cat('legacy-ai')).toBe('streaming');
     expect(db.tables.finance_category_rules.map((r) => r.category)).toEqual(['streaming', 'groceries']);
     expect(db.tables.finance_invoice_items.find((r) => r.id === UA)).toMatchObject({ category_source: 'user' });
   });
@@ -427,7 +430,7 @@ describe('gerenciar categorias', () => {
   });
 
   it('informa quantos lançamentos usam a categoria (para avisar antes de excluir)', async () => {
-    expect(await commands.countCategoryUse('subscriptions')).toBe(2); // o de outro workspace não conta
+    expect(await commands.countCategoryUse('subscriptions')).toBe(3); // inclui o legado 'ai'; o de outro workspace não conta
     expect(await commands.countCategoryUse('leisure')).toBe(0);
   });
 
