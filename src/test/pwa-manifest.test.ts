@@ -17,9 +17,9 @@ describe('manifest da PWA', () => {
     expect(result.scope).toBe('/');
   });
 
-  it('usa as cores da identidade visual atual (azul de ação e cinza de fundo)', () => {
-    expect(result.theme_color).toBe('#2563eb');
-    expect(result.background_color).toBe('#f9fafb');
+  it('usa as cores do tema escuro (grafite azulado, igual ao --background)', () => {
+    expect(result.theme_color).toBe('#0f141b');
+    expect(result.background_color).toBe('#0f141b');
   });
 
   it('inclui ícones any (192/512) e maskable (192/512)', () => {

@@ -60,7 +60,7 @@ describe('SidebarNav — Compras', () => {
   it('não quebra a presença nem a rotulagem das rotas existentes', () => {
     render(<SidebarNav />);
     const desktopNav = document.querySelector('aside nav') as HTMLElement;
-    for (const label of ['Hoje', 'Caixa de Entrada', 'Projetos', 'Notas', 'Agenda', 'Planos', 'Aprendizado', 'Revisão', 'Configurações']) {
+    for (const label of ['Finanças', 'Hoje', 'Caixa de Entrada', 'Projetos', 'Notas', 'Planos', 'Aprendizado', 'Revisão', 'Configurações']) {
       expect(within(desktopNav).getByText(label)).toBeTruthy();
     }
   });

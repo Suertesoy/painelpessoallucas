@@ -53,3 +53,18 @@ describe('SidebarNav — Finanças', () => {
     expect(hojeLink?.getAttribute('aria-current')).toBeNull();
   });
 });
+
+describe('SidebarNav — simplificação', () => {
+  it('Agenda interna não aparece mais na navegação principal', () => {
+    render(<SidebarNav />);
+    const desktopNav = document.querySelector('aside nav') as HTMLElement;
+    expect(within(desktopNav).queryByText('Agenda')).toBeNull();
+  });
+
+  it('Finanças é o primeiro item do menu', () => {
+    render(<SidebarNav />);
+    const desktopNav = document.querySelector('aside nav') as HTMLElement;
+    const first = desktopNav.querySelector('a');
+    expect(first?.getAttribute('href')).toBe('/financas');
+  });
+});

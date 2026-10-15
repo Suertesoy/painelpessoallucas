@@ -21,12 +21,12 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: 'Painel Lucas',
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent',
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#2563eb',
+  themeColor: '#0f141b',
   width: 'device-width',
   initialScale: 1,
   // Necessário para que env(safe-area-inset-*) resolva para valores reais em
@@ -42,7 +42,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR">
-      <body className={`${inter.className} bg-gray-50 text-gray-900 antialiased`}>
+      <body className={`${inter.className} antialiased`}>
         <AuthProvider>
           <RepositoryProvider>
             <AppShell>{children}</AppShell>

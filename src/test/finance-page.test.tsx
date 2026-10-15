@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/react';
-import FinancasPage from '@/app/financas/page';
+import FinancasPage from '@/app/financas/legado/page';
 import type { MonthOverview } from '@/modules/finance/application/finance-analytics.queries';
 
 /**

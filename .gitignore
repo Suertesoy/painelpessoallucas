@@ -43,3 +43,7 @@ next-env.d.ts
 
 # supabase CLI local cache
 supabase/.temp/
+
+
+# Dados financeiros reais (nunca versionar)
+/fixtures-privadas/

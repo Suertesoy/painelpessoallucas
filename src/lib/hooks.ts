@@ -43,6 +43,7 @@ export function useReactiveQuery<T>(
     lessonProgressRepository,
     shoppingListRepository,
     financeRepository,
+    financeCashRepository,
   } = useRepositories();
   const [data, setData] = useState<T | undefined>(initialData);
   const [isLoading, setIsLoading] = useState(true);
@@ -98,6 +99,7 @@ export function useReactiveQuery<T>(
     // fornece) — evita quebrar suítes existentes só por adicionar um novo
     // repositório à lista de inscrição compartilhada.
     const unsub9 = financeRepository?.subscribe(runFetch) ?? (() => {});
+    const unsubCash = financeCashRepository?.subscribe(runFetch) ?? (() => {});
 
     return () => {
       mounted = false;
@@ -110,6 +112,7 @@ export function useReactiveQuery<T>(
       unsub7();
       unsub8();
       unsub9();
+      unsubCash();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

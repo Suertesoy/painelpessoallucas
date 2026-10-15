@@ -68,6 +68,9 @@ import { FinanceImportCommands } from '@/modules/finance/application/finance-imp
 import { FinanceMonthlyCommands } from '@/modules/finance/application/finance-monthly.commands';
 import { FinanceQueries } from '@/modules/finance/application/finance.queries';
 import { FinanceAnalyticsQueries } from '@/modules/finance/application/finance-analytics.queries';
+import { SupabaseFinanceCashRepository } from '@/modules/finance/cash/infrastructure/supabase-finance-cash.repository';
+import { FinanceCashCommands } from '@/modules/finance/cash/application/finance-cash.commands';
+import { FinanceCashQueries } from '@/modules/finance/cash/application/finance-cash.queries';
 import { useAuth } from './auth.provider';
 
 interface RepositoryContextType {
@@ -107,6 +110,9 @@ interface RepositoryContextType {
   financeMonthlyCommands: FinanceMonthlyCommands;
   financeQueries: FinanceQueries;
   financeAnalyticsQueries: FinanceAnalyticsQueries;
+  financeCashRepository: SupabaseFinanceCashRepository;
+  financeCashCommands: FinanceCashCommands;
+  financeCashQueries: FinanceCashQueries;
   changeNotifier: ChangeNotifier;
 }
 
@@ -147,6 +153,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     const reminderRepo = new SupabaseReminderRepository(supabase, workspaceId);
     const shoppingListRepo = new SupabaseShoppingListRepository(supabase, workspaceId, notifier);
     const financeRepo = new SupabaseFinanceRepository(supabase, workspaceId, notifier);
+    const financeCashRepo = new SupabaseFinanceCashRepository(supabase, workspaceId, notifier);
 
     return {
       itemRepository: itemRepo,
@@ -190,6 +197,9 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       financeMonthlyCommands: new FinanceMonthlyCommands(financeRepo, eventRepo, workspaceId),
       financeQueries: new FinanceQueries(financeRepo),
       financeAnalyticsQueries: new FinanceAnalyticsQueries(financeRepo),
+      financeCashRepository: financeCashRepo,
+      financeCashCommands: new FinanceCashCommands(financeCashRepo, eventRepo, workspaceId),
+      financeCashQueries: new FinanceCashQueries(financeCashRepo),
       changeNotifier: notifier,
     };
   }, [status, workspaceId]);
@@ -270,6 +280,7 @@ export function useCommands() {
       import: context.financeImportCommands,
       monthly: context.financeMonthlyCommands,
     },
+    financeCash: context.financeCashCommands,
   };
 }
 
@@ -290,6 +301,7 @@ export function useQueries() {
       queries: context.financeQueries,
       analytics: context.financeAnalyticsQueries,
     },
+    financeCash: context.financeCashQueries,
   };
 }
 
