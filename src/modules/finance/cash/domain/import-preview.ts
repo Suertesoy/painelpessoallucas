@@ -64,4 +64,6 @@ export interface ConfirmResult {
   invoiceId: string;
   alreadyApplied: boolean;
   counts: { rows: number; recognized: number; new: number; changed: number; missing: number };
+  /** Lançamentos classificados por regras aprendidas logo após a importação. */
+  categorizedByRules?: number;
 }

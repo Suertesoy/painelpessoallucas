@@ -89,7 +89,8 @@ const KEYWORD_RULES: { category: CategoryId; keywords: string[] }[] = [
 export type SuggestionSource = 'history' | 'rule';
 
 export interface ClassificationSuggestion {
-  category: CategoryId | null;
+  /** Id nativo ou, via histórico, de uma categoria personalizada. */
+  category: string | null;
   purpose: PurposeId | null;
   source: SuggestionSource;
 }
@@ -124,7 +125,9 @@ function ruleCategory(key: string): CategoryId | null {
  */
 export function suggestClassification(
   item: Pick<ClassifiableItem, 'key' | 'category' | 'purpose'>,
-  all: readonly ClassifiableItem[]
+  all: readonly ClassifiableItem[],
+  /** Ids de categorias personalizadas do workspace: também valem como histórico confirmado. */
+  extraCategoryIds: readonly string[] = []
 ): ClassificationSuggestion | null {
   const missingCategory = item.category === null;
   const missingPurpose = item.purpose === null;
@@ -136,9 +139,10 @@ export function suggestClassification(
   const histCategory = missingCategory && categories.size === 1 ? [...categories][0] : null;
   const histPurpose = missingPurpose && purposes.size === 1 ? [...purposes][0] : null;
 
-  if (isCategoryId(histCategory) || isPurposeId(histPurpose)) {
+  const histCategoryOk = histCategory !== null && (isCategoryId(histCategory) || extraCategoryIds.includes(histCategory));
+  if (histCategoryOk || isPurposeId(histPurpose)) {
     return {
-      category: isCategoryId(histCategory) ? histCategory : null,
+      category: histCategoryOk ? (histCategory as string) : null,
       purpose: isPurposeId(histPurpose) ? histPurpose : null,
       source: 'history',
     };

@@ -81,6 +81,9 @@ export interface InvoiceItem {
   /** Rótulos opcionais; null = ainda não classificado. Não afetam valores. */
   category: string | null;
   purpose: string | null;
+  /** Proveniência da categoria: 'user' = confirmada por você; 'rule' = aplicada por regra aprendida. */
+  categorySource?: 'user' | 'rule' | null;
+  categoryRuleId?: string | null;
 }
 
 export interface FixedIncome {

@@ -7,6 +7,8 @@ import type {
   Balance, BalanceTransfer, CardInvoice, Commitment, FixedIncome, IncomeOccurrence, InvoiceImportRecord, InvoiceItem, Occurrence, Receivable,
 } from '../domain/types';
 import type { CommitmentInputT, FixedIncomeInputT, InvoiceManualInputT, ReceivableInputT } from '../domain/cash.schema';
+import type { CategoryRule, CustomCategory } from '../domain/category-rules';
+import * as CategoryLearning from './category-learning';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
@@ -46,6 +48,7 @@ const toItem = (r: Row): InvoiceItem => ({
   occurrenceIndex: r.occurrence_index, installmentNo: r.installment_no ?? null, installmentTotal: r.installment_total ?? null,
   baseDescription: r.base_description, status: r.status, commitmentId: r.commitment_id ?? null, reviewNote: r.review_note ?? null,
   category: r.category ?? null, purpose: r.purpose ?? null,
+  categorySource: r.category_source ?? null, categoryRuleId: r.category_rule_id ?? null,
 });
 const toIncome = (r: Row): FixedIncome => ({
   id: r.id, description: r.description, amountCents: num(r.amount_cents), dayOfMonth: r.day_of_month,
@@ -268,12 +271,71 @@ export class SupabaseFinanceCashRepository {
   /** Só rótulos: nunca toca em valores. undefined = não altera; null = limpa. */
   async classifyItems(itemIds: string[], patch: { category?: string | null; purpose?: string | null }): Promise<void> {
     const row: Row = {};
-    if (patch.category !== undefined) row.category = patch.category;
+    if (patch.category !== undefined) {
+      row.category = patch.category;
+      // Classificar à mão é confirmar: passa a valer como "sua" e sai do controle de qualquer regra.
+      row.category_source = patch.category === null ? null : 'user';
+      row.category_rule_id = null;
+    }
     if (patch.purpose !== undefined) row.purpose = patch.purpose;
-    const { error } = await this.supabase.from('finance_invoice_items').update(row)
+    let { error } = await this.supabase.from('finance_invoice_items').update(row)
       .eq('workspace_id', this.workspaceId).in('id', itemIds);
+    if (error?.code === '42703' && 'category_source' in row) {
+      // Banco ainda sem as colunas de proveniência: classifica sem elas.
+      delete row.category_source;
+      delete row.category_rule_id;
+      ({ error } = await this.supabase.from('finance_invoice_items').update(row)
+        .eq('workspace_id', this.workspaceId).in('id', itemIds));
+    }
     if (error) this.fail('Não foi possível classificar os lançamentos', error);
     this.notifier.notify();
+  }
+
+  async getItem(id: string): Promise<InvoiceItem | null> {
+    const { data, error } = await this.supabase.from('finance_invoice_items').select('*')
+      .eq('workspace_id', this.workspaceId).eq('id', id).maybeSingle();
+    if (error) this.fail('Não foi possível carregar o lançamento', error);
+    return data ? toItem(data) : null;
+  }
+
+  // ------------------------------------- categorias personalizadas e regras
+  listCustomCategories() {
+    return CategoryLearning.listCustomCategories(this.supabase, this.workspaceId);
+  }
+
+  async createCustomCategory(c: CustomCategory): Promise<void> {
+    await CategoryLearning.createCustomCategory(this.supabase, this.workspaceId, c);
+    this.notifier.notify();
+  }
+
+  listCategoryRules() {
+    return CategoryLearning.listCategoryRules(this.supabase, this.workspaceId);
+  }
+
+  async saveCategoryRule(input: { merchantKey: string; amountCents: number | null; category: string }): Promise<CategoryRule> {
+    const rule = await CategoryLearning.saveCategoryRule(this.supabase, this.workspaceId, input);
+    this.notifier.notify();
+    return rule;
+  }
+
+  async changeRuleCategory(ruleId: string, category: string): Promise<void> {
+    await CategoryLearning.changeRuleCategory(this.supabase, this.workspaceId, ruleId, category);
+    this.notifier.notify();
+  }
+
+  async deleteCategoryRule(ruleId: string, revertItems: boolean): Promise<void> {
+    await CategoryLearning.deleteCategoryRule(this.supabase, this.workspaceId, ruleId, revertItems);
+    this.notifier.notify();
+  }
+
+  countRuleItems(ruleId: string) {
+    return CategoryLearning.countRuleItems(this.supabase, this.workspaceId, ruleId);
+  }
+
+  async applyCategoryRules(): Promise<number> {
+    const applied = await CategoryLearning.applyCategoryRules(this.supabase, this.workspaceId);
+    if (applied > 0) this.notifier.notify();
+    return applied;
   }
 
   // ------------------------------------------------------- entradas fixas

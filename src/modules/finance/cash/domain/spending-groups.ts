@@ -1,4 +1,5 @@
 import { STREAMING_KEYWORDS, merchantKey } from './categories';
+import type { CustomCategory } from './category-rules';
 import { filterSpending, type SpendingFilter, type SpendingRow } from './spending';
 
 /**
@@ -27,12 +28,13 @@ export const DISPLAY_CATEGORIES = [
   { id: 'other', label: 'Outros' },
 ] as const;
 
-export type DisplayCategoryId = (typeof DISPLAY_CATEGORIES)[number]['id'] | 'none';
+/** Ids de apresentação: as 11 domésticas, 'none' (sem categoria) e os ids das categorias personalizadas do workspace. */
+export type DisplayCategoryId = string;
 
 export const NONE_LABEL = 'Sem categoria';
 
 /** Mapeamento de leitura auditável: id persistido -> categoria de apresentação. */
-export const DISPLAY_OF: Readonly<Record<string, Exclude<DisplayCategoryId, 'none'>>> = {
+export const DISPLAY_OF: Readonly<Record<string, string>> = {
   groceries: 'groceries',
   restaurants: 'restaurants',
   shopping: 'online',
@@ -49,13 +51,15 @@ export const DISPLAY_OF: Readonly<Record<string, Exclude<DisplayCategoryId, 'non
   other: 'other',
 };
 
-export function displayLabel(id: DisplayCategoryId): string {
+export function displayLabel(id: DisplayCategoryId, custom: readonly CustomCategory[] = []): string {
   if (id === 'none') return NONE_LABEL;
-  return DISPLAY_CATEGORIES.find((c) => c.id === id)?.label ?? 'Outros';
+  return DISPLAY_CATEGORIES.find((c) => c.id === id)?.label ?? custom.find((c) => c.id === id)?.label ?? 'Outros';
 }
 
-export function displayCategoryOf(category: string | null, baseDescription: string): DisplayCategoryId {
+export function displayCategoryOf(category: string | null, baseDescription: string, custom: readonly CustomCategory[] = []): DisplayCategoryId {
   if (category === null) return 'none';
+  // Categoria personalizada do usuário: aparece como ela mesma.
+  if (custom.some((c) => c.id === category)) return category;
   const mapped = DISPLAY_OF[category] ?? 'other';
   if (category === 'subscriptions') {
     const key = ` ${merchantKey(baseDescription)} `;
@@ -120,13 +124,13 @@ export interface SpendingBreakdown {
   uncategorizedCount: number;
 }
 
-export function breakdownSpending(rows: readonly SpendingRow[], filter: SpendingFilter): SpendingBreakdown {
+export function breakdownSpending(rows: readonly SpendingRow[], filter: SpendingFilter, custom: readonly CustomCategory[] = []): SpendingBreakdown {
   const filtered = filterSpending(rows, filter);
   const cats = new Map<DisplayCategoryId, CategoryGroup>();
   for (const r of filtered) {
     const base = r.baseDescription ?? r.description;
-    const id = displayCategoryOf(r.category, base);
-    const cat = cats.get(id) ?? { id, label: displayLabel(id), cents: 0, count: 0, merchants: [] };
+    const id = displayCategoryOf(r.category, base, custom);
+    const cat = cats.get(id) ?? { id, label: displayLabel(id, custom), cents: 0, count: 0, merchants: [] };
     cat.cents += r.amountCents;
     cat.count += 1;
     const name = merchantName(base);

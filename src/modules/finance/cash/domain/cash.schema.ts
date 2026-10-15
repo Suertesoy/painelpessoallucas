@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isMonthKey, CARD_IDS } from './month';
-import { isCategoryId, isPurposeId } from './categories';
+import { isPurposeId } from './categories';
+import { isValidCategoryId } from './category-rules';
 
 /** Entradas validadas pelos Commands. Dinheiro sempre em centavos inteiros. */
 
@@ -76,7 +77,8 @@ export const FixedIncomeInput = z
 export const ClassifyInput = z
   .object({
     itemIds: z.array(z.string().uuid()).min(1).max(500),
-    category: z.string().refine(isCategoryId, 'Categoria inválida.').nullable().optional(),
+    // Formato apenas: se o id é nativo ou personalizado do workspace é conferido no Command.
+    category: z.string().refine(isValidCategoryId, 'Categoria inválida.').nullable().optional(),
     purpose: z.string().refine(isPurposeId, 'Finalidade inválida.').nullable().optional(),
   })
   .refine((v) => v.category !== undefined || v.purpose !== undefined, 'Nada a alterar.');

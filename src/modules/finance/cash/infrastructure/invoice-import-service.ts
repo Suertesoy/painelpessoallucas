@@ -6,6 +6,7 @@ import {
 import { reconcileInvoice, type ExistingInvoiceItem } from '../domain/reconcile';
 import { buildImportPlan, MissingDecisionError, type ImportDecisions } from '../domain/import-plan';
 import { matchPaymentToInvoice, suggestCommitmentLinks } from '../domain/commitment-links';
+import { applyCategoryRules } from './category-learning';
 import type { ConfirmPayload, ConfirmResult, ImportPreview, PreviewItem } from '../domain/import-preview';
 
 /**
@@ -274,9 +275,18 @@ export async function applyImport(
     throw new ImportError(500, 'server_error', 'Não foi possível salvar a importação. Nada foi alterado.');
   }
   const row = Array.isArray(data) ? data[0] : data;
+  // Regras aprendidas: só preenchem lançamentos SEM categoria, nunca sobrescrevem e são
+  // idempotentes. Melhor esforço: uma falha aqui não desfaz nem invalida a importação.
+  let categorizedByRules = 0;
+  try {
+    categorizedByRules = await applyCategoryRules(supabase, workspaceId);
+  } catch {
+    categorizedByRules = 0;
+  }
   return {
     invoiceId: row.out_invoice_id,
     alreadyApplied: Boolean(row.out_already_applied),
     counts: plan.counts,
+    categorizedByRules,
   };
 }

@@ -6,6 +6,13 @@ import {
   type CommitmentInputT, type InvoiceManualInputT, type ReceivableInputT, type SetBalanceInputT, type TransferInputT,
 } from '../domain/cash.schema';
 import type { MonthKey } from '../domain/month';
+import { categoryLabel, merchantKey } from '../domain/categories';
+import {
+  findCategoryByLabel, isBuiltinCategory, isValidCategoryId, slugifyCategory, type CategoryRule,
+} from '../domain/category-rules';
+
+/** Como aprender com um lançamento: 'amount' = mesmo estabelecimento e mesmo valor; 'merchant' = qualquer valor (autorização explícita). */
+export type LearnMode = 'amount' | 'merchant';
 
 /**
  * Commands do caixa: validam com Zod, delegam ao repositório (funções SQL
@@ -129,10 +136,75 @@ export class FinanceCashCommands {
   }
 
   // -------- classificação (só rótulos; nunca altera valores) --------
+  private async assertKnownCategory(category: string) {
+    if (isBuiltinCategory(category)) return;
+    const custom = await this.repo.listCustomCategories();
+    if (!custom.some((c) => c.id === category)) throw new Error('Categoria inválida.');
+  }
+
   async classifyItems(input: ClassifyInputT) {
     const v = ClassifyInput.parse(input);
+    if (v.category) await this.assertKnownCategory(v.category);
     await this.repo.classifyItems(v.itemIds, { category: v.category, purpose: v.purpose });
     await this.emit('finance.invoice_items_classified', v.itemIds[0], { count: v.itemIds.length });
+  }
+
+  /** Cria uma categoria personalizada (ou devolve a que já existe com esse nome). Devolve o id. */
+  async createCategory(label: string): Promise<string> {
+    const name = label.trim().replace(/\s+/g, ' ');
+    if (name.length < 2 || name.length > 40) throw new Error('Use um nome de 2 a 40 caracteres.');
+    const custom = await this.repo.listCustomCategories();
+    const existing = findCategoryByLabel(name, custom, categoryLabel);
+    if (existing) return existing;
+    const id = slugifyCategory(name, [...custom.map((c) => c.id), 'none']);
+    if (isBuiltinCategory(id)) throw new Error('Esse nome é parecido demais com uma categoria existente.');
+    await this.repo.createCustomCategory({ id, label: name });
+    await this.emit('finance.category_created', id);
+    return id;
+  }
+
+  /**
+   * Classifica UM lançamento e, só se pedido, aprende a regra (opt-in):
+   * 'amount' = estabelecimento + valor; 'merchant' = qualquer valor. A regra
+   * só preenche lançamentos SEM categoria; nada confirmado é sobrescrito.
+   */
+  async classifyAndLearn(itemId: string, category: string, mode: LearnMode): Promise<{ rule: CategoryRule; applied: number }> {
+    if (!isValidCategoryId(category)) throw new Error('Categoria inválida.');
+    await this.assertKnownCategory(category);
+    const item = await this.repo.getItem(itemId);
+    if (!item) throw new Error('Lançamento não encontrado.');
+    if (item.kind === 'payment') throw new Error('Pagamentos de fatura não são classificados.');
+    await this.repo.classifyItems([itemId], { category });
+    const rule = await this.repo.saveCategoryRule({
+      merchantKey: merchantKey(item.baseDescription),
+      amountCents: mode === 'amount' ? item.amountCents : null,
+      category,
+    });
+    const applied = await this.repo.applyCategoryRules();
+    await this.emit('finance.category_rule_saved', rule.id, { applied, anyAmount: mode === 'merchant' });
+    return { rule, applied };
+  }
+
+  async changeRuleCategory(ruleId: string, category: string) {
+    if (!isValidCategoryId(category)) throw new Error('Categoria inválida.');
+    await this.assertKnownCategory(category);
+    await this.repo.changeRuleCategory(ruleId, category);
+    await this.emit('finance.category_rule_changed', ruleId);
+  }
+
+  /** Exclui a regra; com `revertItems`, os lançamentos que ELA classificou voltam a "sem categoria". */
+  async deleteCategoryRule(ruleId: string, revertItems: boolean) {
+    await this.repo.deleteCategoryRule(ruleId, revertItems);
+    await this.emit('finance.category_rule_deleted', ruleId, { revertItems });
+  }
+
+  countRuleItems(ruleId: string) {
+    return this.repo.countRuleItems(ruleId);
+  }
+
+  /** Reaplica as regras aos lançamentos ainda sem categoria (idempotente). */
+  applyCategoryRules() {
+    return this.repo.applyCategoryRules();
   }
 
   // -------- entradas fixas --------

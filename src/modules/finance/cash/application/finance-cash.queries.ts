@@ -5,11 +5,14 @@ import {
 import { estimateCardSpending, type CardEstimate } from '../domain/card-estimate';
 import { projectFutureInstallments, type ProjectedInstallment } from '../domain/installments';
 import { addMonths, monthOf } from '../domain/month';
+import type { CategoryRule, CustomCategory } from '../domain/category-rules';
 import { effectiveInvoiceAmount, type Balance, type CardInvoice, type Commitment, type FixedIncome, type IncomeOccurrence, type InvoiceItem, type Occurrence, type Receivable } from '../domain/types';
 
 export const PROJECTION_MONTHS = 4;
 
 export interface FinanceCashSnapshot {
+  customCategories: CustomCategory[];
+  categoryRules: CategoryRule[];
   today: string;
   balance: Balance;
   receivables: Receivable[];
@@ -30,10 +33,11 @@ export class FinanceCashQueries {
   constructor(private repo: SupabaseFinanceCashRepository) {}
 
   async getSnapshot(today: string): Promise<FinanceCashSnapshot> {
-    const [balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences] = await Promise.all([
+    const [balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, customCategories, categoryRules] = await Promise.all([
       this.repo.getBalance(), this.repo.listReceivables(), this.repo.listCommitments(),
       this.repo.listOccurrences(), this.repo.listInvoices(), this.repo.listItems(),
       this.repo.listFixedIncomes(), this.repo.listIncomeOccurrences(),
+      this.repo.listCustomCategories(), this.repo.listCategoryRules(),
     ]);
 
     const invoiceById = new Map(invoices.map((i) => [i.id, i]));
@@ -85,7 +89,7 @@ export class FinanceCashQueries {
       addMonths(current, PROJECTION_MONTHS - 1)
     );
 
-    return { today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate };
+    return { customCategories, categoryRules, today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate };
   }
 
   listTransfers() {

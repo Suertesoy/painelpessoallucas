@@ -11,8 +11,9 @@ import { todayDateStr } from '@/lib/dates';
 import { monthLabel, monthOf } from '@/modules/finance/cash/domain/month';
 import { EMPTY_FILTER, type SpendingRow } from '@/modules/finance/cash/domain/spending';
 import { breakdownSpending } from '@/modules/finance/cash/domain/spending-groups';
-import { ClassifierControls, SimilarToggle, useClassification } from '@/components/finance-cash/item-classifier';
+import { ClassificationError, ClassifierControls, useClassification } from '@/components/finance-cash/item-classifier';
 import { DonutChart, sliceColor } from '@/components/finance-cash/donut-chart';
+import { LearnedRules } from '@/components/finance-cash/learned-rules';
 import { Card, Money, buttonSecondary, formatDateBR, inputClass } from '@/components/finance-cash/ui';
 
 function pct(part: number, total: number): string {
@@ -50,10 +51,13 @@ function Gastos() {
   const month = monthChoice ?? defaultMonth;
 
   const breakdown = useMemo(
-    () => breakdownSpending(rows, { ...EMPTY_FILTER, month, techOrProfessional: onlyTech }),
-    [rows, month, onlyTech]
+    () => breakdownSpending(rows, { ...EMPTY_FILTER, month, techOrProfessional: onlyTech }, data?.customCategories ?? []),
+    [rows, month, onlyTech, data?.customCategories]
   );
-  const classification = useClassification(items);
+  const classification = useClassification(items, {
+    customCategories: data?.customCategories ?? [],
+    rules: data?.categoryRules ?? [],
+  });
 
   const selected = breakdown.categories.find((c) => c.id === categoryId) ?? null;
   const selectedMerchant = selected?.merchants.find((m) => m.name === merchant) ?? null;
@@ -165,6 +169,7 @@ function Gastos() {
           {selectedMerchant && (
             <Card aria-label={`Lançamentos de ${selectedMerchant.name}`}>
               <h2 className="text-base font-semibold">{selectedMerchant.name}</h2>
+              <ClassificationError classification={classification} />
               <ul className="mt-2 divide-y divide-[var(--line)]">
                 {selectedMerchant.rows.map((r) => {
                   const item = itemById.get(r.id);
@@ -196,7 +201,7 @@ function Gastos() {
                     <Sparkles size={14} /> Aceitar {withSuggestion.length} sugest{withSuggestion.length === 1 ? 'ão' : 'ões'}
                   </button>
                 )}
-                <SimilarToggle classification={classification} />
+                <ClassificationError classification={classification} />
                 <ul className="divide-y divide-[var(--line)]">
                   {uncategorizedItems.map((item) => (
                     <li key={item.id} className="py-3">
@@ -214,6 +219,12 @@ function Gastos() {
               </div>
             </details>
           )}
+
+          <LearnedRules
+            rules={data.categoryRules}
+            customCategories={data.customCategories}
+            labelFor={classification.labelFor}
+          />
         </>
       )}
     </div>
