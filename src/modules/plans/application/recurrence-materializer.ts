@@ -244,32 +244,42 @@ export async function activateAndMaterializePlanRules(
 export async function materializeDueRules(
   supabase: SupabaseClient,
   now: Date = new Date(),
-  horizonDays = DEFAULT_HORIZON_DAYS
+  horizonDays = DEFAULT_HORIZON_DAYS,
+  options: { workspaceId?: string } = {}
 ): Promise<MaterializeResult[]> {
-  const { data: rules, error } = await supabase
+  // O cron chama uma vez por workspace: sem filtro, cada chamada varria as
+  // regras de TODOS os workspaces (trabalho duplicado e timeouts).
+  let query = supabase
     .from('recurrence_rules')
     .select('*')
     .eq('is_active', true)
     .or(`next_occurrence_at.is.null,next_occurrence_at.lte.${now.toISOString()}`);
+  if (options.workspaceId) query = query.eq('workspace_id', options.workspaceId);
+  const { data: rules, error } = await query;
   if (error) throw new Error(`Falha ao buscar regras vencidas: ${error.message}`);
 
   // Projeto do plano de cada regra vencida — buscado em lote (um único
   // select) para não repetir uma query por regra.
   const planIds = [...new Set((rules ?? []).map((r) => (r as RuleRow).execution_plan_id).filter(Boolean))] as string[];
   const planProjectById = new Map<string, string | null>();
+  // Regras de planos pausados, arquivados ou em rascunho não geram ocorrências
+  // (e não são alteradas): evita falhas repetidas com planos que saíram de uso.
+  const inactivePlanIds = new Set<string>();
   if (planIds.length > 0) {
     const { data: plans, error: plansError } = await supabase
       .from('execution_plans')
-      .select('id, project_id')
+      .select('id, project_id, status')
       .in('id', planIds);
     if (plansError) throw new Error(`Falha ao carregar planos das regras vencidas: ${plansError.message}`);
-    for (const p of (plans ?? []) as { id: string; project_id: string | null }[]) {
+    for (const p of (plans ?? []) as { id: string; project_id: string | null; status: string }[]) {
       planProjectById.set(p.id, p.project_id ?? null);
+      if (p.status !== 'active') inactivePlanIds.add(p.id);
     }
   }
 
   const results: MaterializeResult[] = [];
   for (const rule of (rules ?? []) as RuleRow[]) {
+    if (rule.execution_plan_id && inactivePlanIds.has(rule.execution_plan_id)) continue;
     let action: ActionRow | null = null;
     const { data: actionRow } = await supabase
       .from('plan_actions')

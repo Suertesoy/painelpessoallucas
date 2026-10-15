@@ -8,10 +8,10 @@ import { getSupabaseServerClient } from '@/platform/supabase/server-client';
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
-  const next = requestUrl.searchParams.get('next') ?? '/hoje';
+  const next = requestUrl.searchParams.get('next') ?? '/';
 
   // Só permite redirecionamento interno (evita open redirect).
-  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/hoje';
+  const safeNext = next.startsWith('/') && !next.startsWith('//') ? next : '/';
 
   if (code) {
     const supabase = await getSupabaseServerClient();

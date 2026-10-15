@@ -80,7 +80,7 @@ export function suggestionText(s: ClassificationSuggestion): string {
 }
 
 const selectClass =
-  'rounded-lg border border-[var(--line-strong)] bg-[var(--surface-inset)] px-2 py-1 text-xs text-[var(--foreground)] max-w-full';
+  'rounded-lg border border-[var(--line-strong)] bg-[var(--surface-inset)] px-2 py-2 text-[var(--foreground)] max-w-full';
 
 export function ClassifierControls({
   item, classification,
@@ -96,7 +96,10 @@ export function ClassifierControls({
         onChange={(e) => void classification.classify(item, { category: e.target.value || null }, classification.applySimilar && e.target.value !== '')}
       >
         <option value="">Sem categoria</option>
-        {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        {CATEGORIES.filter((c) => !c.tech).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        <optgroup label="Tecnologia e profissional">
+          {CATEGORIES.filter((c) => c.tech).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+        </optgroup>
       </select>
       <select
         aria-label={`Finalidade de ${item.description}`}

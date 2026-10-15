@@ -2,12 +2,15 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getSessionContext } from '@/platform/supabase/session';
 import { buildGoogleAuthUrl, type GoogleService } from '@/platform/integrations/google-client';
+import { googleIntegrationsDisabledResponse } from '@/platform/integrations/feature-flags';
 
 /**
  * GET /api/integrations/google/connect?service=calendar|gmail
  * Inicia o OAuth 2.0 (Authorization Code, servidor). Separado do login.
  */
 export async function GET(request: Request) {
+  const disabled = googleIntegrationsDisabledResponse();
+  if (disabled) return disabled;
   const session = await getSessionContext();
   if (!session) {
     return NextResponse.redirect(new URL('/login', request.url));

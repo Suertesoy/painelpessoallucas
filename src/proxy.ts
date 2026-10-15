@@ -58,7 +58,7 @@ export async function proxy(request: NextRequest) {
 
   if (user && pathname === '/login') {
     const homeUrl = request.nextUrl.clone();
-    homeUrl.pathname = '/hoje';
+    homeUrl.pathname = '/';
     homeUrl.search = '';
     return NextResponse.redirect(homeUrl);
   }

@@ -176,12 +176,12 @@ export function CardsSection({ invoices, currentMonth, missingByInvoice }: { inv
         })}
       </div>
 
-      <div className="mt-4 border-t border-[var(--line)] pt-3">
-        <p className="text-xs font-medium text-[var(--text-muted)]">
+      <details className="mt-4 border-t border-[var(--line)] pt-3">
+        <summary className="cursor-pointer text-sm font-medium text-[var(--text-muted)]">
           {months.length === 0
             ? 'Nenhuma fatura cadastrada ainda. Importe um CSV ou informe o valor de uma fatura.'
             : `Todas as faturas cadastradas (${invoices.length} em ${months.length} ${months.length === 1 ? 'mês' : 'meses'})`}
-        </p>
+        </summary>
         <ul className="mt-2 divide-y divide-[var(--line)]">
           {months.map((m) => (
             <li key={m} className={m === selected ? 'bg-[var(--surface-raised)]' : ''}>
@@ -214,7 +214,7 @@ export function CardsSection({ invoices, currentMonth, missingByInvoice }: { inv
             </li>
           ))}
         </ul>
-      </div>
+      </details>
     </Card>
   );
 }

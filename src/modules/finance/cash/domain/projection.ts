@@ -142,7 +142,7 @@ export interface MonthProjection {
 }
 
 function sharesWord(a: string, b: string): boolean {
-  const words = (s: string) => new Set(s.toLowerCase().split(/[^p{L}p{N}]+/u).filter((w) => w.length >= 5));
+  const words = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 5));
   const wb = words(b);
   return [...words(a)].some((w) => wb.has(w));
 }

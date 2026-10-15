@@ -36,3 +36,7 @@ Google Drive, GitHub, Vercel — via Commands/Queries, nunca banco direto.
 ## Tratamento de Webhooks (quando existirem)
 1. Validar origem (assinaturas/secrets). 2. Registrar a intenção.
 3. Idempotência. 4. Converter em Command interno antes de alterar dados.
+
+## Desativação reversível (Google Calendar / Gmail)
+
+`GOOGLE_INTEGRATIONS_DISABLED=true` faz as rotas `/api/integrations/{google,calendar,gmail}/*` e `/api/settings/digest` responderem **410**, e o cron (`automation-tick`) deixar de sincronizar calendário e enviar resumos. Nenhum token é revogado ou apagado; remover a variável reativa tudo. O login com Google (Supabase Auth, `/auth/callback`) é independente.

@@ -4,6 +4,7 @@ import { runIdempotentJob, MAX_ATTEMPTS } from '@/platform/automation/automation
 import { materializeDueRules } from '@/modules/plans/application/recurrence-materializer';
 import { syncPendingCalendarLinks, getCalendarAccount } from '@/platform/integrations/calendar-sync';
 import { sendDigest, getDigestSettings } from '@/platform/integrations/digest-dispatch';
+import { googleIntegrationsDisabled } from '@/platform/integrations/feature-flags';
 
 /**
  * POST/GET /api/cron/automation-tick — execução horária (Vercel Cron).
@@ -104,7 +105,7 @@ async function runWorkspaceTick(
     now.toISOString(),
     null,
     async () => {
-      const results = await materializeDueRules(admin, now);
+      const results = await materializeDueRules(admin, now, undefined, { workspaceId });
       return { rules: results.length, created: results.reduce((s, r) => s + r.created, 0) };
     }
   );
@@ -147,7 +148,9 @@ async function runWorkspaceTick(
   }
 
   // 3. Calendar: vínculos pendentes ----------------------------------------------
-  const calendarAccount = await getCalendarAccount(admin, workspaceId);
+  // Com as integrações Google desativadas (flag reversível) não há sincronização.
+  const googleOff = googleIntegrationsDisabled();
+  const calendarAccount = googleOff ? null : await getCalendarAccount(admin, workspaceId);
   if (calendarAccount) {
     const calendar = await runIdempotentJob(
       admin,
@@ -164,7 +167,7 @@ async function runWorkspaceTick(
   }
 
   // 4/5. Resumos e alertas --------------------------------------------------------
-  const settings = await getDigestSettings(admin, workspaceId);
+  const settings = googleOff ? null : await getDigestSettings(admin, workspaceId);
   if (!settings) return;
 
   const minutesNow = local.hour * 60 + local.minute;

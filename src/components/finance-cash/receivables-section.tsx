@@ -7,7 +7,7 @@ import type { FixedIncome, IncomeOccurrence, Receivable } from '@/modules/financ
 import { incomeOccurrencesInMonth, type IncomeMonthRow, type MonthLine, type MonthProjection } from '@/modules/finance/cash/domain/projection';
 import { monthLabel, monthOf, type MonthKey } from '@/modules/finance/cash/domain/month';
 import {
-  Card, Chip, Dialog, ErrorText, Eyebrow, Field, Money, MoneyField, buttonGhost, buttonPrimary, buttonSecondary,
+  Card, Chip, Dialog, EndMonthField, ErrorText, Eyebrow, Field, Money, MoneyField, buttonGhost, buttonPrimary, buttonSecondary,
   formatDateBR, inputClass, parseMoneyInput, centsToInput, useAction,
 } from './ui';
 
@@ -168,17 +168,18 @@ function FixedIncomeForm({ initial, currentMonth, onDone, onCancel }: {
   const [amount, setAmount] = useState(initial ? centsToInput(initial.amountCents) : '');
   const [day, setDay] = useState(String(initial?.dayOfMonth ?? ''));
   const [startMonth, setStartMonth] = useState(initial?.startMonth ?? currentMonth);
-  const [endMonth, setEndMonth] = useState(initial?.endMonth ?? '');
+  const [endMonth, setEndMonth] = useState<string | null>(initial?.endMonth ?? null);
   const [notes, setNotes] = useState(initial?.notes ?? '');
   const { pending, error, run } = useAction();
   const cents = parseMoneyInput(amount);
+  const endIncomplete = endMonth === '';
 
   return (
     <form
       className="space-y-4"
       onSubmit={async (e) => {
         e.preventDefault();
-        if (cents === null) return;
+        if (cents === null || endIncomplete) return;
         const input = {
           description, amountCents: cents, dayOfMonth: Number(day), startMonth,
           endMonth: endMonth || null, notes: notes || null,
@@ -193,15 +194,16 @@ function FixedIncomeForm({ initial, currentMonth, onDone, onCancel }: {
       <Field label="Descrição">{(id) => <input id={id} className={inputClass} value={description} onChange={(e) => setDescription(e.target.value)} required maxLength={200} placeholder="Ex.: Manutenção Cliente A" />}</Field>
       <MoneyField label="Valor mensal" value={amount} onChange={setAmount} />
       <Field label="Dia previsto do recebimento">{(id) => <input id={id} type="number" inputMode="numeric" min={1} max={31} className={inputClass} value={day} onChange={(e) => setDay(e.target.value)} required />}</Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Começa em" hint="Meses anteriores sem recebimento confirmado aparecem como atrasados.">
-          {(id) => <input id={id} type="month" className={inputClass} value={startMonth} onChange={(e) => setStartMonth(e.target.value)} required />}
-        </Field>
-        <Field label="Termina em (opcional)" hint="Inclusivo: ainda conta neste mês.">
-          {(id) => <input id={id} type="month" className={inputClass} value={endMonth} onChange={(e) => setEndMonth(e.target.value)} min={startMonth} />}
-        </Field>
-      </div>
-      <Field label="Observação (opcional)">{(id) => <textarea id={id} rows={2} className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} />}</Field>
+      <Field label="Começa em" hint="Meses anteriores sem recebimento confirmado aparecem como atrasados.">
+        {(id) => <input id={id} type="month" className={inputClass} value={startMonth} onChange={(e) => setStartMonth(e.target.value)} required />}
+      </Field>
+      <EndMonthField value={endMonth} onChange={setEndMonth} min={startMonth} />
+      <details open={Boolean(initial?.notes)} className="rounded-xl border border-[var(--line)] p-3">
+        <summary className="cursor-pointer text-sm font-medium">Mais detalhes (opcional)</summary>
+        <div className="mt-3">
+          <Field label="Observação">{(id) => <textarea id={id} rows={2} className={inputClass} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} />}</Field>
+        </div>
+      </details>
       <ErrorText message={error} />
       <div className="flex flex-wrap justify-between gap-2">
         {initial ? (
@@ -211,7 +213,7 @@ function FixedIncomeForm({ initial, currentMonth, onDone, onCancel }: {
         ) : <span />}
         <div className="flex gap-2">
           <button type="button" className={buttonSecondary} onClick={onCancel}>Cancelar</button>
-          <button type="submit" className={buttonPrimary} disabled={pending || cents === null || cents <= 0 || !description.trim() || !day}>
+          <button type="submit" className={buttonPrimary} disabled={pending || cents === null || cents <= 0 || !description.trim() || !day || endIncomplete}>
             {pending ? 'Salvando…' : 'Salvar'}
           </button>
         </div>

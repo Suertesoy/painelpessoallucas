@@ -145,8 +145,8 @@ describe('materializeDueRules (cron) — resolve o projeto do plano em lote', ()
         rule({ id: 'rule-b', execution_plan_id: 'plan-b' }),
       ],
       execution_plans: [
-        { id: 'plan-a', project_id: 'project-a' },
-        { id: 'plan-b', project_id: 'project-b' },
+        { id: 'plan-a', project_id: 'project-a', status: 'active' },
+        { id: 'plan-b', project_id: 'project-b', status: 'active' },
       ],
       plan_actions: [
         action({ id: 'act-a', recurrence_rule_id: 'rule-a', execution_plan_id: 'plan-a', project_assignment: 'inherit' }),
@@ -163,5 +163,49 @@ describe('materializeDueRules (cron) — resolve o projeto do plano em lote', ()
     expect(itemsA.every((i) => i.project_id === 'project-a')).toBe(true);
     expect(itemsB.length).toBeGreaterThan(0);
     expect(itemsB.every((i) => i.project_id === 'project-b')).toBe(true);
+  });
+});
+
+describe('materializeDueRules (cron) — planos inativos e escopo por workspace', () => {
+  it('ignora regras de planos pausados/arquivados/rascunho e não as altera', async () => {
+    const paused = rule({ id: 'rule-paused', execution_plan_id: 'plan-paused' });
+    const supabase = createFakeSupabase({
+      recurrence_rules: [paused, rule({ id: 'rule-ok', execution_plan_id: 'plan-ok' })],
+      execution_plans: [
+        { id: 'plan-paused', project_id: null, status: 'paused' },
+        { id: 'plan-ok', project_id: null, status: 'active' },
+      ],
+      plan_actions: [
+        action({ id: 'act-ok', recurrence_rule_id: 'rule-ok', execution_plan_id: 'plan-ok' }),
+        action({ id: 'act-paused', recurrence_rule_id: 'rule-paused', execution_plan_id: 'plan-paused' }),
+      ],
+    });
+
+    const results = await materializeDueRules(supabase as never, NOW);
+    const items = supabase.tables.items as Record<string, unknown>[];
+
+    expect(results.map((r) => r.ruleId)).toEqual(['rule-ok']);
+    expect(items.some((i) => i.recurrence_rule_id === 'rule-paused')).toBe(false);
+    expect((supabase.tables.recurrence_rules as Record<string, unknown>[]).find((r) => r.id === 'rule-paused')).toEqual(paused);
+  });
+
+  it('com workspaceId só processa as regras daquele workspace', async () => {
+    const supabase = createFakeSupabase({
+      recurrence_rules: [
+        rule({ id: 'rule-mine', workspace_id: 'ws-1', execution_plan_id: 'plan-1' }),
+        rule({ id: 'rule-other', workspace_id: 'ws-2', execution_plan_id: 'plan-2' }),
+      ],
+      execution_plans: [
+        { id: 'plan-1', project_id: null, status: 'active' },
+        { id: 'plan-2', project_id: null, status: 'active' },
+      ],
+      plan_actions: [
+        action({ id: 'a1', recurrence_rule_id: 'rule-mine', execution_plan_id: 'plan-1' }),
+        action({ id: 'a2', recurrence_rule_id: 'rule-other', execution_plan_id: 'plan-2' }),
+      ],
+    });
+
+    const results = await materializeDueRules(supabase as never, NOW, undefined, { workspaceId: 'ws-1' });
+    expect(results.map((r) => r.ruleId)).toEqual(['rule-mine']);
   });
 });

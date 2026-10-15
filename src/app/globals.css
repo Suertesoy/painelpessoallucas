@@ -153,6 +153,27 @@ textarea::placeholder {
   opacity: 0.8;
 }
 
+/*
+ * Safari/iOS aproxima a tela ao focar campos com fonte menor que 16px.
+ * Mantemos 16px nos campos (sem bloquear o zoom de acessibilidade do usuário)
+ * e impedimos que campos de data/mês estourem a largura da tela.
+ */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,
+textarea {
+  font-size: 16px;
+  max-width: 100%;
+  min-width: 0;
+}
+input[type="date"],
+input[type="month"],
+input[type="time"],
+input[type="datetime-local"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 2.5rem;
+}
+
 /* Foco visível e consistente. */
 :focus-visible {
   outline: 2px solid var(--accent);

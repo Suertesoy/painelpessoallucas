@@ -53,7 +53,7 @@ describe('categorias e finalidades', () => {
   it('sugere categoria por regra, mas nunca a finalidade', () => {
     const s = suggestClassification(item('1', 'Vercel Inc.'), []);
     expect(s).toEqual({ category: 'infrastructure', purpose: null, source: 'rule' });
-    expect(suggestClassification(item('1', 'Netflix.Com'), [])?.category).toBe('subscriptions');
+    expect(suggestClassification(item('1', 'Netflix.Com'), [])?.category).toBe('streaming');
   });
   it('estabelecimento ambíguo fica sem sugestão ("a confirmar")', () => {
     expect(suggestClassification(item('1', 'Apple.Com/Bill'), [])).toBeNull();

@@ -69,6 +69,45 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   );
 }
 
+/**
+ * "Quando termina?" — escolha explícita entre sem data final e último mês.
+ * Valor controlado: `null` = sem data de término; `''` = escolheu definir mas
+ * ainda não informou o mês (o formulário deve bloquear o envio); `YYYY-MM` =
+ * último mês. Voltar para "sem data" descarta o mês escolhido.
+ */
+export function EndMonthField({
+  value, onChange, min, legend = 'Quando termina?',
+}: { value: string | null; onChange: (v: string | null) => void; min?: string; legend?: string }) {
+  const id = useId();
+  const defined = value !== null;
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-xs font-medium text-[var(--text-muted)]">{legend}</legend>
+      <label className="flex min-h-11 items-center gap-2 text-sm">
+        <input type="radio" name={`${id}-end`} checked={!defined} onChange={() => onChange(null)} />
+        Sem data de término
+      </label>
+      <label className="flex min-h-11 items-center gap-2 text-sm">
+        <input type="radio" name={`${id}-end`} checked={defined} onChange={() => onChange(value ?? '')} />
+        Definir último mês
+      </label>
+      {defined && (
+        <div className="space-y-1">
+          <input
+            type="month"
+            aria-label="Último mês"
+            className={inputClass}
+            value={value ?? ''}
+            min={min}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          <p className="text-xs text-[var(--text-muted)]">Inclusivo: ainda conta neste mês.</p>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
 /** Campo de dinheiro: texto livre em reais, convertido a centavos no envio. */
 export function MoneyField({
   label, value, onChange, hint, allowNegative = false,

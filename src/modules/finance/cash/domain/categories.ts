@@ -13,13 +13,15 @@ export const CATEGORIES = [
   { id: 'ai', label: 'Inteligência artificial', tech: true },
   { id: 'infrastructure', label: 'Infraestrutura digital', tech: true },
   { id: 'software', label: 'Software e serviços', tech: true },
-  { id: 'subscriptions', label: 'Assinaturas e entretenimento', tech: false },
-  { id: 'groceries', label: 'Alimentação e mercado', tech: false },
+  { id: 'subscriptions', label: 'Assinaturas e aplicativos', tech: false },
+  { id: 'streaming', label: 'Streaming', tech: false },
+  { id: 'groceries', label: 'Mercado', tech: false },
   { id: 'restaurants', label: 'Restaurantes e delivery', tech: false },
   { id: 'transport', label: 'Transporte', tech: false },
   { id: 'travel', label: 'Viagens', tech: false },
   { id: 'health', label: 'Saúde', tech: false },
-  { id: 'shopping', label: 'Compras', tech: false },
+  { id: 'shopping', label: 'Compras online', tech: false },
+  { id: 'leisure', label: 'Lazer', tech: false },
   { id: 'housing', label: 'Moradia e contas', tech: false },
   { id: 'other', label: 'Outros', tech: false },
 ] as const;
@@ -60,6 +62,9 @@ export function isTechOrProfessional(item: { category: string | null; purpose: s
   return isTechCategory(item.category) || item.purpose === 'professional';
 }
 
+/** Serviços de streaming (vídeo, música). Também usados na leitura de itens antigos 'subscriptions'. */
+export const STREAMING_KEYWORDS = ['netflix', 'spotify', 'amazonprime', 'amazon prime', 'prime video', 'disney', 'hbo', 'youtube', 'globoplay', 'deezer', 'paramount', 'max.com', 'apple tv', 'crunchyroll'];
+
 /**
  * Palavras-chave por categoria. São apenas SUGESTÕES (o usuário aceita ou
  * altera); nunca definem a classificação sozinhas. Estabelecimentos sem
@@ -69,13 +74,15 @@ const KEYWORD_RULES: { category: CategoryId; keywords: string[] }[] = [
   { category: 'infrastructure', keywords: ['vercel', 'github', 'cloudflare', 'supabase', 'digitalocean', 'hostinger', 'godaddy', 'namecheap', 'railway', 'netlify', 'amazon web', 'aws', 'registro br', 'hostgator'] },
   { category: 'ai', keywords: ['openai', 'chatgpt', 'anthropic', 'claude', 'magnific', 'midjourney', 'cursor', 'runway', 'elevenlabs', 'perplexity', 'gemini', 'copilot', 'g1ai'] },
   { category: 'software', keywords: ['google one', 'workana', 'adobe', 'figma', 'notion', 'canva', 'dropbox', 'microsoft', 'zoom', 'slack', 'jetbrains', 'icloud'] },
-  { category: 'subscriptions', keywords: ['netflix', 'spotify', 'amazonprime', 'amazon prime', 'disney', 'hbo', 'youtube', 'globoplay', 'deezer', 'paramount', 'max.com'] },
+  { category: 'streaming', keywords: STREAMING_KEYWORDS },
+  { category: 'leisure', keywords: ['cinema', 'cinemark', 'ingresso', 'ticketmaster', 'sympla', 'steam', 'playstation', 'xbox', 'nintendo', 'boliche', 'teatro'] },
+  // Compras online vem antes de Mercado: "mercadolivre" contém "mercado".
+  { category: 'shopping', keywords: ['mercadolivre', 'mercado livre', 'amazonmktplc', 'magalu', 'shopee', 'havan', 'americanas', 'kabum', 'aliexpress', 'shein'] },
   { category: 'restaurants', keywords: ['ifood', 'restaurante', 'lanchonete', 'pizzaria', 'hamburgueria', 'mcdonald', 'burger', 'cafeteria', 'sorveteria', 'rappi'] },
   { category: 'groceries', keywords: ['mercado', 'supermercado', 'padaria', 'atacad', 'hortifruti', 'acougue', 'carrefour', 'assai', 'saralua', 'imperatr'] },
   { category: 'transport', keywords: ['uber', '99app', '99 ', 'posto', 'shell', 'ipiranga', 'estacionamento', 'pedagio', 'sem parar', 'conectcar'] },
   { category: 'travel', keywords: ['hotel', 'airbnb', 'booking', 'latam', 'azul linhas', 'gol linhas', 'aeroporto', 'decolar', 'cvc'] },
   { category: 'health', keywords: ['drogaria', 'farmacia', 'drogasil', 'raia', 'pague menos', 'hospital', 'clinica', 'laboratorio', 'odonto'] },
-  { category: 'shopping', keywords: ['mercadolivre', 'mercado livre', 'amazonmktplc', 'magalu', 'shopee', 'havan', 'americanas', 'kabum', 'aliexpress', 'shein'] },
   { category: 'housing', keywords: ['enel', 'sabesp', 'condominio', 'aluguel', 'seguro', 'claro', 'vivo', 'tim ', 'internet'] },
 ];
 

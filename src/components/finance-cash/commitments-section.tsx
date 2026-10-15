@@ -7,7 +7,7 @@ import type { Commitment } from '@/modules/finance/cash/domain/types';
 import type { CardFixedLine, CardFixedState, MonthLine, MonthProjection } from '@/modules/finance/cash/domain/projection';
 import { CARD_IDS, CARD_FULL_LABELS, monthOf, type CardId } from '@/modules/finance/cash/domain/month';
 import {
-  Card, Chip, Dialog, ErrorText, Eyebrow, Field, Money, MoneyField, buttonGhost, buttonPrimary, buttonSecondary,
+  Card, Chip, Dialog, EndMonthField, ErrorText, Eyebrow, Field, Money, MoneyField, buttonGhost, buttonPrimary, buttonSecondary,
   formatDateBR, inputClass, parseMoneyInput, centsToInput, useAction,
 } from './ui';
 
@@ -28,19 +28,20 @@ function CommitmentForm({ initial, currentMonth, onDone, onCancel }: {
   const [dueDate, setDueDate] = useState(initial?.dueDate ?? '');
   const [day, setDay] = useState(String(initial?.dayOfMonth ?? ''));
   const [startMonth, setStartMonth] = useState(initial?.startMonth ?? currentMonth);
-  const [endMonth, setEndMonth] = useState(initial?.endMonth ?? '');
+  const [endMonth, setEndMonth] = useState<string | null>(initial?.endMonth ?? null);
   const [billing, setBilling] = useState<'direct' | 'card'>(initial?.billing ?? 'direct');
   const [card, setCard] = useState<CardId>(initial?.card ?? 'nubank_1');
   const [category, setCategory] = useState(initial?.category ?? '');
   const { pending, error, run } = useAction();
   const cents = parseMoneyInput(amount);
+  const endIncomplete = recurrence === 'monthly' && endMonth === '';
 
   return (
     <form
       className="space-y-4"
       onSubmit={async (e) => {
         e.preventDefault();
-        if (cents === null) return;
+        if (cents === null || endIncomplete) return;
         const input = {
           description, amountCents: cents, recurrence,
           dueDate: recurrence === 'none' ? dueDate : null,
@@ -73,7 +74,7 @@ function CommitmentForm({ initial, currentMonth, onDone, onCancel }: {
           <Field label="Dia do mês">{(id) => <input id={id} type="number" min={1} max={31} className={inputClass} value={day} onChange={(e) => setDay(e.target.value)} required />}</Field>
           <Field label="A partir de">{(id) => <input id={id} type="month" className={inputClass} value={startMonth} onChange={(e) => setStartMonth(e.target.value)} required />}</Field>
           <div className="col-span-2">
-            <Field label="Até (opcional)">{(id) => <input id={id} type="month" className={inputClass} value={endMonth} onChange={(e) => setEndMonth(e.target.value)} />}</Field>
+            <EndMonthField value={endMonth} onChange={setEndMonth} min={startMonth} />
           </div>
         </div>
       )}
@@ -104,7 +105,7 @@ function CommitmentForm({ initial, currentMonth, onDone, onCancel }: {
         ) : <span />}
         <div className="flex gap-2">
           <button type="button" className={buttonSecondary} onClick={onCancel}>Cancelar</button>
-          <button type="submit" className={buttonPrimary} disabled={pending || cents === null || cents <= 0 || !description.trim()}>
+          <button type="submit" className={buttonPrimary} disabled={pending || cents === null || cents <= 0 || !description.trim() || endIncomplete}>
             {pending ? 'Salvando…' : 'Salvar'}
           </button>
         </div>

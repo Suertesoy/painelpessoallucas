@@ -9,6 +9,7 @@ import {
   listAppCalendarEvents,
 } from '@/platform/integrations/google-calendar';
 import { zonedDateTimeToUtc } from '@/modules/plans/domain/recurrence-engine';
+import { googleIntegrationsDisabledResponse } from '@/platform/integrations/feature-flags';
 
 /**
  * GET /api/integrations/calendar/today?date=YYYY-MM-DD
@@ -18,6 +19,8 @@ import { zonedDateTimeToUtc } from '@/modules/plans/domain/recurrence-engine';
  * - events: eventos do calendário "Painel Lucas" (criados pela app)
  */
 export async function GET(request: Request) {
+  const disabled = googleIntegrationsDisabledResponse();
+  if (disabled) return disabled;
   const session = await getSessionContext();
   if (!session) {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });

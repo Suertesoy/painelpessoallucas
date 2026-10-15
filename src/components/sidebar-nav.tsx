@@ -1,66 +1,68 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Search, Plus, Menu, X, Sun, Inbox, Folder, StickyNote, Activity, Settings, LogOut, FileText, GraduationCap, ShoppingCart, Wallet } from 'lucide-react';
-import { openGlobalSearch, openQuickCapture } from '@/lib/ui-events';
+import { Home, Settings, LogOut, ShoppingCart, Wallet, StickyNote } from 'lucide-react';
 import { useAuth } from '@/providers/auth.provider';
 
+/**
+ * Navegação da central doméstica: quatro lugares e Configurações.
+ * As demais rotas (Hoje, Entrada, Projetos, Planos, Aprendizado, Revisão…)
+ * continuam existindo por URL, mas não aparecem aqui.
+ */
 const NAV_ITEMS = [
-  { href: '/financas', label: 'Finanças', icon: Wallet },
-  { href: '/hoje', label: 'Hoje', icon: Sun },
-  { href: '/entrada', label: 'Caixa de Entrada', icon: Inbox },
-  { href: '/projetos', label: 'Projetos', icon: Folder },
-  // A rota antiga é preservada para não quebrar links salvos.
-  { href: '/ideias', label: 'Notas', icon: StickyNote },
+  { href: '/', label: 'Nossa casa', icon: Home },
   { href: '/compras', label: 'Compras', icon: ShoppingCart },
-  { href: '/planos', label: 'Planos', icon: FileText },
-  { href: '/aprendizado', label: 'Aprendizado', icon: GraduationCap },
-  { href: '/revisao', label: 'Revisão', icon: Activity },
-  { href: '/configuracoes', label: 'Configurações', icon: Settings },
+  { href: '/financas', label: 'Finanças', icon: Wallet },
+  { href: '/notas', label: 'Notas', icon: StickyNote },
 ];
+
+const SETTINGS_ITEM = { href: '/configuracoes', label: 'Configurações', icon: Settings };
+
+function isActivePath(pathname: string, href: string): boolean {
+  if (href === '/') return pathname === '/';
+  // /ideias é a rota antiga de Notas.
+  if (href === '/notas' && (pathname === '/ideias' || pathname.startsWith('/ideias/'))) return true;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function UserFooter() {
   const { user, signOut } = useAuth();
   if (!user) return null;
   return (
-    <div className="mt-auto border-t pt-3 flex items-center justify-between gap-2">
+    <div className="mt-auto flex items-center justify-between gap-2 border-t pt-3">
       <span className="truncate text-xs text-gray-500" title={user.email ?? undefined}>
         {user.email}
       </span>
       <button
         onClick={() => void signOut()}
-        className="p-1.5 text-gray-500 hover:bg-gray-100 rounded shrink-0"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-gray-500 hover:bg-gray-100"
         title="Sair"
         aria-label="Sair da conta"
       >
-        <LogOut size={16} />
+        <LogOut size={18} />
       </button>
     </div>
   );
 }
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks() {
   const pathname = usePathname();
-
   return (
     <nav className="flex flex-col gap-1" aria-label="Navegação principal">
       {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-        const isActive = pathname === href || pathname.startsWith(`${href}/`);
+        const active = isActivePath(pathname, href);
         return (
           <Link
             key={href}
             href={href}
-            onClick={onNavigate}
-            aria-current={isActive ? 'page' : undefined}
-            className={`flex items-center gap-3 p-2 rounded-lg text-sm font-medium transition-colors ${
-              isActive
-                ? 'bg-blue-50 text-blue-700'
-                : 'text-gray-700 hover:bg-gray-100'
+            aria-current={active ? 'page' : undefined}
+            className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-base font-medium transition-colors ${
+              active ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
             }`}
           >
-            <Icon size={18} className={isActive ? 'text-blue-600' : 'text-gray-400'} />
+            <Icon size={20} className={active ? 'text-blue-600' : 'text-gray-400'} />
             {label}
           </Link>
         );
@@ -70,84 +72,61 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function SidebarNav() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+  const SettingsIcon = SETTINGS_ITEM.icon;
+  const settingsActive = isActivePath(pathname, SETTINGS_ITEM.href);
 
   return (
     <>
-      {/* Sidebar desktop */}
-      <aside className="hidden md:flex w-64 bg-white border-r h-full flex-col p-4 shrink-0">
-        <div className="font-bold text-xl mb-6 flex justify-between items-center">
-          <span>Painel Lucas</span>
-          <button
-            onClick={openGlobalSearch}
-            className="p-1.5 text-gray-500 hover:bg-gray-100 rounded"
-            title="Buscar (Ctrl+K)"
-            aria-label="Abrir busca global"
-          >
-            <Search size={18} />
-          </button>
-        </div>
-
-        <button
-          onClick={openQuickCapture}
-          className="mb-6 flex items-center justify-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-          title="Captura rápida (Ctrl+Shift+Espaço)"
-        >
-          <Plus size={16} /> Capturar
-        </button>
-
+      {/* Barra lateral (desktop) */}
+      <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-white p-4 md:flex">
+        <div className="mb-6 text-xl font-bold">Nossa casa</div>
         <NavLinks />
+        <Link
+          href={SETTINGS_ITEM.href}
+          aria-current={settingsActive ? 'page' : undefined}
+          className={`mt-6 flex min-h-11 items-center gap-3 rounded-xl px-3 text-base font-medium ${
+            settingsActive ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+          }`}
+        >
+          <SettingsIcon size={20} className="text-gray-400" /> {SETTINGS_ITEM.label}
+        </Link>
         <UserFooter />
       </aside>
 
-      {/* Barra superior mobile */}
-      <header className="md:hidden fixed top-0 inset-x-0 z-40 bg-white border-b flex items-center justify-between px-4 h-14">
-        <span className="font-bold text-lg">Painel Lucas</span>
-        <div className="flex items-center gap-1">
-          <Link href="/financas" className="p-2 text-gray-600 hover:bg-gray-100 rounded" aria-label="Abrir Finanças">
-            <Wallet size={20} />
-          </Link>
-          <button
-            onClick={openGlobalSearch}
-            className="p-2 text-gray-600 hover:bg-gray-100 rounded"
-            aria-label="Abrir busca global"
-          >
-            <Search size={20} />
-          </button>
-          <button
-            onClick={() => setMobileOpen(v => !v)}
-            className="p-2 text-gray-600 hover:bg-gray-100 rounded"
-            aria-label={mobileOpen ? 'Fechar menu' : 'Abrir menu'}
-            aria-expanded={mobileOpen}
-          >
-            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
-        </div>
+      {/* Barra superior (mobile): só o nome e o acesso às configurações */}
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b bg-white px-4 md:hidden">
+        <span className="text-lg font-bold">Nossa casa</span>
+        <Link
+          href={SETTINGS_ITEM.href}
+          aria-label="Abrir configurações"
+          aria-current={settingsActive ? 'page' : undefined}
+          className="flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100"
+        >
+          <SettingsIcon size={22} />
+        </Link>
       </header>
 
-      {/* Menu mobile (drawer) */}
-      {mobileOpen && (
-        <div className="md:hidden fixed inset-0 z-30 pt-14" role="dialog" aria-label="Menu">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="relative bg-white border-b shadow-lg p-4 flex flex-col gap-3">
-            <NavLinks onNavigate={() => setMobileOpen(false)} />
-            <UserFooter />
-          </div>
-        </div>
-      )}
-
-      {/* Botão flutuante de captura (mobile) */}
-      <button
-        onClick={openQuickCapture}
-        className="md:hidden fixed bottom-6 right-6 z-40 bg-blue-600 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-lg hover:bg-blue-700 active:scale-95 transition"
-        aria-label="Captura rápida"
+      {/* Barra inferior (mobile): os quatro lugares, com áreas de toque amplas */}
+      <nav
+        aria-label="Navegação principal (celular)"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
       >
-        <Plus size={26} />
-      </button>
+        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          const active = isActivePath(pathname, href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-current={active ? 'page' : undefined}
+              className={`flex min-h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${active ? 'text-blue-700' : 'text-gray-500'}`}
+            >
+              <Icon size={22} />
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
     </>
   );
 }

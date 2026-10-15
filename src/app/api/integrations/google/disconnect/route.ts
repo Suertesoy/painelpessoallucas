@@ -4,12 +4,15 @@ import { getSessionContext } from '@/platform/supabase/session';
 import { getSupabaseAdminClient } from '@/platform/supabase/admin-client';
 import { revokeGoogleToken } from '@/platform/integrations/google-client';
 import { decryptToken } from '@/platform/integrations/token-crypto';
+import { googleIntegrationsDisabledResponse } from '@/platform/integrations/feature-flags';
 
 /**
  * POST /api/integrations/google/disconnect  { service }
  * Revoga o token no Google (melhor esforço) e remove a conexão local.
  */
 export async function POST(request: Request) {
+  const disabled = googleIntegrationsDisabledResponse();
+  if (disabled) return disabled;
   const session = await getSessionContext();
   if (!session) {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });

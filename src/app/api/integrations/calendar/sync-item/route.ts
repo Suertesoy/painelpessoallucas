@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getSessionContext } from '@/platform/supabase/session';
 import { getSupabaseAdminClient } from '@/platform/supabase/admin-client';
 import { syncItemToCalendar } from '@/platform/integrations/calendar-sync';
+import { googleIntegrationsDisabledResponse } from '@/platform/integrations/feature-flags';
 
 /**
  * POST /api/integrations/calendar/sync-item
@@ -15,6 +16,8 @@ const BodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const disabled = googleIntegrationsDisabledResponse();
+  if (disabled) return disabled;
   const session = await getSessionContext();
   if (!session) {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });

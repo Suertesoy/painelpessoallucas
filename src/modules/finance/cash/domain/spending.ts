@@ -14,6 +14,8 @@ export interface SpendingRow {
   invoiceMonth: MonthKey;
   date: string;
   description: string;
+  /** Descrição-base (sem sufixo de parcela); usada para identificar o estabelecimento. */
+  baseDescription?: string;
   amountCents: number;
   kind: 'purchase' | 'refund' | 'payment' | 'adjustment';
   status: 'active' | 'missing' | 'removed';

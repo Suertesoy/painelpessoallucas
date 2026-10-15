@@ -8,6 +8,7 @@ import {
   storeIntegrationTokens,
   type GoogleService,
 } from '@/platform/integrations/google-client';
+import { googleIntegrationsDisabledResponse } from '@/platform/integrations/feature-flags';
 
 /**
  * GET /api/integrations/google/callback
@@ -15,6 +16,8 @@ import {
  * tokens no servidor. Nenhum token é retornado ao navegador.
  */
 export async function GET(request: Request) {
+  const disabled = googleIntegrationsDisabledResponse();
+  if (disabled) return disabled;
   const url = new URL(request.url);
   const redirect = (params: string) =>
     NextResponse.redirect(new URL(`/configuracoes?${params}`, url.origin));

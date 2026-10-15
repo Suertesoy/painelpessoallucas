@@ -79,3 +79,19 @@ Leads como visão leve derivada (futuro). Hoje: cada lead relevante pode ser ite
 4. Decisões antigas são reencontráveis em **menos de 30 segundos** (busca ou filtro de decisões).
 5. Refresh, navegação direta por URL e reabertura do navegador **nunca** perdem dados registrados.
 6. O repositório passa `lint`, `typecheck`, `test` e `build` a cada push — sem exceções mascaradas.
+
+## 8. Redirecionamento: central doméstica (Lucas e Matheus)
+
+O produto passou de organizador pessoal para **central doméstica compartilhada**. Vale esta seção quando conflitar com o texto acima.
+
+- **Navegação:** Nossa casa (`/`), Compras, Finanças, Notas; Configurações à parte. Hoje, Entrada, Projetos, Planos, Agenda, Aprendizado e Revisão continuam existindo **por URL**, com dados e código preservados, mas fora da navegação. `/ideias` redireciona para `/notas`.
+- **Divulgação progressiva:** resumo primeiro, composição um toque abaixo (Finanças); gastos em rosca → lojas → lançamentos; listas completas recolhidas.
+- **Finanças:** "Sobra depois do combinado" considera só obrigações já conhecidas; a composição separa o resultado do mês (entrou − saiu) do acumulado ao fim do mês. Estimativa de cartão é opcional, separada e exige histórico (3 faturas de meses anteriores por cartão).
+- **Categorias:** ids persistidos em `finance_invoice_items.category` não mudam; a apresentação doméstica usa o mapeamento de leitura `DISPLAY_OF` (`spending-groups.ts`). Nada é migrado ou sobrescrito.
+- **Compartilhamento (adiado):** convite por e-mail + `profiles.default_workspace_id` estão prontos na branch local `feat/compartilhamento-convite` (migration `20260817100000_workspace_invites.sql`), **não publicados** até a migration ser validada em ambiente isolado. Enquanto isso, nada de convite aparece na interface.
+- **Google Calendar/Gmail:** desativação reversível com `GOOGLE_INTEGRATIONS_DISABLED=true` (rotas respondem 410; cron não sincroniza nem envia resumos). Tokens e dados não são tocados.
+
+### Pendências técnicas registradas (fora desta rodada)
+- `automation_runs` cresce sem retenção (~330 mil linhas; os jobs `push_*` gravam várias linhas a cada 5 minutos). Definir política de retenção/limpeza.
+- Rotas e telas de Projetos/Planos/Rotina/Agenda/Aprendizado seguem no código (ocultas). Remover só com auditoria de dependências (triagem, captura e roteador de rotina ainda referenciam `projects` e `plan_actions`).
+- Revogação/remoção de tokens Google: decisão futura, após desativar por flag.

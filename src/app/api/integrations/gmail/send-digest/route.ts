@@ -3,12 +3,15 @@ import { z } from 'zod';
 import { getSessionContext } from '@/platform/supabase/session';
 import { getSupabaseAdminClient } from '@/platform/supabase/admin-client';
 import { sendDigest } from '@/platform/integrations/digest-dispatch';
+import { googleIntegrationsDisabledResponse } from '@/platform/integrations/feature-flags';
 
 /**
  * POST /api/integrations/gmail/send-digest { kind: 'daily' | 'weekly' }
  * Envio manual (teste) do resumo para o próprio usuário.
  */
 export async function POST(request: Request) {
+  const disabled = googleIntegrationsDisabledResponse();
+  if (disabled) return disabled;
   const session = await getSessionContext();
   if (!session) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
 

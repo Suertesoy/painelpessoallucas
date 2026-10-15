@@ -1,92 +1,51 @@
 'use client';
 
-import { Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/providers/auth.provider';
-import { GoogleIntegrationCard } from '@/components/google-integration-card';
-import { DigestSettingsCard } from '@/components/digest-settings-card';
 import { ShoppingWhatsappSettingsCard } from '@/components/shopping-whatsapp-settings-card';
 import { RoutineSettingsCard } from '@/components/routine-settings-card';
 import { AutomationHealthCard } from '@/components/automation-health-card';
 import { InstallAppCard } from '@/components/pwa/install-app-card';
 import { PushNotificationsCard } from '@/components/push/push-notifications-card';
 
-function ConfiguracoesContent() {
+/**
+ * Configurações da casa: só o que se usa no dia a dia. Integrações antigas
+ * (Google Calendar, Gmail, resumos por e-mail) e opções técnicas não ficam na
+ * tela principal; os componentes continuam no código e os dados, preservados.
+ */
+export default function ConfiguracoesPage() {
   const { user } = useAuth();
-  const searchParams = useSearchParams();
-  const integracaoOk = searchParams.get('integracao_ok');
-  const integracaoErro = searchParams.get('integracao_erro');
 
   return (
-    <div className="p-4 md:p-8 max-w-3xl mx-auto">
+    <div className="mx-auto max-w-2xl space-y-5 p-4 pb-28 md:p-8">
       <h1 className="text-2xl font-bold">Configurações</h1>
 
-      {integracaoOk && (
-        <p className="mt-4 flex items-center gap-2 rounded-lg bg-green-50 p-3 text-sm text-green-800">
-          <CheckCircle size={16} />
-          {integracaoOk === 'calendar' ? 'Google Calendar conectado.' : 'Gmail conectado.'}
-        </p>
-      )}
-      {integracaoErro && (
-        <p role="alert" className="mt-4 flex items-center gap-2 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-          <AlertCircle size={16} /> Falha na conexão: {integracaoErro}
-        </p>
-      )}
-
-      <section className="mt-6 rounded-xl border border-gray-200 bg-white p-6">
+      <section className="rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="text-lg font-semibold">Conta</h2>
-        <p className="mt-2 text-sm text-gray-600">
+        <p className="mt-2 text-base text-gray-600">
           Conectado como <span className="font-medium">{user?.email}</span>
         </p>
       </section>
 
-      <section id="integracoes" className="mt-6 scroll-mt-6">
-        <h2 className="text-lg font-semibold">Integrações</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          Conexões separadas do login, com os menores escopos possíveis. Você pode
-          desconectar a qualquer momento.
-        </p>
-        <div className="mt-4 space-y-4">
-          <GoogleIntegrationCard service="calendar" />
-          <GoogleIntegrationCard service="gmail" />
-          <DigestSettingsCard />
-        </div>
+      <section aria-label="Compras">
+        <ShoppingWhatsappSettingsCard />
       </section>
 
-      <section id="rotina" className="mt-6 scroll-mt-6">
-        <h2 className="text-lg font-semibold">Rotina diária</h2>
-        <div className="mt-4">
-          <RoutineSettingsCard />
-        </div>
-      </section>
-
-      <section id="compras" className="mt-6 scroll-mt-6">
-        <h2 className="text-lg font-semibold">Compras</h2>
-        <div className="mt-4">
-          <ShoppingWhatsappSettingsCard />
-        </div>
-      </section>
-
-      <section className="mt-6">
-        <AutomationHealthCard />
-      </section>
-
-      <section className="mt-6">
+      <section aria-label="Aplicativo no celular">
         <InstallAppCard />
       </section>
 
-      <section className="mt-6">
+      <section aria-label="Notificações">
         <PushNotificationsCard />
       </section>
-    </div>
-  );
-}
 
-export default function ConfiguracoesPage() {
-  return (
-    <Suspense>
-      <ConfiguracoesContent />
-    </Suspense>
+      <details className="rounded-2xl border border-gray-200 bg-white">
+        <summary className="min-h-11 cursor-pointer p-5 text-lg font-semibold">Avançado</summary>
+        <div className="space-y-4 border-t border-gray-200 p-5">
+          <p className="text-sm text-gray-600">Opções técnicas das automações. Não são necessárias para o uso diário.</p>
+          <AutomationHealthCard />
+          <RoutineSettingsCard />
+        </div>
+      </details>
+    </div>
   );
 }

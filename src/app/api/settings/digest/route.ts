@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSessionContext } from '@/platform/supabase/session';
+import { googleIntegrationsDisabledResponse } from '@/platform/integrations/feature-flags';
 
 /**
  * GET/PUT /api/settings/digest — preferências de resumos por e-mail.
@@ -18,6 +19,8 @@ const SettingsSchema = z.object({
 });
 
 export async function GET() {
+  const disabled = googleIntegrationsDisabledResponse();
+  if (disabled) return disabled;
   const session = await getSessionContext();
   if (!session) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
 
@@ -41,6 +44,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  const disabled = googleIntegrationsDisabledResponse();
+  if (disabled) return disabled;
   const session = await getSessionContext();
   if (!session) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
 

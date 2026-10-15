@@ -2,6 +2,7 @@ import type { SupabaseFinanceCashRepository } from '../infrastructure/supabase-f
 import {
   projectCash, linkedKey, type MonthProjection, type CommitmentInput, type InvoiceInput, type OccurrenceInput, type ReceivableInput,
 } from '../domain/projection';
+import { estimateCardSpending, type CardEstimate } from '../domain/card-estimate';
 import { projectFutureInstallments, type ProjectedInstallment } from '../domain/installments';
 import { addMonths, monthOf } from '../domain/month';
 import { effectiveInvoiceAmount, type Balance, type CardInvoice, type Commitment, type FixedIncome, type IncomeOccurrence, type InvoiceItem, type Occurrence, type Receivable } from '../domain/types';
@@ -21,6 +22,8 @@ export interface FinanceCashSnapshot {
   projection: MonthProjection[];
   /** Parcelas futuras estimadas — informativas, fora de qualquer total. */
   projectedInstallments: ProjectedInstallment[];
+  /** Estimativa opcional de gastos no cartão — separada dos totais confirmados. */
+  cardEstimate: CardEstimate;
 }
 
 export class FinanceCashQueries {
@@ -46,6 +49,10 @@ export class FinanceCashQueries {
       if (item.status === 'missing') missingByInvoice.set(item.invoiceId, (missingByInvoice.get(item.invoiceId) ?? 0) + 1);
     }
 
+    const invoiceInputs = invoices.map<InvoiceInput>((i) => ({
+      id: i.id, card: i.card, month: i.month, status: i.status, amountCents: effectiveInvoiceAmount(i), dueDate: i.dueDate,
+      missingItemsCount: missingByInvoice.get(i.id) ?? 0,
+    }));
     const projection = projectCash({
       today,
       months: PROJECTION_MONTHS,
@@ -59,14 +66,12 @@ export class FinanceCashQueries {
       occurrences: occurrences.map<OccurrenceInput>((o) => ({
         commitmentId: o.commitmentId, month: o.month, amountCents: o.amountCents, status: o.status,
       })),
-      invoices: invoices.map<InvoiceInput>((i) => ({
-        id: i.id, card: i.card, month: i.month, status: i.status, amountCents: effectiveInvoiceAmount(i), dueDate: i.dueDate,
-        missingItemsCount: missingByInvoice.get(i.id) ?? 0,
-      })),
+      invoices: invoiceInputs,
       linkedCommitmentMonths: linked,
     });
 
     const current = monthOf(today);
+    const cardEstimate = estimateCardSpending(invoiceInputs, projection, current);
     const projectedInstallments = projectFutureInstallments(
       items.flatMap((it) => {
         const inv = invoiceById.get(it.invoiceId);
@@ -80,7 +85,7 @@ export class FinanceCashQueries {
       addMonths(current, PROJECTION_MONTHS - 1)
     );
 
-    return { today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments };
+    return { today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate };
   }
 
   listTransfers() {

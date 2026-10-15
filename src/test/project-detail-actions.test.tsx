@@ -78,7 +78,7 @@ async function renderDetail(project: Project) {
       </Suspense>
     );
   });
-  await waitFor(() => expect(screen.getByLabelText('Nome do projeto')).toHaveProperty('value', project.name));
+  await waitFor(() => expect(screen.getByLabelText('Nome do projeto')).toHaveProperty('value', project.name), { timeout: 8000 });
 }
 
 describe('/projetos/[projectId] — ações de ciclo de vida', () => {

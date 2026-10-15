@@ -5,6 +5,7 @@ import {
   getValidAccessToken,
   GoogleTokenRevokedError,
 } from '@/platform/integrations/google-client';
+import { googleIntegrationsDisabledResponse } from '@/platform/integrations/feature-flags';
 
 /**
  * GET /api/integrations/google/status?service=calendar|gmail[&verify=1]
@@ -12,6 +13,8 @@ import {
  * Nunca retorna tokens.
  */
 export async function GET(request: Request) {
+  const disabled = googleIntegrationsDisabledResponse();
+  if (disabled) return disabled;
   const session = await getSessionContext();
   if (!session) {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });

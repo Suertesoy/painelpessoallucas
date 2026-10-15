@@ -12,8 +12,9 @@ import { ReceivablesSection } from '@/components/finance-cash/receivables-sectio
 import { CommitmentsSection } from '@/components/finance-cash/commitments-section';
 import { CardsSection } from '@/components/finance-cash/cards-section';
 import Link from 'next/link';
-import { Card, Eyebrow, buttonPrimary, buttonSecondary } from '@/components/finance-cash/ui';
-import { CoverageCard, ProjectionSection } from '@/components/finance-cash/projection-section';
+import { PieChart, Upload } from 'lucide-react';
+import { Card, buttonSecondary } from '@/components/finance-cash/ui';
+import { CurrentMonthCard, UpcomingMonths } from '@/components/finance-cash/month-summary';
 
 /** Heurística segura: nunca exibe o erro cru, só decide qual aviso mostrar. */
 function looksLikeMissingMigration(message: string): boolean {
@@ -64,19 +65,28 @@ export default function FinancasPage() {
             <AvailableBalanceCard balance={data.balance} />
             <ReserveCard balance={data.balance} />
           </div>
-          <ReceivablesSection receivables={data.receivables} month={current} fixedIncomes={data.fixedIncomes} incomeOccurrences={data.incomeOccurrences} balanceUpdatedAt={data.balance.availableUpdatedAt} />
-          <CoverageCard month={current} balanceInformed={data.balance.availableUpdatedAt !== null} />
-          <CommitmentsSection commitments={data.commitments} month={current} />
+          <CurrentMonthCard
+            month={current}
+            balanceInformed={data.balance.availableUpdatedAt !== null}
+            estimate={null}
+          />
           <CardsSection invoices={data.invoices} currentMonth={current.month} missingByInvoice={missingByInvoice} />
-          <Card aria-label="Gastos por categoria">
-            <Eyebrow>Gastos nas faturas</Eyebrow>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">Veja por categoria e finalidade, e descubra quanto vai em tecnologia e serviços profissionais.</p>
+          <Card aria-label="Para onde vai o dinheiro">
+            <h2 className="text-base font-semibold">Para onde vai nosso dinheiro?</h2>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">Gastos das faturas por categoria e por loja.</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Link href="/financas/gastos?preset=tech" className={buttonPrimary}>Tecnologia e profissional</Link>
-              <Link href="/financas/gastos" className={buttonSecondary}>Todos os gastos</Link>
+              <Link href="/financas/gastos" className={buttonSecondary}><PieChart size={16} /> Ver gastos</Link>
+              <Link href="/financas/fatura/importar" className={buttonSecondary}><Upload size={16} /> Importar fatura</Link>
             </div>
           </Card>
-          <ProjectionSection months={data.projection} installments={data.projectedInstallments} />
+          <UpcomingMonths months={data.projection} estimate={data.cardEstimate} />
+          <details className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
+            <summary className="cursor-pointer p-4 text-base font-semibold md:p-5">Entradas e contas combinadas</summary>
+            <div className="space-y-4 border-t border-[var(--line)] p-3 md:p-4">
+              <ReceivablesSection receivables={data.receivables} month={current} fixedIncomes={data.fixedIncomes} incomeOccurrences={data.incomeOccurrences} balanceUpdatedAt={data.balance.availableUpdatedAt} />
+              <CommitmentsSection commitments={data.commitments} month={current} />
+            </div>
+          </details>
         </>
       )}
     </div>
