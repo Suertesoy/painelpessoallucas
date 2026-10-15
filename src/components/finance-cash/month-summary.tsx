@@ -1,20 +1,24 @@
 'use client';
 
-import { useMemo, useState } from 'react';
 import type { MonthLine, MonthProjection } from '@/modules/finance/cash/domain/projection';
-import type { CardEstimate } from '@/modules/finance/cash/domain/card-estimate';
-import { MIN_HISTORY_INVOICES } from '@/modules/finance/cash/domain/card-estimate';
-import { CARD_FULL_LABELS, monthLabel } from '@/modules/finance/cash/domain/month';
+import { HISTORY_INVOICES, type CardEstimate } from '@/modules/finance/cash/domain/card-estimate';
+import { CARD_FULL_LABELS, monthLabel, monthShortLabel } from '@/modules/finance/cash/domain/month';
 import { Card, Money } from './ui';
 
 /**
  * Resumo do mês + composição do cálculo.
  *
- * Primeiro o resultado em linguagem simples; a composição (de onde vem o
- * número) fica um toque abaixo. A composição separa duas coisas:
- *  - o que ENTROU e SAIU durante o mês (fluxo do mês);
- *  - quanto ficou ACUMULADO ao fim do mês (traz o resultado dos meses anteriores).
+ * Três números, nesta ordem, sempre separando o que é CONFIRMADO do que é
+ * ESTIMADO:
+ *  1. Sobra considerando compromissos conhecidos (valores reais);
+ *  2. Estimativa de gastos futuros no cartão (média das 3 últimas faturas
+ *     completas de cada cartão; não confirmada);
+ *  3. Sobra provável depois das estimativas.
+ * A composição mostra, por mês, o que entrou e saiu (fluxo) e quanto ficou
+ * acumulado ao fim do mês.
  */
+
+type MonthEstimate = { monthCents: number; cumulativeCents: number };
 
 function Row({ label, cents, sign, tone = 'default', strong = false }: {
   label: string; cents: number; sign?: '+' | '−'; tone?: 'default' | 'positive' | 'negative' | 'muted'; strong?: boolean;
@@ -37,13 +41,26 @@ function Lines({ lines, sign, tone }: { lines: MonthLine[]; sign: '+' | '−'; t
   );
 }
 
-export function MonthBreakdown({ month, isFirst, estimate }: { month: MonthProjection; isFirst: boolean; estimate?: { monthCents: number; cumulativeCents: number } | null }) {
+/** Quando a estimativa não existe, diz exatamente o que falta (nunca finge que é zero). */
+export function estimateLimitation(estimate: CardEstimate): string | null {
+  if (estimate.insufficientCards.length === 0) return null;
+  const parts = estimate.insufficientCards.map((c) => `${CARD_FULL_LABELS[c]}: ${estimate.availableByCard[c]} de ${HISTORY_INVOICES} faturas completas`);
+  return `Sem estimativa para ${parts.join('; ')}. Importe as faturas dos últimos meses (podem estar pagas) para estimar.`;
+}
+
+function monthEstimate(estimate: CardEstimate, month: string): MonthEstimate | null {
+  if (!estimate.enough) return null;
+  const m = estimate.months.find((x) => x.month === month);
+  return m ? { monthCents: m.cents, cumulativeCents: m.cumulativeCents } : null;
+}
+
+export function MonthBreakdown({ month, isFirst, estimate }: { month: MonthProjection; isFirst: boolean; estimate?: MonthEstimate | null }) {
   const flow = month.inflowCents - month.committedCents;
   const outflowLines = month.directLines.length + month.invoiceLines.length + month.cardFixedLines.filter((l) => l.countedCents > 0).length;
   return (
     <div className="space-y-4 text-sm">
-      <section aria-label="O que entra e sai neste mês">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Durante o mês</h4>
+      <section aria-label="O que entra e sai neste mês (valores reais)">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Durante o mês · valores reais</h4>
         <Lines lines={month.fixedIncomeLines} sign="+" tone="positive" />
         <Lines lines={month.receipts} sign="+" tone="positive" />
         {month.fixedIncomeLines.length + month.receipts.length === 0 && (
@@ -60,8 +77,8 @@ export function MonthBreakdown({ month, isFirst, estimate }: { month: MonthProje
         <Row label="Resultado do mês (entrou − saiu)" cents={flow} tone={flow < 0 ? 'negative' : 'default'} strong />
       </section>
 
-      <section aria-label="Quanto fica acumulado">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Acumulado até o fim do mês</h4>
+      <section aria-label="Quanto fica acumulado (valores reais)">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Acumulado até o fim do mês · valores reais</h4>
         <Row label={isFirst ? 'Saldo disponível hoje' : 'Trazido do mês anterior'} cents={month.openingCents} tone={month.openingCents < 0 ? 'negative' : 'default'} />
         <Row label="Resultado do mês" cents={flow} sign="+" tone={flow < 0 ? 'negative' : 'default'} />
         <Row label="Acumulado ao fim do mês" cents={month.resultCents} tone={month.resultCents < 0 ? 'negative' : 'default'} strong />
@@ -69,9 +86,10 @@ export function MonthBreakdown({ month, isFirst, estimate }: { month: MonthProje
 
       {estimate && (
         <section aria-label="Estimativa de gastos no cartão" className="rounded-lg bg-[var(--surface)] p-3">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Estimativa (não confirmada)</h4>
-          <Row label="Gastos no cartão que ainda não aparecem" cents={estimate.monthCents} sign="−" tone="muted" />
-          <Row label="Acumulado considerando a estimativa" cents={month.resultCents - estimate.cumulativeCents} tone={month.resultCents - estimate.cumulativeCents < 0 ? 'negative' : 'muted'} strong />
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Estimativa · não confirmada</h4>
+          <Row label="Gastos no cartão ainda não lançados neste mês" cents={estimate.monthCents} sign="−" tone="muted" />
+          <Row label="Estimativa acumulada até aqui" cents={estimate.cumulativeCents} sign="−" tone="muted" />
+          <Row label="Sobra provável ao fim do mês" cents={month.resultCents - estimate.cumulativeCents} tone={month.resultCents - estimate.cumulativeCents < 0 ? 'negative' : 'muted'} strong />
         </section>
       )}
 
@@ -83,75 +101,84 @@ export function MonthBreakdown({ month, isFirst, estimate }: { month: MonthProje
   );
 }
 
-/** Resultado do mês atual em uma frase, com a composição um toque abaixo. */
-export function CurrentMonthCard({ month, balanceInformed, estimate }: { month: MonthProjection; balanceInformed: boolean; estimate?: { monthCents: number; cumulativeCents: number } | null }) {
-  const covered = month.needCents === 0;
+/** Resultado do mês atual em três linhas: conhecido, estimativa e provável. */
+export function CurrentMonthCard({ month, balanceInformed, estimate }: { month: MonthProjection; balanceInformed: boolean; estimate: CardEstimate }) {
+  const est = monthEstimate(estimate, month.month);
+  const known = month.resultCents;
+  const probable = est ? known - est.cumulativeCents : known;
+  const headline = est ? probable : known;
+  const limitation = estimateLimitation(estimate);
   return (
-    <Card aria-label="Quanto sobra depois do combinado">
+    <Card aria-label="Quanto sobra">
       <h2 className="text-sm font-medium text-[var(--text-muted)] capitalize">{monthLabel(month.month)}</h2>
-      <p className="mt-2 text-sm">{covered ? 'Sobra depois do que já está combinado' : 'Falta para cobrir o que já está combinado'}</p>
+
+      <p className="mt-2 text-sm">{est ? (headline >= 0 ? 'Sobra provável depois das estimativas' : 'Falta provável depois das estimativas') : (headline >= 0 ? 'Sobra considerando o que já está combinado' : 'Falta para cobrir o que já está combinado')}</p>
       <div className="mt-1">
-        <Money cents={covered ? month.resultCents : month.needCents} size="xl" tone={covered ? 'positive' : 'warning'} />
+        <Money cents={Math.abs(headline)} size="xl" tone={headline >= 0 ? 'positive' : 'warning'} />
       </div>
+
+      <div className="mt-4 space-y-0.5 border-t border-[var(--line)] pt-3 text-sm">
+        <Row label="Sobra considerando compromissos conhecidos" cents={known} tone={known < 0 ? 'negative' : 'default'} />
+        {est && <Row label="Estimativa de gastos futuros no cartão (não confirmada)" cents={est.cumulativeCents} sign="−" tone="muted" />}
+        {est && <Row label="Sobra provável depois das estimativas" cents={probable} tone={probable < 0 ? 'negative' : 'default'} strong />}
+      </div>
+
+      {limitation && <p className="mt-3 text-xs text-[var(--text-muted)]">{limitation}</p>}
       <p className="mt-2 text-xs text-[var(--text-muted)]">
-        Considera o saldo disponível, as entradas, as contas e as faturas já lançadas. A reserva não entra. Gastos que ainda não aparecem em fatura (mercado, lazer, imprevistos) não estão incluídos.
+        Considera o saldo disponível, as entradas, as contas e as faturas lançadas. A reserva não entra. Gastos fora do cartão ainda não registrados não estão incluídos.
       </p>
       {!balanceInformed && <p className="mt-2 text-xs text-[var(--money-warning)]">Você ainda não informou o saldo disponível — o cálculo parte de zero.</p>}
       <details className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--surface-inset)]">
-        <summary className="cursor-pointer p-3 text-sm font-medium">Como chegamos nesse valor</summary>
+        <summary className="min-h-11 cursor-pointer p-3 text-sm font-medium">Como chegamos nesse valor</summary>
         <div className="border-t border-[var(--line)] p-3">
-          <MonthBreakdown month={month} isFirst estimate={estimate} />
+          <MonthBreakdown month={month} isFirst estimate={est} />
         </div>
       </details>
     </Card>
   );
 }
 
-/** Próximos meses (composição por mês) + estimativa opcional de cartão. */
+/** Próximos meses (composição por mês); cada linha mostra o valor provável quando há estimativa. */
 export function UpcomingMonths({ months, estimate }: { months: MonthProjection[]; estimate: CardEstimate }) {
-  const [withEstimate, setWithEstimate] = useState(false);
+  const estimateLimit = estimateLimitation(estimate);
   const upcoming = months.slice(1);
-  const byMonth = useMemo(() => new Map(estimate.months.map((m) => [m.month, m])), [estimate]);
   return (
     <Card aria-label="Próximos meses">
       <h2 className="text-base font-semibold">Próximos meses</h2>
       <p className="mt-1 text-xs text-[var(--text-muted)]">
-        Cada mês começa com o que ficou acumulado no anterior. Só entram as obrigações já conhecidas: uma fatura futura pequena não significa um mês de poucos gastos.
+        Cada mês começa com o que ficou acumulado no anterior. {estimate.enough
+          ? 'O valor de cada mês é a sobra provável: inclui a estimativa de gastos no cartão, que não é um valor confirmado.'
+          : 'Só entram as obrigações já conhecidas: uma fatura futura pequena não significa um mês de poucos gastos.'}
       </p>
       <div className="mt-3 space-y-2">
         {upcoming.map((m) => {
-          const est = withEstimate && estimate.enough ? byMonth.get(m.month) : null;
+          const est = monthEstimate(estimate, m.month);
           const shown = est ? m.resultCents - est.cumulativeCents : m.resultCents;
           return (
             <details key={m.month} className="rounded-xl border border-[var(--line)] bg-[var(--surface-inset)]">
-              <summary className="flex cursor-pointer items-center justify-between gap-3 p-3.5">
+              <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 p-3.5">
                 <span className="text-sm font-medium capitalize">{monthLabel(m.month)}</span>
                 <span className="flex items-baseline gap-1.5 text-sm">
-                  <span className="text-[var(--text-muted)]">{shown < 0 ? 'falta' : 'sobra'}</span>
+                  <span className="text-[var(--text-muted)]">{est ? (shown < 0 ? 'falta provável' : 'sobra provável') : (shown < 0 ? 'falta' : 'sobra')}</span>
                   <Money cents={Math.abs(shown)} size="sm" tone={shown < 0 ? 'warning' : 'positive'} />
                 </span>
               </summary>
               <div className="border-t border-[var(--line)] p-3.5">
-                <MonthBreakdown month={m} isFirst={false} estimate={est ? { monthCents: est.cents, cumulativeCents: est.cumulativeCents } : null} />
+                <MonthBreakdown month={m} isFirst={false} estimate={est} />
               </div>
             </details>
           );
         })}
       </div>
-      <div className="mt-4 border-t border-[var(--line)] pt-3">
-        <label className="flex min-h-11 items-center gap-2 text-sm">
-          <input type="checkbox" checked={withEstimate} onChange={(e) => setWithEstimate(e.target.checked)} />
-          Incluir estimativa de gastos no cartão
-        </label>
-        {withEstimate && (
-          <p className="mt-1 text-xs text-[var(--text-muted)]">
-            {estimate.enough
-              ? `Estimativa baseada na média das últimas faturas fechadas de ${estimate.byCard.map((c) => `${CARD_FULL_LABELS[c.card]} (${c.basedOnInvoices})`).join(' e ')}. Já desconta o que cada fatura e os gastos fixos no cartão somam. Não é um valor confirmado.`
-              : `Ainda não há histórico suficiente para estimar: são necessárias pelo menos ${MIN_HISTORY_INVOICES} faturas de meses anteriores por cartão.`}
-            {estimate.enough && estimate.insufficientCards.length > 0 &&
-              ` Sem estimativa para ${estimate.insufficientCards.map((c) => CARD_FULL_LABELS[c]).join(' e ')} (histórico insuficiente).`}
+
+      <div className="mt-4 space-y-1 border-t border-[var(--line)] pt-3 text-xs text-[var(--text-muted)]">
+        {estimate.byCard.map((c) => (
+          <p key={c.card}>
+            Média de {CARD_FULL_LABELS[c.card]}: <Money cents={c.averageCents} size="sm" tone="muted" /> por fatura (vencimentos em {c.basedOnMonths.map(monthShortLabel).join(', ')}).
           </p>
-        )}
+        ))}
+        {estimateLimit && <p>{estimateLimit}</p>}
+        <p>Quando uma fatura fecha, o valor real substitui a estimativa daquele mês. Faturas ainda abertas usam o maior entre o já lançado e a média.</p>
       </div>
     </Card>
   );

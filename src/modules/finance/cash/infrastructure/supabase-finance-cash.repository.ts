@@ -4,11 +4,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ChangeNotifier } from '@/platform/supabase/change-notifier';
 import type { CardId, MonthKey } from '../domain/month';
 import type {
-  Balance, BalanceTransfer, CardInvoice, Commitment, FixedIncome, IncomeOccurrence, InvoiceImportRecord, InvoiceItem, Occurrence, Receivable,
+  Balance, BalanceTransfer, CardInvoice, Commitment, Expense, FixedIncome, IncomeOccurrence, InvoiceImportRecord, InvoiceItem, Occurrence, Receivable,
 } from '../domain/types';
-import type { CommitmentInputT, FixedIncomeInputT, InvoiceManualInputT, ReceivableInputT } from '../domain/cash.schema';
-import type { CategoryRule, CustomCategory } from '../domain/category-rules';
+import type { CommitmentInputT, ExpenseInputT, FixedIncomeInputT, InvoiceManualInputT, ReceivableInputT } from '../domain/cash.schema';
+import type { CategoryRule } from '../domain/category-rules';
+import type { Category } from '../domain/categories';
 import * as CategoryLearning from './category-learning';
+import * as CategoryCrud from './category-crud';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
@@ -49,6 +51,11 @@ const toItem = (r: Row): InvoiceItem => ({
   baseDescription: r.base_description, status: r.status, commitmentId: r.commitment_id ?? null, reviewNote: r.review_note ?? null,
   category: r.category ?? null, purpose: r.purpose ?? null,
   categorySource: r.category_source ?? null, categoryRuleId: r.category_rule_id ?? null,
+});
+const toExpense = (r: Row): Expense => ({
+  id: r.id, description: r.description, amountCents: num(r.amount_cents), spentOn: r.spent_on, paymentMethod: r.payment_method,
+  category: r.category ?? null, deductedFromBalance: Boolean(r.deducted_from_balance), kind: r.kind, source: r.source,
+  reconciledAt: r.reconciled_at ?? null,
 });
 const toIncome = (r: Row): FixedIncome => ({
   id: r.id, description: r.description, amountCents: num(r.amount_cents), dayOfMonth: r.day_of_month,
@@ -298,13 +305,64 @@ export class SupabaseFinanceCashRepository {
     return data ? toItem(data) : null;
   }
 
-  // ------------------------------------- categorias personalizadas e regras
-  listCustomCategories() {
-    return CategoryLearning.listCustomCategories(this.supabase, this.workspaceId);
+  // ---------------------------------------------- despesas pontuais (Pix, débito...)
+  /** Antes da migration a tabela não existe: lista vazia, sem quebrar a tela. */
+  async listExpenses(): Promise<Expense[]> {
+    const { data, error } = await this.supabase.from('finance_expenses').select('*')
+      .eq('workspace_id', this.workspaceId).order('spent_on', { ascending: false }).order('created_at', { ascending: false });
+    if (error) {
+      if (error.code === '42P01' || error.code === 'PGRST205') return [];
+      this.fail('Não foi possível carregar as despesas', error);
+    }
+    return (data ?? []).map(toExpense);
   }
 
-  async createCustomCategory(c: CustomCategory): Promise<void> {
-    await CategoryLearning.createCustomCategory(this.supabase, this.workspaceId, c);
+  /** Grava a despesa e, se pedido, desconta do saldo disponível: uma transação só. */
+  async recordExpense(input: ExpenseInputT): Promise<Expense> {
+    const { data, error } = await this.supabase.rpc('finance_record_expense', {
+      p_workspace_id: this.workspaceId, p_description: input.description, p_amount_cents: input.amountCents,
+      p_spent_on: input.spentOn, p_payment_method: input.paymentMethod, p_category: input.category ?? '',
+      p_deduct_from_balance: input.deductFromBalance,
+    });
+    if (error) this.fail('Não foi possível registrar o gasto', error);
+    this.notifier.notify();
+    return toExpense(data);
+  }
+
+  async deleteExpense(id: string, restoreBalance: boolean): Promise<void> {
+    const { error } = await this.supabase.rpc('finance_delete_expense', { p_expense_id: id, p_restore_balance: restoreBalance });
+    if (error) this.fail('Não foi possível excluir o gasto', error);
+    this.notifier.notify();
+  }
+
+  async setExpenseCategory(id: string, category: string | null): Promise<void> {
+    const { error } = await this.supabase.from('finance_expenses').update({ category })
+      .eq('workspace_id', this.workspaceId).eq('id', id);
+    if (error) this.fail('Não foi possível classificar o gasto', error);
+    this.notifier.notify();
+  }
+
+  // ------------------------------------- categorias personalizadas e regras
+  listCategories() {
+    return CategoryCrud.listCategories(this.supabase, this.workspaceId);
+  }
+
+  async createCategory(c: Category): Promise<void> {
+    await CategoryCrud.createCategory(this.supabase, this.workspaceId, c);
+    this.notifier.notify();
+  }
+
+  async renameCategory(id: string, label: string): Promise<void> {
+    await CategoryCrud.renameCategory(this.supabase, this.workspaceId, id, label);
+    this.notifier.notify();
+  }
+
+  countCategoryUse(id: string) {
+    return CategoryCrud.countCategoryUse(this.supabase, this.workspaceId, id);
+  }
+
+  async deleteCategory(id: string, replacementId: string | null): Promise<void> {
+    await CategoryCrud.deleteCategory(this.supabase, this.workspaceId, id, replacementId);
     this.notifier.notify();
   }
 

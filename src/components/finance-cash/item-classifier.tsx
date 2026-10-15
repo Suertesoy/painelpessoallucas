@@ -6,73 +6,64 @@ import { useCommands } from '@/providers/repository.provider';
 import { centsToBRL } from '@/modules/finance/domain/money';
 import type { InvoiceItem } from '@/modules/finance/cash/domain/types';
 import {
-  CATEGORIES, PURPOSES, categoryLabel, merchantKey, purposeLabel, suggestClassification,
-  type ClassificationSuggestion, type ClassifiableItem,
+  categoryLabel, merchantKey, resolveCategoryId, suggestClassification,
+  type Category, type ClassificationSuggestion, type ClassifiableItem,
 } from '@/modules/finance/cash/domain/categories';
-import {
-  describeRule, findRule, isAmbiguousMerchant, type CategoryRule, type CustomCategory,
-} from '@/modules/finance/cash/domain/category-rules';
+import { describeRule, findRule, isAmbiguousMerchant, type CategoryRule } from '@/modules/finance/cash/domain/category-rules';
 import type { LearnMode } from '@/modules/finance/cash/application/finance-cash.commands';
 import { ErrorText, buttonGhost, buttonSecondary, useAction } from './ui';
-
-type Patch = { category?: string | null; purpose?: string | null };
 
 const NEW_CATEGORY = '__new__';
 
 export interface ClassificationContext {
-  customCategories: CustomCategory[];
+  categories: Category[];
   rules: CategoryRule[];
 }
 
-/** Lógica compartilhada entre a tela da fatura e a página de gastos. */
-export function useClassification(items: InvoiceItem[], context: ClassificationContext = { customCategories: [], rules: [] }) {
+/** Lógica compartilhada entre a tela da fatura e a página de gastos. Cada lançamento tem UMA categoria. */
+export function useClassification(items: InvoiceItem[], context: ClassificationContext = { categories: [], rules: [] }) {
   const { financeCash } = useCommands();
   const { pending, error, run } = useAction();
-  const { customCategories, rules } = context;
+  const { categories, rules } = context;
 
   const classifiable = useMemo<ClassifiableItem[]>(
     () => items.filter((i) => i.kind !== 'payment').map((i) => ({
-      id: i.id, key: merchantKey(i.baseDescription), category: i.category, purpose: i.purpose,
+      id: i.id, key: merchantKey(i.baseDescription), category: i.category, purpose: null,
     })),
     [items]
   );
   const byId = useMemo(() => new Map(classifiable.map((c) => [c.id, c])), [classifiable]);
-  const customIds = useMemo(() => customCategories.map((c) => c.id), [customCategories]);
+  const categoryIds = useMemo(() => categories.map((c) => c.id), [categories]);
 
-  const labelFor = (id: string | null) => customCategories.find((c) => c.id === id)?.label ?? categoryLabel(id);
+  const labelFor = (id: string | null) => categoryLabel(id, categories);
 
+  /** Sugestão só de categoria, já resolvida para uma categoria que existe hoje (ids antigos viram o alias). */
   const suggestionFor = (item: InvoiceItem): ClassificationSuggestion | null => {
     const self = byId.get(item.id);
-    return self ? suggestClassification(self, classifiable, customIds) : null;
+    if (!self) return null;
+    const s = suggestClassification(self, classifiable, categoryIds);
+    const resolved = s ? resolveCategoryId(s.category, categories) : null;
+    return s && resolved ? { category: resolved, purpose: null, source: s.source } : null;
   };
 
-  const toPatch = (s: ClassificationSuggestion): Patch => ({
-    ...(s.category ? { category: s.category } : {}),
-    ...(s.purpose ? { purpose: s.purpose } : {}),
-  });
-
   /** Classifica SÓ este lançamento (confirmação sua). Aprender com outros é opcional e separado. */
-  const classify = (item: InvoiceItem, patch: Patch) =>
+  const classify = (item: InvoiceItem, category: string | null) =>
     run(async () => {
-      await financeCash.classifyItems({ itemIds: [item.id], ...patch });
+      await financeCash.classifyItems({ itemIds: [item.id], category });
     });
 
-  const accept = (item: InvoiceItem, s: ClassificationSuggestion) => classify(item, toPatch(s));
+  const accept = (item: InvoiceItem, s: ClassificationSuggestion) => (s.category ? classify(item, s.category) : Promise.resolve(false));
 
-  /** Aceita as sugestões de vários itens de uma vez, agrupando por combinação. */
+  /** Aceita as sugestões de vários itens de uma vez, agrupando por categoria. */
   const acceptMany = (rows: InvoiceItem[]) =>
     run(async () => {
-      const groups = new Map<string, { patch: Patch; ids: string[] }>();
+      const groups = new Map<string, string[]>();
       for (const row of rows) {
-        const s = suggestionFor(row);
-        if (!s) continue;
-        const patch = toPatch(s);
-        const key = JSON.stringify(patch);
-        const g = groups.get(key) ?? { patch, ids: [] };
-        g.ids.push(row.id);
-        groups.set(key, g);
+        const category = suggestionFor(row)?.category;
+        if (!category) continue;
+        groups.set(category, [...(groups.get(category) ?? []), row.id]);
       }
-      for (const g of groups.values()) await financeCash.classifyItems({ itemIds: g.ids, ...g.patch });
+      for (const [category, ids] of groups) await financeCash.classifyItems({ itemIds: ids, category });
     });
 
   /** Cria (ou reaproveita) a categoria e classifica o lançamento com ela. */
@@ -93,19 +84,12 @@ export function useClassification(items: InvoiceItem[], context: ClassificationC
   const ruleFor = (item: InvoiceItem): CategoryRule | null => findRule(item, rules);
 
   return {
-    pending, error, customCategories, rules, labelFor, suggestionFor, classify, accept, acceptMany,
+    pending, error, categories, rules, labelFor, suggestionFor, classify, accept, acceptMany,
     classifyWithNewCategory, learn, ruleFor,
   };
 }
 
 export type Classification = ReturnType<typeof useClassification>;
-
-export function suggestionText(s: ClassificationSuggestion, labelFor: (id: string | null) => string = categoryLabel): string {
-  const parts: string[] = [];
-  if (s.category) parts.push(labelFor(s.category));
-  if (s.purpose) parts.push(purposeLabel(s.purpose));
-  return parts.join(' · ');
-}
 
 const selectClass =
   'min-h-11 rounded-lg border border-[var(--line-strong)] bg-[var(--surface-inset)] px-2 py-2 text-[var(--foreground)] max-w-full';
@@ -133,16 +117,15 @@ function NewCategoryForm({ onCreate, onCancel, disabled }: { onCreate: (label: s
 }
 
 /** Opção voluntária (desligada por padrão) de aprender a categoria para lançamentos semelhantes. */
-function LearnOption({ item, classification }: { item: InvoiceItem; classification: Classification }) {
+function LearnOption({ item, category, classification }: { item: InvoiceItem; category: string; classification: Classification }) {
   const [enabled, setEnabled] = useState(false);
   const [mode, setMode] = useState<LearnMode>('amount');
   const [done, setDone] = useState<number | null>(null);
   const key = merchantKey(item.baseDescription);
   const ambiguous = isAmbiguousMerchant(key);
 
-  if (!item.category) return null;
   const rule = classification.ruleFor(item);
-  if (rule && rule.category === item.category) {
+  if (rule && rule.category === category) {
     return (
       <p className="text-sm text-[var(--text-muted)]">
         Regra ativa: {describeRule(rule, centsToBRL)}.
@@ -176,7 +159,7 @@ function LearnOption({ item, classification }: { item: InvoiceItem; classificati
             type="button"
             className={buttonSecondary}
             disabled={classification.pending}
-            onClick={async () => { setDone(await classification.learn(item, item.category as string, mode)); }}
+            onClick={async () => { setDone(await classification.learn(item, category, mode)); }}
           >
             Salvar regra
           </button>
@@ -191,6 +174,7 @@ export function ClassifierControls({ item, classification }: { item: InvoiceItem
   const suggestion = classification.suggestionFor(item);
   const [creating, setCreating] = useState(false);
   const byRule = item.categorySource === 'rule';
+  const current = resolveCategoryId(item.category, classification.categories);
 
   return (
     <div className="mt-2 space-y-2">
@@ -198,34 +182,16 @@ export function ClassifierControls({ item, classification }: { item: InvoiceItem
         <select
           aria-label={`Categoria de ${item.description}`}
           className={selectClass}
-          value={item.category ?? ''}
+          value={current ?? ''}
           disabled={classification.pending}
           onChange={(e) => {
             if (e.target.value === NEW_CATEGORY) { setCreating(true); return; }
-            void classification.classify(item, { category: e.target.value || null });
+            void classification.classify(item, e.target.value || null);
           }}
         >
           <option value="">Sem categoria</option>
-          {CATEGORIES.filter((c) => !c.tech).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          {classification.customCategories.length > 0 && (
-            <optgroup label="Minhas categorias">
-              {classification.customCategories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-            </optgroup>
-          )}
-          <optgroup label="Tecnologia e profissional">
-            {CATEGORIES.filter((c) => c.tech).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-          </optgroup>
+          {classification.categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           <option value={NEW_CATEGORY}>+ Nova categoria…</option>
-        </select>
-        <select
-          aria-label={`Finalidade de ${item.description}`}
-          className={selectClass}
-          value={item.purpose ?? ''}
-          disabled={classification.pending}
-          onChange={(e) => void classification.classify(item, { purpose: e.target.value || null })}
-        >
-          <option value="">Não classificada</option>
-          {PURPOSES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
         {byRule && <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-xs text-[var(--text-muted)]" title="Classificado automaticamente por uma regra aprendida">por regra</span>}
       </div>
@@ -238,14 +204,14 @@ export function ClassifierControls({ item, classification }: { item: InvoiceItem
         />
       )}
 
-      {!item.category && suggestion && (
+      {!current && suggestion && suggestion.category && (
         <button type="button" className={buttonGhost} disabled={classification.pending} onClick={() => void classification.accept(item, suggestion)}
           title={suggestion.source === 'history' ? 'Baseado no que você já confirmou para este estabelecimento' : 'Sugestão pelo nome do estabelecimento'}>
-          <Sparkles size={12} /> Sugestão: {suggestionText(suggestion, classification.labelFor)} — aceitar
+          <Sparkles size={12} /> Sugestão: {classification.labelFor(suggestion.category)} — aceitar
         </button>
       )}
 
-      {!byRule && <LearnOption item={item} classification={classification} />}
+      {current && !byRule && <LearnOption item={item} category={current} classification={classification} />}
     </div>
   );
 }

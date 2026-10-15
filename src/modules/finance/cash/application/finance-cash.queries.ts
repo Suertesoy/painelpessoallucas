@@ -5,13 +5,17 @@ import {
 import { estimateCardSpending, type CardEstimate } from '../domain/card-estimate';
 import { projectFutureInstallments, type ProjectedInstallment } from '../domain/installments';
 import { addMonths, monthOf } from '../domain/month';
-import type { CategoryRule, CustomCategory } from '../domain/category-rules';
-import { effectiveInvoiceAmount, type Balance, type CardInvoice, type Commitment, type FixedIncome, type IncomeOccurrence, type InvoiceItem, type Occurrence, type Receivable } from '../domain/types';
+import type { CategoryRule } from '../domain/category-rules';
+import type { Category } from '../domain/categories';
+import { effectiveInvoiceAmount, type Expense, type Balance, type CardInvoice, type Commitment, type FixedIncome, type IncomeOccurrence, type InvoiceItem, type Occurrence, type Receivable } from '../domain/types';
 
 export const PROJECTION_MONTHS = 4;
 
 export interface FinanceCashSnapshot {
-  customCategories: CustomCategory[];
+  /** Despesas pontuais já pagas (Pix, débito, dinheiro). */
+  expenses: Expense[];
+  categories: Category[];
+  categoriesPersisted: boolean;
   categoryRules: CategoryRule[];
   today: string;
   balance: Balance;
@@ -33,11 +37,11 @@ export class FinanceCashQueries {
   constructor(private repo: SupabaseFinanceCashRepository) {}
 
   async getSnapshot(today: string): Promise<FinanceCashSnapshot> {
-    const [balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, customCategories, categoryRules] = await Promise.all([
+    const [balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, categoriesResult, categoryRules, expenses] = await Promise.all([
       this.repo.getBalance(), this.repo.listReceivables(), this.repo.listCommitments(),
       this.repo.listOccurrences(), this.repo.listInvoices(), this.repo.listItems(),
       this.repo.listFixedIncomes(), this.repo.listIncomeOccurrences(),
-      this.repo.listCustomCategories(), this.repo.listCategoryRules(),
+      this.repo.listCategories(), this.repo.listCategoryRules(), this.repo.listExpenses(),
     ]);
 
     const invoiceById = new Map(invoices.map((i) => [i.id, i]));
@@ -89,7 +93,7 @@ export class FinanceCashQueries {
       addMonths(current, PROJECTION_MONTHS - 1)
     );
 
-    return { customCategories, categoryRules, today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate };
+    return { expenses, categories: categoriesResult.categories, categoriesPersisted: categoriesResult.persisted, categoryRules, today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate };
   }
 
   listTransfers() {

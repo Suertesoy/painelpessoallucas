@@ -18,7 +18,7 @@ const baseItem: InvoiceItem = {
 function fakeClassification(over: Partial<Classification> = {}): Classification {
   return {
     pending: false, error: null,
-    customCategories: [{ id: 'armazenamento', label: 'Armazenamento' }],
+    categories: [{ id: 'armazenamento', label: 'Armazenamento' }, { id: 'subscriptions', label: 'Assinaturas e aplicativos' }],
     rules: [], labelFor: (id: string | null) => id ?? 'Sem categoria',
     suggestionFor: () => null, classify: vi.fn(async () => true), accept: vi.fn(async () => true), acceptMany: vi.fn(async () => true),
     classifyWithNewCategory: vi.fn(async () => true), learn: vi.fn(async () => 3), ruleFor: () => null,
@@ -73,26 +73,36 @@ describe('aprender com lançamentos semelhantes (interface)', () => {
   });
 });
 
-describe('migration de aprendizado de categorias', () => {
+describe('migration de categorias e regras aprendidas', () => {
   const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20260818100000_finance_category_learning.sql'), 'utf8');
 
-  it('isola por workspace com RLS em todas as operações e sem acesso anônimo', () => {
-    expect(sql).toMatch(/alter table public\.finance_custom_categories enable row level security/);
-    expect(sql).toMatch(/alter table public\.finance_category_rules enable row level security/);
-    expect((sql.match(/is_workspace_member\(workspace_id\)/g) ?? []).length).toBeGreaterThanOrEqual(7);
+  it('isola por workspace com RLS em todas as tabelas e sem acesso anônimo', () => {
+    for (const table of ['finance_item_categories', 'finance_category_seed', 'finance_category_rules']) {
+      expect(sql).toMatch(new RegExp(`alter table public\\.${table} enable row level security`));
+    }
+    expect((sql.match(/is_workspace_member\(workspace_id\)/g) ?? []).length).toBeGreaterThanOrEqual(12);
     expect(sql).not.toMatch(/to anon/);
   });
 
-  it('não altera nem apaga dados existentes', () => {
+  it('id estável separado do nome, nome único por workspace e edição liberada (renomear/excluir)', () => {
+    expect(sql).toMatch(/primary key \(workspace_id, id\)/);
+    expect(sql).toMatch(/unique index finance_item_categories_label_idx/);
+    expect(sql).toMatch(/create policy "finance_item_categories_update"/);
+    expect(sql).toMatch(/create policy "finance_item_categories_delete"/);
+  });
+
+  it('regra nunca aponta para categoria inexistente (FK composta com cascade) e é única por estabelecimento + valor', () => {
+    expect(sql).toMatch(/foreign key \(workspace_id, category\)\s+references public\.finance_item_categories \(workspace_id, id\) on delete cascade/);
+    expect(sql).toMatch(/unique index finance_category_rules_key_idx/);
+    expect(sql).not.toMatch(/references public\.finance_categories\b/); // sem a tabela legada
+  });
+
+  it('não altera nem apaga dados existentes e preserva purpose', () => {
     expect(sql).not.toMatch(/\bupdate public\./i);
     expect(sql).not.toMatch(/\bdelete from\b/i);
     expect(sql).not.toMatch(/drop (table|column)/i);
     expect(sql).not.toMatch(/alter column/i);
+    expect(sql).not.toMatch(/purpose/i.source.replace('purpose', 'drop column purpose'));
     expect(sql).toMatch(/add column category_source/);
-  });
-
-  it('mantém uma regra por estabelecimento + valor e não reaproveita a tabela legada', () => {
-    expect(sql).toMatch(/unique index finance_category_rules_key_idx/);
-    expect(sql).not.toMatch(/references public\.finance_categories/);
   });
 });

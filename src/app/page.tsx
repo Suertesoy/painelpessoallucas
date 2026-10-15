@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ShoppingCart, StickyNote, Wallet, type LucideIcon } from 'lucide-react';
+import { GraduationCap, ShoppingCart, StickyNote, Wallet, type LucideIcon } from 'lucide-react';
 
 /**
  * Nossa casa — porta de entrada. Sem indicadores, gráficos ou notificações:
@@ -45,6 +45,14 @@ export default function Home() {
             </Link>
           ))}
         </nav>
+
+        <Link
+          href="/aprendizado"
+          className="mt-6 flex min-h-14 items-center gap-3 rounded-2xl px-4 text-base text-[var(--text-muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+        >
+          <GraduationCap size={22} strokeWidth={1.75} aria-hidden="true" />
+          Aprender japonês
+        </Link>
       </div>
     </div>
   );

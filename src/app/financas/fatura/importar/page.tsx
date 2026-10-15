@@ -4,7 +4,7 @@ import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, FileUp } from 'lucide-react';
-import { useRepositories } from '@/providers/repository.provider';
+import { useCommands, useRepositories } from '@/providers/repository.provider';
 import { CARD_IDS, CARD_FULL_LABELS, isMonthKey, monthLabel, type CardId } from '@/modules/finance/cash/domain/month';
 import type { ConfirmPayload, ConfirmResult, ImportPreview, PreviewItem } from '@/modules/finance/cash/domain/import-preview';
 import type { DivergenceDecision, MissingDecision } from '@/modules/finance/cash/domain/import-plan';
@@ -31,6 +31,7 @@ function ItemLine({ item }: { item: PreviewItem }) {
 function ImportFlow() {
   const params = useSearchParams();
   const { financeCashRepository } = useRepositories();
+  const { financeCash } = useCommands();
   const initialCard = CARD_IDS.find((c) => c === params.get('card')) ?? 'nubank_1';
   const initialMonthParam = params.get('month');
   const [card, setCard] = useState<CardId>(initialCard);
@@ -46,7 +47,8 @@ function ImportFlow() {
   const [missing, setMissing] = useState<Record<string, MissingDecision>>({});
   const [links, setLinks] = useState<Record<string, boolean>>({});
   const [pay, setPay] = useState<Record<string, boolean>>({});
-  const [newStatus, setNewStatus] = useState<'open' | 'closed'>('open');
+  // 'paid' = fatura histórica já quitada: entra no histórico e nas médias, sem mexer no saldo.
+  const [newStatus, setNewStatus] = useState<'open' | 'closed' | 'paid'>('open');
   const [dueDate, setDueDate] = useState('');
   const [result, setResult] = useState<ConfirmResult | null>(null);
 
@@ -92,7 +94,8 @@ function ImportFlow() {
       const payload: ConfirmPayload = {
         requestId,
         expectedRev: preview.invoice.rev,
-        newStatus,
+        // O servidor só conhece aberta/fechada: "paga" é fechada + marcação de pagamento sem descontar do saldo.
+        newStatus: newStatus === 'paid' ? 'closed' : newStatus,
         dueDate: dueDate || null,
         decisions: { divergences, missing },
         links: preview.linkSuggestions.filter((s) => links[s.ref]).map((s) => ({ ref: s.ref, commitmentId: s.commitmentId })),
@@ -101,7 +104,12 @@ function ImportFlow() {
       const res = await upload('/api/finance/cash/import/confirm', payload);
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Não foi possível salvar a importação.');
-      setResult(body.result as ConfirmResult);
+      const confirmed = body.result as ConfirmResult;
+      if (newStatus === 'paid') {
+        // Histórico quitado: não desconta do saldo disponível nem entra na projeção.
+        await financeCash.markInvoicePaid(confirmed.invoiceId, false);
+      }
+      setResult(confirmed);
       financeCashRepository.notifyChanged();
       setStep('done');
     } catch (e) {
@@ -282,12 +290,18 @@ function ImportFlow() {
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Situação da fatura depois da importação">
                 {(id) => (
-                  <select id={id} className={inputClass} value={newStatus} onChange={(e) => setNewStatus(e.target.value as 'open' | 'closed')}>
+                  <select id={id} className={inputClass} value={newStatus} onChange={(e) => setNewStatus(e.target.value as 'open' | 'closed' | 'paid')}>
                     <option value="open">Aberta (pode receber nova versão)</option>
-                    <option value="closed">Fechada</option>
+                    <option value="closed">Fechada, ainda não paga</option>
+                    <option value="paid">Já paga (histórico)</option>
                   </select>
                 )}
               </Field>
+              {newStatus === 'paid' && (
+                <p className="text-sm text-[var(--text-muted)] md:col-span-2">
+                  Entra no histórico de gastos, nas categorias e na média do cartão. Não gera dívida, não desconta do saldo disponível e não entra na projeção.
+                </p>
+              )}
               <Field label="Vencimento (opcional)">{(id) => <input id={id} type="date" className={inputClass} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />}</Field>
             </div>
             <ErrorText message={error} />

@@ -7,9 +7,9 @@ import type { MetadataRoute } from 'next';
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Painel Lucas',
-    short_name: 'Painel Lucas',
-    description: 'Central operacional pessoal: captura, projetos, agenda e revisão em um só lugar.',
+    name: 'Nossa Casa',
+    short_name: 'Nossa Casa',
+    description: 'Compras, finanças, notas e aprendizado da nossa casa, em um só lugar.',
     start_url: '/',
     scope: '/',
     display: 'standalone',

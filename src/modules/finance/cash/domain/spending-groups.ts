@@ -1,71 +1,30 @@
-import { STREAMING_KEYWORDS, merchantKey } from './categories';
-import type { CustomCategory } from './category-rules';
+import { merchantKey, resolveCategoryId, type Category } from './categories';
 import { filterSpending, type SpendingFilter, type SpendingRow } from './spending';
 
 /**
- * Leitura doméstica dos gastos: categorias de APRESENTAÇÃO e estabelecimentos.
+ * Leitura doméstica dos gastos: categorias do workspace e estabelecimentos.
  *
- * Nada aqui grava ou altera dados. Os ids persistidos (`category` em
- * `finance_invoice_items`) continuam os mesmos; este módulo só decide como
- * mostrá-los:
- *  - ids antigos têm um mapeamento de leitura explícito (DISPLAY_OF);
- *  - 'subscriptions' antigos com nome de streaming aparecem em Streaming;
- *  - sem categoria => grupo próprio "Sem categoria" (nunca escondido);
- *  - pagamentos de fatura e lançamentos removidos nunca entram (filterSpending).
+ * Nada aqui grava ou altera dados. A categoria de cada lançamento é UMA só,
+ * identificada por id estável; o nome exibido vem da lista do workspace
+ * (renomear não quebra nada). Ids antigos que deixaram de existir (por exemplo
+ * "ai", "software") valem como o alias definido em LEGACY_CATEGORY_ALIAS, só na
+ * leitura. Sem categoria (ou categoria excluída) => grupo próprio "Sem
+ * categoria", nunca escondido. Pagamentos de fatura e lançamentos removidos
+ * nunca entram (filterSpending).
  */
-
-export const DISPLAY_CATEGORIES = [
-  { id: 'groceries', label: 'Mercado' },
-  { id: 'restaurants', label: 'Restaurantes e delivery' },
-  { id: 'online', label: 'Compras online' },
-  { id: 'streaming', label: 'Streaming' },
-  { id: 'apps', label: 'Assinaturas e aplicativos' },
-  { id: 'leisure', label: 'Lazer' },
-  { id: 'housing', label: 'Moradia e contas' },
-  { id: 'transport', label: 'Transporte' },
-  { id: 'health', label: 'Saúde' },
-  { id: 'travel', label: 'Viagens' },
-  { id: 'other', label: 'Outros' },
-] as const;
-
-/** Ids de apresentação: as 11 domésticas, 'none' (sem categoria) e os ids das categorias personalizadas do workspace. */
-export type DisplayCategoryId = string;
 
 export const NONE_LABEL = 'Sem categoria';
 
-/** Mapeamento de leitura auditável: id persistido -> categoria de apresentação. */
-export const DISPLAY_OF: Readonly<Record<string, string>> = {
-  groceries: 'groceries',
-  restaurants: 'restaurants',
-  shopping: 'online',
-  streaming: 'streaming',
-  subscriptions: 'apps', // refinado por STREAMING_KEYWORDS em displayCategoryOf
-  ai: 'apps',
-  infrastructure: 'apps',
-  software: 'apps',
-  leisure: 'leisure',
-  housing: 'housing',
-  transport: 'transport',
-  health: 'health',
-  travel: 'travel',
-  other: 'other',
-};
+/** 'none' = sem categoria; senão o id de uma categoria do workspace. */
+export type DisplayCategoryId = string;
 
-export function displayLabel(id: DisplayCategoryId, custom: readonly CustomCategory[] = []): string {
+export function displayLabel(id: DisplayCategoryId, categories: readonly Category[]): string {
   if (id === 'none') return NONE_LABEL;
-  return DISPLAY_CATEGORIES.find((c) => c.id === id)?.label ?? custom.find((c) => c.id === id)?.label ?? 'Outros';
+  return categories.find((c) => c.id === id)?.label ?? NONE_LABEL;
 }
 
-export function displayCategoryOf(category: string | null, baseDescription: string, custom: readonly CustomCategory[] = []): DisplayCategoryId {
-  if (category === null) return 'none';
-  // Categoria personalizada do usuário: aparece como ela mesma.
-  if (custom.some((c) => c.id === category)) return category;
-  const mapped = DISPLAY_OF[category] ?? 'other';
-  if (category === 'subscriptions') {
-    const key = ` ${merchantKey(baseDescription)} `;
-    if (STREAMING_KEYWORDS.some((k) => key.includes(k.trim()))) return 'streaming';
-  }
-  return mapped;
+export function displayCategoryOf(category: string | null, categories: readonly Category[]): DisplayCategoryId {
+  return resolveCategoryId(category, categories) ?? 'none';
 }
 
 /** Estabelecimentos reconhecíveis (chave normalizada contida na descrição). A Amazon sozinha NÃO é presumida de nenhuma categoria. */
@@ -124,13 +83,13 @@ export interface SpendingBreakdown {
   uncategorizedCount: number;
 }
 
-export function breakdownSpending(rows: readonly SpendingRow[], filter: SpendingFilter, custom: readonly CustomCategory[] = []): SpendingBreakdown {
+export function breakdownSpending(rows: readonly SpendingRow[], filter: SpendingFilter, categories: readonly Category[]): SpendingBreakdown {
   const filtered = filterSpending(rows, filter);
   const cats = new Map<DisplayCategoryId, CategoryGroup>();
   for (const r of filtered) {
     const base = r.baseDescription ?? r.description;
-    const id = displayCategoryOf(r.category, base, custom);
-    const cat = cats.get(id) ?? { id, label: displayLabel(id, custom), cents: 0, count: 0, merchants: [] };
+    const id = displayCategoryOf(r.category, categories);
+    const cat = cats.get(id) ?? { id, label: displayLabel(id, categories), cents: 0, count: 0, merchants: [] };
     cat.cents += r.amountCents;
     cat.count += 1;
     const name = merchantName(base);
@@ -144,8 +103,8 @@ export function breakdownSpending(rows: readonly SpendingRow[], filter: Spending
     merchant.rows.push(r);
     cats.set(id, cat);
   }
-  const categories = [...cats.values()].sort((a, b) => b.cents - a.cents);
-  for (const c of categories) {
+  const categoryGroups = [...cats.values()].sort((a, b) => b.cents - a.cents);
+  for (const c of categoryGroups) {
     c.merchants.sort((a, b) => b.cents - a.cents);
     for (const m of c.merchants) m.rows.sort((a, b) => b.date.localeCompare(a.date));
   }
@@ -153,7 +112,7 @@ export function breakdownSpending(rows: readonly SpendingRow[], filter: Spending
   return {
     totalCents: filtered.reduce((s, r) => s + r.amountCents, 0),
     count: filtered.length,
-    categories,
+    categories: categoryGroups,
     uncategorizedCents: none?.cents ?? 0,
     uncategorizedCount: none?.count ?? 0,
   };

@@ -2,7 +2,6 @@
 
 import { Suspense, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useQueries } from '@/providers/repository.provider';
@@ -14,6 +13,10 @@ import { breakdownSpending } from '@/modules/finance/cash/domain/spending-groups
 import { ClassificationError, ClassifierControls, useClassification } from '@/components/finance-cash/item-classifier';
 import { DonutChart, sliceColor } from '@/components/finance-cash/donut-chart';
 import { LearnedRules } from '@/components/finance-cash/learned-rules';
+import { CategoryManager } from '@/components/finance-cash/category-manager';
+import { RegisterExpenseButton } from '@/components/finance-cash/expense-dialog';
+import { ExpenseControls } from '@/components/finance-cash/expense-controls';
+import { expenseToSpendingRow, paymentLabel } from '@/modules/finance/cash/domain/expenses';
 import { Card, Money, buttonSecondary, formatDateBR, inputClass } from '@/components/finance-cash/ui';
 
 function pct(part: number, total: number): string {
@@ -21,13 +24,11 @@ function pct(part: number, total: number): string {
 }
 
 function Gastos() {
-  const params = useSearchParams();
   const { financeCash } = useQueries();
   const today = useMemo(() => todayDateStr(), []);
   const { data, isLoading, error, isOffline, refetch } = useReactiveQuery(() => financeCash.getSnapshot(today), [today]);
 
   const [monthChoice, setMonthChoice] = useState<string | null>(null);
-  const [onlyTech, setOnlyTech] = useState(params.get('preset') === 'tech');
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [merchant, setMerchant] = useState<string | null>(null);
 
@@ -44,18 +45,25 @@ function Gastos() {
     }),
     [items, invoiceById]
   );
+  const expenses = useMemo(() => data?.expenses ?? [], [data?.expenses]);
+  const expenseById = useMemo(() => new Map(expenses.map((e) => [e.id, e])), [expenses]);
+  // Fatura de cartão + gastos pontuais (Pix, débito, dinheiro): mesmas categorias, mesmas análises.
+  const allRows = useMemo<SpendingRow[]>(
+    () => [...rows, ...expenses.flatMap((e) => { const r = expenseToSpendingRow(e); return r ? [r] : []; })],
+    [rows, expenses]
+  );
 
-  const months = useMemo(() => [...new Set(rows.map((r) => r.invoiceMonth))].sort(), [rows]);
+  const months = useMemo(() => [...new Set(allRows.map((r) => r.invoiceMonth))].sort(), [allRows]);
   // Padrão: o mês atual se tiver gastos; senão o mais recente com gastos.
   const defaultMonth = months.includes(monthOf(today)) ? monthOf(today) : (months[months.length - 1] ?? '');
   const month = monthChoice ?? defaultMonth;
 
   const breakdown = useMemo(
-    () => breakdownSpending(rows, { ...EMPTY_FILTER, month, techOrProfessional: onlyTech }, data?.customCategories ?? []),
-    [rows, month, onlyTech, data?.customCategories]
+    () => breakdownSpending(allRows, { ...EMPTY_FILTER, month }, data?.categories ?? []),
+    [allRows, month, data?.categories]
   );
   const classification = useClassification(items, {
-    customCategories: data?.customCategories ?? [],
+    categories: data?.categories ?? [],
     rules: data?.categoryRules ?? [],
   });
 
@@ -67,6 +75,9 @@ function Gastos() {
   const uncategorizedItems = (uncategorized?.merchants.flatMap((m) => m.rows) ?? [])
     .map((r) => itemById.get(r.id))
     .filter((i): i is NonNullable<typeof i> => Boolean(i));
+  const uncategorizedExpenses = (uncategorized?.merchants.flatMap((m) => m.rows) ?? [])
+    .map((r) => expenseById.get(r.id))
+    .filter((e): e is NonNullable<typeof e> => Boolean(e));
   const withSuggestion = uncategorizedItems.filter((i) => classification.suggestionFor(i) !== null);
 
   const chooseCategory = (id: string) => {
@@ -77,19 +88,24 @@ function Gastos() {
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 pb-24 md:p-8">
       <Link href="/financas" className="inline-flex min-h-11 items-center gap-1 text-sm text-[var(--accent)]"><ArrowLeft size={14} /> Finanças</Link>
-      <header>
-        <h1 className="text-2xl font-bold">Para onde vai nosso dinheiro?</h1>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">Gastos das faturas dos cartões. Categorias são só rótulos: não mudam nenhum valor.</p>
+      <header className="space-y-3">
+        <div>
+          <h1 className="text-2xl font-bold">Para onde vai nosso dinheiro?</h1>
+          <p className="mt-1 text-sm text-[var(--text-muted)]">Faturas dos cartões e gastos no Pix, débito e dinheiro. Categorias são só rótulos: não mudam nenhum valor.</p>
+        </div>
+        {data && (
+          <RegisterExpenseButton categories={data.categories} persistedCategories={data.categoriesPersisted} expenses={data.expenses} rules={data.categoryRules} />
+        )}
       </header>
 
       {error && <DataErrorNotice isOffline={isOffline} onRetry={refetch} />}
       {!error && isLoading && !data && <p className="text-sm text-[var(--text-muted)]">Carregando…</p>}
 
-      {!error && data && rows.length === 0 && (
-        <Card><p className="text-sm text-[var(--text-muted)]">Nenhum lançamento importado ainda. Importe uma fatura em Finanças.</p></Card>
+      {!error && data && allRows.length === 0 && (
+        <Card><p className="text-sm text-[var(--text-muted)]">Nenhum gasto ainda. Registre um gasto ou importe uma fatura em Finanças.</p></Card>
       )}
 
-      {!error && data && rows.length > 0 && (
+      {!error && data && allRows.length > 0 && (
         <>
           <Card aria-label="Gastos do mês">
             <label className="block text-sm font-medium" htmlFor="gastos-mes">Fatura de</label>
@@ -103,7 +119,7 @@ function Gastos() {
             </select>
 
             {breakdown.count === 0 ? (
-              <p className="mt-4 text-sm text-[var(--text-muted)]">Nenhum gasto neste mês{onlyTech ? ' com esse filtro' : ''}.</p>
+              <p className="mt-4 text-sm text-[var(--text-muted)]">Nenhum gasto neste mês.</p>
             ) : (
               <>
                 <div className="mt-4">
@@ -138,11 +154,6 @@ function Gastos() {
                 </ul>
               </>
             )}
-
-            <label className="mt-3 flex min-h-11 items-center gap-2 text-sm text-[var(--text-muted)]">
-              <input type="checkbox" checked={onlyTech} onChange={(e) => { setOnlyTech(e.target.checked); setCategoryId(null); setMerchant(null); }} />
-              Mostrar só gastos profissionais ou de tecnologia
-            </label>
           </Card>
 
           {selected && (
@@ -173,16 +184,18 @@ function Gastos() {
               <ul className="mt-2 divide-y divide-[var(--line)]">
                 {selectedMerchant.rows.map((r) => {
                   const item = itemById.get(r.id);
+                  const expense = expenseById.get(r.id);
                   return (
                     <li key={r.id} className="py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm">{r.description}</p>
-                          <p className="mt-0.5 text-xs text-[var(--text-muted)]">{formatDateBR(r.date)}{r.status === 'missing' ? ' · ausente do último CSV' : ''}</p>
+                          <p className="mt-0.5 text-xs text-[var(--text-muted)]">{formatDateBR(r.date)}{r.status === 'missing' ? ' · ausente do último CSV' : ''}{expense ? ` · ${paymentLabel(expense.paymentMethod)}` : ''}</p>
                         </div>
                         <Money cents={r.amountCents} size="sm" tone={r.amountCents < 0 ? 'positive' : 'default'} />
                       </div>
                       {item && <ClassifierControls item={item} classification={classification} />}
+                      {expense && <ExpenseControls expense={expense} categories={data.categories} />}
                     </li>
                   );
                 })}
@@ -190,10 +203,10 @@ function Gastos() {
             </Card>
           )}
 
-          {uncategorizedItems.length > 0 && (
+          {uncategorizedItems.length + uncategorizedExpenses.length > 0 && (
             <details className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
               <summary className="cursor-pointer p-4 text-base font-semibold">
-                Revisar gastos sem categoria <span className="text-sm font-normal text-[var(--text-muted)]">({uncategorizedItems.length})</span>
+                Revisar gastos sem categoria <span className="text-sm font-normal text-[var(--text-muted)]">({uncategorizedItems.length + uncategorizedExpenses.length})</span>
               </summary>
               <div className="space-y-3 border-t border-[var(--line)] p-4">
                 {withSuggestion.length > 0 && (
@@ -215,14 +228,28 @@ function Gastos() {
                       <ClassifierControls item={item} classification={classification} />
                     </li>
                   ))}
+                  {uncategorizedExpenses.map((e) => (
+                    <li key={e.id} className="py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm">{e.description}</p>
+                          <p className="mt-0.5 text-xs text-[var(--text-muted)]">{formatDateBR(e.spentOn)}</p>
+                        </div>
+                        <Money cents={e.amountCents} size="sm" />
+                      </div>
+                      <ExpenseControls expense={e} categories={data.categories} />
+                    </li>
+                  ))}
                 </ul>
               </div>
             </details>
           )}
 
+          <CategoryManager categories={data.categories} persisted={data.categoriesPersisted} />
+
           <LearnedRules
             rules={data.categoryRules}
-            customCategories={data.customCategories}
+            categories={data.categories}
             labelFor={classification.labelFor}
           />
         </>

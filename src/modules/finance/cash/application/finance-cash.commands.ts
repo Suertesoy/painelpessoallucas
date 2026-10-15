@@ -1,14 +1,14 @@
 import type { EventRepository } from '@/platform/events/event.repository';
 import type { SupabaseFinanceCashRepository } from '../infrastructure/supabase-finance-cash.repository';
 import {
-  ClassifyInput, FixedIncomeInput, type ClassifyInputT, type FixedIncomeInputT,
+  ClassifyInput, ExpenseInput, FixedIncomeInput, type ClassifyInputT, type ExpenseInputT, type FixedIncomeInputT,
   CommitmentInput, InvoiceManualInput, ReceivableInput, SetBalanceInput, TransferInput,
   type CommitmentInputT, type InvoiceManualInputT, type ReceivableInputT, type SetBalanceInputT, type TransferInputT,
 } from '../domain/cash.schema';
 import type { MonthKey } from '../domain/month';
-import { categoryLabel, merchantKey } from '../domain/categories';
+import { merchantKey } from '../domain/categories';
 import {
-  findCategoryByLabel, isBuiltinCategory, isValidCategoryId, slugifyCategory, type CategoryRule,
+  findCategoryByLabel, isValidCategoryId, slugifyCategory, type CategoryRule,
 } from '../domain/category-rules';
 
 /** Como aprender com um lançamento: 'amount' = mesmo estabelecimento e mesmo valor; 'merchant' = qualquer valor (autorização explícita). */
@@ -136,10 +136,10 @@ export class FinanceCashCommands {
   }
 
   // -------- classificação (só rótulos; nunca altera valores) --------
+  /** A categoria precisa existir na lista do workspace (ou na lista inicial, antes da migration). */
   private async assertKnownCategory(category: string) {
-    if (isBuiltinCategory(category)) return;
-    const custom = await this.repo.listCustomCategories();
-    if (!custom.some((c) => c.id === category)) throw new Error('Categoria inválida.');
+    const { categories } = await this.repo.listCategories();
+    if (!categories.some((c) => c.id === category)) throw new Error('Categoria inválida.');
   }
 
   async classifyItems(input: ClassifyInputT) {
@@ -149,18 +149,87 @@ export class FinanceCashCommands {
     await this.emit('finance.invoice_items_classified', v.itemIds[0], { count: v.itemIds.length });
   }
 
-  /** Cria uma categoria personalizada (ou devolve a que já existe com esse nome). Devolve o id. */
-  async createCategory(label: string): Promise<string> {
+  private static cleanName(label: string): string {
     const name = label.trim().replace(/\s+/g, ' ');
     if (name.length < 2 || name.length > 40) throw new Error('Use um nome de 2 a 40 caracteres.');
-    const custom = await this.repo.listCustomCategories();
-    const existing = findCategoryByLabel(name, custom, categoryLabel);
+    return name;
+  }
+
+  // -------- despesas pontuais (Pix, débito, dinheiro) --------
+  /**
+   * Registra um gasto já pago fora do cartão. Não cria compromisso futuro. Com
+   * `learn`, também aprende a categoria para lançamentos semelhantes (opt-in).
+   */
+  async recordExpense(input: ExpenseInputT, learn?: LearnMode) {
+    const v = ExpenseInput.parse(input);
+    if (v.category) await this.assertKnownCategory(v.category);
+    const expense = await this.repo.recordExpense(v);
+    if (learn && v.category) {
+      await this.repo.saveCategoryRule({
+        merchantKey: merchantKey(v.description), amountCents: learn === 'amount' ? v.amountCents : null, category: v.category,
+      });
+      await this.repo.applyCategoryRules();
+    }
+    await this.emit('finance.expense_recorded', expense.id, { method: v.paymentMethod, deducted: v.deductFromBalance });
+    return expense;
+  }
+
+  /** Exclui o gasto; `restoreBalance` devolve ao saldo o que foi descontado quando ele foi registrado. */
+  async deleteExpense(id: string, restoreBalance: boolean) {
+    await this.repo.deleteExpense(id, restoreBalance);
+    await this.emit('finance.expense_deleted', id, { restoreBalance });
+  }
+
+  async setExpenseCategory(id: string, category: string | null) {
+    if (category) {
+      if (!isValidCategoryId(category)) throw new Error('Categoria inválida.');
+      await this.assertKnownCategory(category);
+    }
+    await this.repo.setExpenseCategory(id, category);
+    await this.emit('finance.expense_classified', id);
+  }
+
+  /** Cria uma categoria (ou devolve a que já existe com esse nome). O id é estável e nunca muda ao renomear. */
+  async createCategory(label: string): Promise<string> {
+    const name = FinanceCashCommands.cleanName(label);
+    const { categories, persisted } = await this.repo.listCategories();
+    if (!persisted) throw new Error('As categorias ainda não podem ser editadas: a atualização do banco está pendente.');
+    const existing = findCategoryByLabel(name, categories);
     if (existing) return existing;
-    const id = slugifyCategory(name, [...custom.map((c) => c.id), 'none']);
-    if (isBuiltinCategory(id)) throw new Error('Esse nome é parecido demais com uma categoria existente.');
-    await this.repo.createCustomCategory({ id, label: name });
+    const id = slugifyCategory(name, categories.map((c) => c.id));
+    await this.repo.createCategory({ id, label: name });
     await this.emit('finance.category_created', id);
     return id;
+  }
+
+  /** Renomeia (inclusive as da lista inicial). Só o nome muda: lançamentos e regras seguem apontando para o mesmo id. */
+  async renameCategory(id: string, label: string) {
+    const name = FinanceCashCommands.cleanName(label);
+    const { categories, persisted } = await this.repo.listCategories();
+    if (!persisted) throw new Error('As categorias ainda não podem ser editadas: a atualização do banco está pendente.');
+    if (!categories.some((c) => c.id === id)) throw new Error('Categoria não encontrada.');
+    if (findCategoryByLabel(name, categories, id)) throw new Error('Já existe uma categoria com esse nome.');
+    await this.repo.renameCategory(id, name);
+    await this.emit('finance.category_renamed', id);
+  }
+
+  countCategoryUse(id: string) {
+    return this.repo.countCategoryUse(id);
+  }
+
+  /**
+   * Exclui a categoria. `replacementId` é opcional: sem ele, os lançamentos ficam
+   * "Sem categoria" e as regras da categoria são removidas. Nunca remapeia sozinho.
+   */
+  async deleteCategory(id: string, replacementId: string | null = null) {
+    const { categories, persisted } = await this.repo.listCategories();
+    if (!persisted) throw new Error('As categorias ainda não podem ser editadas: a atualização do banco está pendente.');
+    if (!categories.some((c) => c.id === id)) throw new Error('Categoria não encontrada.');
+    if (replacementId !== null && (replacementId === id || !categories.some((c) => c.id === replacementId))) {
+      throw new Error('Categoria substituta inválida.');
+    }
+    await this.repo.deleteCategory(id, replacementId);
+    await this.emit('finance.category_deleted', id, { replaced: replacementId !== null });
   }
 
   /**

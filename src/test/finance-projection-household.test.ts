@@ -108,7 +108,7 @@ describe('projeção doméstica: aluguel e condomínio mensais', () => {
   });
 });
 
-describe('estimativa opcional de cartão', () => {
+describe('estimativa de cartão (média móvel de 3 faturas)', () => {
   const past = (card: 'nubank_1' | 'nubank_2', amounts: number[]) =>
     amounts.map((a, i) => inv(`h-${card}-${i}`, card, `2026-0${7 + i}`, a, 'paid'));
 
@@ -125,7 +125,7 @@ describe('estimativa opcional de cartão', () => {
     const p = projectCash(household({ invoices }));
     const e = estimateCardSpending(invoices, p, '2026-10');
     expect(e.enough).toBe(true);
-    expect(e.byCard).toEqual([{ card: 'nubank_1', averageCents: 200000, basedOnInvoices: 3 }]);
+    expect(e.byCard).toMatchObject([{ card: 'nubank_1', averageCents: 200000, basedOnInvoices: 3 }]);
     // out: média 2000,00 − fatura já somada 1300,49 ; nov: 2000,00 − 397,04
     expect(e.months[0].cents).toBe(200000 - 130049);
     expect(e.months[1].cents).toBe(200000 - 39704);
@@ -151,5 +151,68 @@ describe('estimativa opcional de cartão', () => {
     const p = projectCash(household({ commitments: [streaming], invoices }));
     const e = estimateCardSpending(invoices, p, '2026-10');
     expect(e.months[1].cents).toBe(200000 - 5000);
+  });
+});
+
+describe('média móvel de 3 meses por cartão', () => {
+  const paid = (card: 'nubank_1' | 'nubank_2', month: string, cents: number) => inv(`p-${card}-${month}`, card, month, cents, 'paid');
+
+  it('usa só as 3 faturas completas mais recentes e a média avança com o novo mês real', () => {
+    const base = [paid('nubank_1', '2026-06', 900000), paid('nubank_1', '2026-07', 300000), paid('nubank_1', '2026-08', 300000), paid('nubank_1', '2026-09', 300000)];
+    const p = projectCash(household({ invoices: base }));
+    const e = estimateCardSpending(base, p, '2026-10');
+    expect(e.byCard[0].basedOnMonths).toEqual(['2026-09', '2026-08', '2026-07']); // junho (alto) saiu
+    expect(e.byCard[0].averageCents).toBe(300000);
+  });
+
+  it('não suaviza meses altos: a média simples os mantém', () => {
+    const base = [paid('nubank_1', '2026-07', 900000), paid('nubank_1', '2026-08', 300000), paid('nubank_1', '2026-09', 300000)];
+    const e = estimateCardSpending(base, projectCash(household({ invoices: base })), '2026-10');
+    expect(e.byCard[0].averageCents).toBe(500000);
+  });
+
+  it('fatura histórica PAGA entra na média, mas não gera dívida nem entra na projeção', () => {
+    const base = [paid('nubank_1', '2026-07', 300000), paid('nubank_1', '2026-08', 300000), paid('nubank_1', '2026-09', 300000)];
+    const withHistory = projectCash(household({ invoices: [...household().invoices, ...base] }));
+    const without = projectCash(household());
+    expect(withHistory.map((m) => m.resultCents)).toEqual(without.map((m) => m.resultCents));
+    expect(withHistory.every((m) => m.invoiceLines.every((l) => !l.id.startsWith('p-')))).toBe(true);
+  });
+
+  it('Lucas e Matheus são independentes e a falta de dados de um não vira zero nem bloqueia', () => {
+    const base = [paid('nubank_1', '2026-07', 300000), paid('nubank_1', '2026-08', 300000), paid('nubank_1', '2026-09', 300000), paid('nubank_2', '2026-09', 100000)];
+    const p = projectCash(household({ invoices: base }));
+    const e = estimateCardSpending(base, p, '2026-10');
+    expect(e.byCard.map((c) => c.card)).toEqual(['nubank_1']);
+    expect(e.insufficientCards).toEqual(['nubank_2']);
+    expect(e.availableByCard).toEqual({ nubank_1: 3, nubank_2: 1 });
+    expect(e.enough).toBe(true);
+    expect(e.months.every((m) => Number.isFinite(m.cents))).toBe(true);
+  });
+
+  it('fatura aberta do mês atual ou futura nunca entra na média', () => {
+    const base = [paid('nubank_1', '2026-07', 300000), paid('nubank_1', '2026-08', 300000), paid('nubank_1', '2026-09', 300000), inv('open-oct', 'nubank_1', '2026-10', 9999999)];
+    const e = estimateCardSpending(base, projectCash(household({ invoices: base })), '2026-10');
+    expect(e.byCard[0].averageCents).toBe(300000);
+  });
+
+  it('fatura real FECHADA substitui a estimativa; aberta usa o maior entre o lançado e a média', () => {
+    const hist = [paid('nubank_1', '2026-07', 300000), paid('nubank_1', '2026-08', 300000), paid('nubank_1', '2026-09', 300000)];
+    const closedNov = [...hist, inv('c', 'nubank_1', '2026-11', 120000, 'closed'), inv('o', 'nubank_1', '2026-12', 450000, 'open')];
+    const e = estimateCardSpending(closedNov, projectCash(household({ invoices: closedNov })), '2026-10');
+    const byMonth = Object.fromEntries(e.months.map((m) => [m.month, m.cents]));
+    expect(byMonth['2026-11']).toBe(0); // fechada: vale a real
+    expect(byMonth['2026-12']).toBe(0); // aberta já acima da média: nada a somar
+    expect(byMonth['2027-01']).toBe(300000); // sem fatura: média cheia
+  });
+
+  it('a sobra provável é o resultado confirmado menos a estimativa acumulada (que carrega para os meses seguintes)', () => {
+    const hist = [paid('nubank_1', '2026-07', 300000), paid('nubank_1', '2026-08', 300000), paid('nubank_1', '2026-09', 300000)];
+    const invoices = [...hist, ...household().invoices.filter((i) => i.card === 'nubank_1')];
+    const p = projectCash(household({ invoices }));
+    const e = estimateCardSpending(invoices, p, '2026-10');
+    const last = e.months[e.months.length - 1];
+    expect(last.cumulativeCents).toBe(e.months.reduce((s, m) => s + m.cents, 0));
+    expect(p[3].resultCents - last.cumulativeCents).toBeLessThan(p[3].resultCents);
   });
 });

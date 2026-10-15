@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { useCommands } from '@/providers/repository.provider';
 import { centsToBRL } from '@/modules/finance/domain/money';
-import { CATEGORIES } from '@/modules/finance/cash/domain/categories';
-import { describeRule, type CategoryRule, type CustomCategory } from '@/modules/finance/cash/domain/category-rules';
+import type { Category } from '@/modules/finance/cash/domain/categories';
+import { describeRule, type CategoryRule } from '@/modules/finance/cash/domain/category-rules';
 import { Dialog, ErrorText, buttonGhost, buttonPrimary, buttonSecondary, useAction } from './ui';
 
 const selectClass =
@@ -15,8 +15,8 @@ const selectClass =
  * Regras aprendidas: consultar, trocar a categoria e excluir. Recolhido por
  * padrão (é uma área de manutenção, não de uso diário).
  */
-export function LearnedRules({ rules, customCategories, labelFor }: {
-  rules: CategoryRule[]; customCategories: CustomCategory[]; labelFor: (id: string | null) => string;
+export function LearnedRules({ rules, categories, labelFor }: {
+  rules: CategoryRule[]; categories: Category[]; labelFor: (id: string | null) => string;
 }) {
   const { financeCash } = useCommands();
   const { pending, error, run, clearError } = useAction();
@@ -55,15 +55,7 @@ export function LearnedRules({ rules, customCategories, labelFor }: {
                   disabled={pending}
                   onChange={(e) => void run(() => financeCash.changeRuleCategory(r.id, e.target.value))}
                 >
-                  {CATEGORIES.filter((c) => !c.tech).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                  {customCategories.length > 0 && (
-                    <optgroup label="Minhas categorias">
-                      {customCategories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                    </optgroup>
-                  )}
-                  <optgroup label="Tecnologia e profissional">
-                    {CATEGORIES.filter((c) => c.tech).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-                  </optgroup>
+                  {categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
                 <button type="button" className={buttonGhost} disabled={pending} onClick={() => void askDelete(r)} aria-label={`Excluir regra ${r.merchantKey}`}>
                   <Trash2 size={14} /> Excluir

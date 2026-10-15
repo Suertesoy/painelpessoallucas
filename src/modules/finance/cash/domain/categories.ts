@@ -1,32 +1,49 @@
 import { normalizeText } from '@/modules/finance/domain/normalize-text';
 
 /**
- * Categoria (natureza do gasto) e finalidade (pessoal/doméstico/profissional)
- * dos lançamentos de fatura. São duas informações independentes e NENHUMA
- * delas altera valores nem a conciliação: classificar é só rotular.
+ * Categoria (natureza do gasto) dos lançamentos de fatura e das despesas
+ * pontuais. Cada lançamento tem UMA categoria; classificar é só rotular e
+ * nunca altera valores nem a conciliação.
  *
- * Esta lista é do domínio de FATURAS e não se mistura com as categorias do
- * módulo antigo de transações (`finance_categories`).
+ * A fonte de verdade das categorias é a lista do workspace
+ * (`finance_item_categories`): ids estáveis + nomes editáveis. As categorias
+ * abaixo são apenas a LISTA INICIAL semeada uma vez; depois disso o usuário
+ * cria, renomeia e exclui. Esta lista é do domínio de FATURAS e não se mistura
+ * com a tabela do módulo antigo de transações (`finance_categories`).
+ *
+ * "Finalidade" (pessoal/doméstico/profissional) não faz mais parte da
+ * experiência: o campo `purpose` e os dados históricos são preservados, mas
+ * nada novo o exige.
  */
 
-export const CATEGORIES = [
-  { id: 'ai', label: 'Inteligência artificial', tech: true },
-  { id: 'infrastructure', label: 'Infraestrutura digital', tech: true },
-  { id: 'software', label: 'Software e serviços', tech: true },
-  { id: 'subscriptions', label: 'Assinaturas e aplicativos', tech: false },
-  { id: 'streaming', label: 'Streaming', tech: false },
-  { id: 'groceries', label: 'Mercado', tech: false },
-  { id: 'restaurants', label: 'Restaurantes e delivery', tech: false },
-  { id: 'transport', label: 'Transporte', tech: false },
-  { id: 'travel', label: 'Viagens', tech: false },
-  { id: 'health', label: 'Saúde', tech: false },
-  { id: 'shopping', label: 'Compras online', tech: false },
-  { id: 'leisure', label: 'Lazer', tech: false },
-  { id: 'housing', label: 'Moradia e contas', tech: false },
-  { id: 'other', label: 'Outros', tech: false },
-] as const;
+export interface Category {
+  id: string;
+  label: string;
+}
 
-export type CategoryId = (typeof CATEGORIES)[number]['id'];
+export const DEFAULT_CATEGORIES: readonly Category[] = [
+  { id: 'groceries', label: 'Mercado' },
+  { id: 'restaurants', label: 'Restaurantes e delivery' },
+  { id: 'shopping', label: 'Compras online' },
+  { id: 'streaming', label: 'Streaming' },
+  { id: 'subscriptions', label: 'Assinaturas e aplicativos' },
+  { id: 'leisure', label: 'Lazer' },
+  { id: 'housing', label: 'Moradia e contas' },
+  { id: 'transport', label: 'Transporte' },
+  { id: 'health', label: 'Saúde' },
+  { id: 'travel', label: 'Viagens' },
+  { id: 'other', label: 'Outros' },
+];
+
+/**
+ * Ids antigos que não existem mais como categoria própria. Valem como o id da
+ * direita quando ele existe no workspace (só para leitura e sugestões; nada é regravado).
+ */
+export const LEGACY_CATEGORY_ALIAS: Readonly<Record<string, string>> = {
+  ai: 'subscriptions',
+  infrastructure: 'subscriptions',
+  software: 'subscriptions',
+};
 
 export const PURPOSES = [
   { id: 'personal', label: 'Pessoal' },
@@ -36,15 +53,23 @@ export const PURPOSES = [
 
 export type PurposeId = (typeof PURPOSES)[number]['id'];
 
-const CATEGORY_IDS: readonly string[] = CATEGORIES.map((c) => c.id);
 const PURPOSE_IDS: readonly string[] = PURPOSES.map((p) => p.id);
 
-export const isCategoryId = (v: unknown): v is CategoryId => typeof v === 'string' && CATEGORY_IDS.includes(v);
 export const isPurposeId = (v: unknown): v is PurposeId => typeof v === 'string' && PURPOSE_IDS.includes(v);
 
-export function categoryLabel(id: string | null): string {
+/** Nome exibido de uma categoria na lista do workspace (padrão: a lista inicial). */
+export function categoryLabel(id: string | null, categories: readonly Category[] = DEFAULT_CATEGORIES): string {
   if (!id) return 'Sem categoria';
-  return CATEGORIES.find((c) => c.id === id)?.label ?? id;
+  const resolved = resolveCategoryId(id, categories);
+  return categories.find((c) => c.id === resolved)?.label ?? 'Sem categoria';
+}
+
+/** Id efetivo: o próprio, se existir na lista; senão o alias de um id antigo; senão null. */
+export function resolveCategoryId(id: string | null, categories: readonly Category[]): string | null {
+  if (!id) return null;
+  if (categories.some((c) => c.id === id)) return id;
+  const alias = LEGACY_CATEGORY_ALIAS[id];
+  return alias && categories.some((c) => c.id === alias) ? alias : null;
 }
 
 export function purposeLabel(id: string | null): string {
@@ -52,17 +77,23 @@ export function purposeLabel(id: string | null): string {
   return PURPOSES.find((p) => p.id === id)?.label ?? id;
 }
 
-/** Categorias de tecnologia (IA, infraestrutura, software e serviços). */
+const TECH_IDS: readonly string[] = ['ai', 'infrastructure', 'software'];
+const DEFAULT_IDS: readonly string[] = DEFAULT_CATEGORIES.map((c) => c.id);
+
+/** Id conhecido pelo código: da lista inicial ou legado (as palavras-chave ainda sugerem ids legados). */
+export const isKnownCategoryId = (v: unknown): v is string => typeof v === 'string' && (DEFAULT_IDS.includes(v) || TECH_IDS.includes(v));
+
+/** Compatibilidade com consultas antigas: categoria de tecnologia (ids legados). */
 export function isTechCategory(id: string | null): boolean {
-  return CATEGORIES.some((c) => c.id === id && c.tech);
+  return id !== null && TECH_IDS.includes(id);
 }
 
-/** "Tecnologia e profissional": categoria de tecnologia OU finalidade profissional. */
+/** Compatibilidade: categoria de tecnologia (legada) OU finalidade profissional. Não usado na interface. */
 export function isTechOrProfessional(item: { category: string | null; purpose: string | null }): boolean {
   return isTechCategory(item.category) || item.purpose === 'professional';
 }
 
-/** Serviços de streaming (vídeo, música). Também usados na leitura de itens antigos 'subscriptions'. */
+/** Serviços de streaming (vídeo, música): base das sugestões para a categoria Streaming. */
 export const STREAMING_KEYWORDS = ['netflix', 'spotify', 'amazonprime', 'amazon prime', 'prime video', 'disney', 'hbo', 'youtube', 'globoplay', 'deezer', 'paramount', 'max.com', 'apple tv', 'crunchyroll'];
 
 /**
@@ -70,7 +101,7 @@ export const STREAMING_KEYWORDS = ['netflix', 'spotify', 'amazonprime', 'amazon 
  * altera); nunca definem a classificação sozinhas. Estabelecimentos sem
  * regra clara (ex.: "Apple.Com/Bill") ficam sem sugestão — "a confirmar".
  */
-const KEYWORD_RULES: { category: CategoryId; keywords: string[] }[] = [
+const KEYWORD_RULES: { category: string; keywords: string[] }[] = [
   { category: 'infrastructure', keywords: ['vercel', 'github', 'cloudflare', 'supabase', 'digitalocean', 'hostinger', 'godaddy', 'namecheap', 'railway', 'netlify', 'amazon web', 'aws', 'registro br', 'hostgator'] },
   { category: 'ai', keywords: ['openai', 'chatgpt', 'anthropic', 'claude', 'magnific', 'midjourney', 'cursor', 'runway', 'elevenlabs', 'perplexity', 'gemini', 'copilot', 'g1ai'] },
   { category: 'software', keywords: ['google one', 'workana', 'adobe', 'figma', 'notion', 'canva', 'dropbox', 'microsoft', 'zoom', 'slack', 'jetbrains', 'icloud'] },
@@ -108,7 +139,7 @@ export function merchantKey(baseDescription: string): string {
   return normalizeText(baseDescription);
 }
 
-function ruleCategory(key: string): CategoryId | null {
+function ruleCategory(key: string): string | null {
   const padded = ` ${key} `;
   for (const rule of KEYWORD_RULES) {
     if (rule.keywords.some((k) => padded.includes(k.length <= 3 ? ` ${k.trim()} ` : k.trim()))) return rule.category;
@@ -126,7 +157,7 @@ function ruleCategory(key: string): CategoryId | null {
 export function suggestClassification(
   item: Pick<ClassifiableItem, 'key' | 'category' | 'purpose'>,
   all: readonly ClassifiableItem[],
-  /** Ids de categorias personalizadas do workspace: também valem como histórico confirmado. */
+  /** Ids de categorias criadas pelo usuário: também valem como histórico confirmado. */
   extraCategoryIds: readonly string[] = []
 ): ClassificationSuggestion | null {
   const missingCategory = item.category === null;
@@ -139,7 +170,7 @@ export function suggestClassification(
   const histCategory = missingCategory && categories.size === 1 ? [...categories][0] : null;
   const histPurpose = missingPurpose && purposes.size === 1 ? [...purposes][0] : null;
 
-  const histCategoryOk = histCategory !== null && (isCategoryId(histCategory) || extraCategoryIds.includes(histCategory));
+  const histCategoryOk = histCategory !== null && (isKnownCategoryId(histCategory) || extraCategoryIds.includes(histCategory));
   if (histCategoryOk || isPurposeId(histPurpose)) {
     return {
       category: histCategoryOk ? (histCategory as string) : null,

@@ -45,7 +45,7 @@ describe('categorias e finalidades', () => {
     id, key: merchantKey(desc), category, purpose,
   });
   it('rótulos', () => {
-    expect(categoryLabel('ai')).toBe('Inteligência artificial');
+    expect(categoryLabel('ai')).toBe('Assinaturas e aplicativos'); // id legado lê como a categoria equivalente
     expect(categoryLabel(null)).toBe('Sem categoria');
     expect(purposeLabel(null)).toBe('Não classificada');
     expect(purposeLabel('professional')).toBe('Profissional');

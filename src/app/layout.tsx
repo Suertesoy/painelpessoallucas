@@ -9,8 +9,8 @@ import { PwaRuntime } from '@/components/pwa/pwa-runtime';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Painel Pessoal Lucas',
-  description: 'Central Operacional Pessoal',
+  title: 'Nossa Casa',
+  description: 'Compras, finanças, notas e aprendizado da nossa casa.',
   icons: {
     icon: [
       { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: 'Painel Lucas',
+    title: 'Nossa Casa',
     statusBarStyle: 'black-translucent',
   },
 };

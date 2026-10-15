@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { PieChart, Upload } from 'lucide-react';
 import { Card, buttonSecondary } from '@/components/finance-cash/ui';
 import { CurrentMonthCard, UpcomingMonths } from '@/components/finance-cash/month-summary';
+import { RegisterExpenseButton } from '@/components/finance-cash/expense-dialog';
 
 /** Heurística segura: nunca exibe o erro cru, só decide qual aviso mostrar. */
 function looksLikeMissingMigration(message: string): boolean {
@@ -68,13 +69,14 @@ export default function FinancasPage() {
           <CurrentMonthCard
             month={current}
             balanceInformed={data.balance.availableUpdatedAt !== null}
-            estimate={null}
+            estimate={data.cardEstimate}
           />
           <CardsSection invoices={data.invoices} currentMonth={current.month} missingByInvoice={missingByInvoice} />
           <Card aria-label="Para onde vai o dinheiro">
             <h2 className="text-base font-semibold">Para onde vai nosso dinheiro?</h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">Gastos das faturas por categoria e por loja.</p>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">Gastos das faturas e do Pix, débito e dinheiro, por categoria e por loja.</p>
             <div className="mt-3 flex flex-wrap gap-2">
+              <RegisterExpenseButton categories={data.categories} persistedCategories={data.categoriesPersisted} expenses={data.expenses} rules={data.categoryRules} />
               <Link href="/financas/gastos" className={buttonSecondary}><PieChart size={16} /> Ver gastos</Link>
               <Link href="/financas/fatura/importar" className={buttonSecondary}><Upload size={16} /> Importar fatura</Link>
             </div>

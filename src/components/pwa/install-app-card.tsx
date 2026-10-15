@@ -32,7 +32,7 @@ export function InstallAppCard() {
       {isStandalone && (
         <p className="mt-2 flex items-center gap-2 text-sm text-gray-600">
           <CheckCircle2 size={16} className="text-green-600" />
-          O Painel Lucas já está instalado neste dispositivo.
+          O Nossa Casa já está instalado neste dispositivo.
         </p>
       )}
 

@@ -83,6 +83,18 @@ export const ClassifyInput = z
   })
   .refine((v) => v.category !== undefined || v.purpose !== undefined, 'Nada a alterar.');
 
+export const ExpenseInput = z.object({
+  description: z.string().trim().min(1, 'Informe a descrição.').max(200),
+  amountCents: positiveCents,
+  spentOn: dateStr,
+  paymentMethod: z.enum(['pix', 'debit', 'cash', 'other']),
+  category: z.string().refine(isValidCategoryId, 'Categoria inválida.').nullable().optional(),
+  /** Desconta do saldo disponível (foto manual) na mesma transação. */
+  deductFromBalance: z.boolean(),
+});
+
+export type ExpenseInputT = z.infer<typeof ExpenseInput>;
+
 export type FixedIncomeInputT = z.infer<typeof FixedIncomeInput>;
 /** Entrada aberta (strings); a validação de categoria/finalidade acontece no Zod. */
 export type ClassifyInputT = { itemIds: string[]; category?: string | null; purpose?: string | null };

@@ -9,9 +9,8 @@ import {
   findCategoryByLabel, findRule, isAmbiguousMerchant, planRuleApplication, slugifyCategory,
   type CategoryRule, type RuleTarget,
 } from '@/modules/finance/cash/domain/category-rules';
-import { categoryLabel, suggestClassification } from '@/modules/finance/cash/domain/categories';
-import { EMPTY_FILTER, type SpendingRow } from '@/modules/finance/cash/domain/spending';
-import { breakdownSpending, displayCategoryOf } from '@/modules/finance/cash/domain/spending-groups';
+import { DEFAULT_CATEGORIES, categoryLabel, resolveCategoryId, suggestClassification } from '@/modules/finance/cash/domain/categories';
+import { listCategories } from '@/modules/finance/cash/infrastructure/category-crud';
 
 /* ------------------------------------------------------------------ fake */
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -33,6 +32,17 @@ function createDb(initial: Record<string, Row[]>) {
     insert(p: Row) { this.mode = 'insert'; this.patch = p; return this; }
     update(p: Row) { this.mode = 'update'; this.patch = p; return this; }
     delete() { this.mode = 'delete'; return this; }
+    upsert(p: Row | Row[], opts?: { onConflict?: string; ignoreDuplicates?: boolean }) {
+      const cols = opts?.onConflict?.split(',').map((c) => c.trim()) ?? [];
+      for (const r of Array.isArray(p) ? p : [p]) {
+        const clash = rows(this.table).find((x) => cols.length > 0 && cols.every((c) => x[c] === r[c]));
+        if (clash) { if (!opts?.ignoreDuplicates) Object.assign(clash, r); } else rows(this.table).push({ ...r });
+      }
+      this.mode = 'select';
+      this.filters.push(() => false);
+      return this;
+    }
+    limit() { return this; }
     eq(c: string, v: unknown) { this.filters.push((r) => r[c] === v); return this; }
     neq(c: string, v: unknown) { this.filters.push((r) => r[c] !== v); return this; }
     is(c: string, v: unknown) { this.filters.push((r) => (v === null ? r[c] == null : r[c] === v)); return this; }
@@ -42,7 +52,7 @@ function createDb(initial: Record<string, Row[]>) {
       if (tables.__missing?.some((m) => m.name === this.table)) return { data: null, error: { message: 'missing', code: '42P01' } };
       const matched = rows(this.table).filter((r) => this.filters.every((f) => f(r)));
       if (this.mode === 'insert') {
-        if (this.table === 'finance_custom_categories' && rows(this.table).some((r) => r.workspace_id === this.patch.workspace_id && String(r.label).toLowerCase() === String(this.patch.label).toLowerCase())) {
+        if (this.table === 'finance_item_categories' && rows(this.table).some((r) => r.workspace_id === this.patch.workspace_id && (String(r.label).toLowerCase() === String(this.patch.label).toLowerCase() || r.id === this.patch.id))) {
           return { data: null, error: { message: 'dup', code: '23505' } };
         }
         const row = { id: `gen-${++seq}`, ...this.patch };
@@ -117,15 +127,21 @@ describe('regras: domínio puro', () => {
     expect(slugifyCategory('Saúde da casa!', [])).toBe('saude_da_casa');
     expect(slugifyCategory('Armazenamento', ['armazenamento'])).toBe('armazenamento_x');
     expect(slugifyCategory('123', [])).toBe('categoria');
-    expect(findCategoryByLabel('streaming', [], categoryLabel)).toBe('streaming');
-    expect(findCategoryByLabel(' ARMAZENAMENTO ', [{ id: 'armazenamento', label: 'Armazenamento' }], categoryLabel)).toBe('armazenamento');
-    expect(findCategoryByLabel('Nova', [], categoryLabel)).toBeNull();
+    expect(findCategoryByLabel('streaming', DEFAULT_CATEGORIES)).toBe('streaming');
+    expect(findCategoryByLabel(' ARMAZENAMENTO ', [{ id: 'armazenamento', label: 'Armazenamento' }])).toBe('armazenamento');
+    expect(findCategoryByLabel('Nova', DEFAULT_CATEGORIES)).toBeNull();
+    expect(findCategoryByLabel('Mercado', DEFAULT_CATEGORIES, 'groceries')).toBeNull(); // o próprio nome ao renomear não conta
   });
 
   it('sugestões continuam existindo e consideram o histórico em categorias personalizadas', () => {
     const all = [{ id: '1', key: 'apple com bill', category: 'armazenamento', purpose: null }, { id: '2', key: 'apple com bill', category: null, purpose: null }];
-    expect(suggestClassification(all[1], all)).toBeNull(); // id desconhecido sem a lista de personalizadas
+    expect(suggestClassification(all[1], all)).toBeNull(); // id desconhecido sem a lista do workspace
     expect(suggestClassification(all[1], all, ['armazenamento'])).toEqual({ category: 'armazenamento', purpose: null, source: 'history' });
+    // palavra-chave com id antigo: vale como a categoria atual equivalente, se existir
+    const keyword = suggestClassification({ key: 'vercel inc', category: null, purpose: null }, []);
+    expect(keyword?.category).toBe('infrastructure');
+    expect(resolveCategoryId(keyword!.category, DEFAULT_CATEGORIES)).toBe('subscriptions');
+    expect(categoryLabel('infrastructure', DEFAULT_CATEGORIES)).toBe('Assinaturas e aplicativos');
   });
 });
 
@@ -245,12 +261,12 @@ describe('comandos: classificar e aprender', () => {
   const cat = (id: string) => db.tables.finance_invoice_items.find((r) => r.id === id)?.category ?? null;
   const src = (id: string) => db.tables.finance_invoice_items.find((r) => r.id === id)?.category_source ?? null;
 
-  it('cria categoria personalizada sem alterar código e reaproveita nomes existentes', async () => {
+  it('cria categoria sem alterar código e reaproveita nomes existentes (inclusive os da lista inicial)', async () => {
     const id = await commands.createCategory('Armazenamento');
     expect(id).toBe('armazenamento');
     expect(await commands.createCategory('  armazenamento ')).toBe('armazenamento');
-    expect(await commands.createCategory('Streaming')).toBe('streaming'); // nativa: sem duplicar
-    expect(db.tables.finance_custom_categories).toHaveLength(1);
+    expect(await commands.createCategory('Streaming')).toBe('streaming');
+    expect(db.tables.finance_item_categories).toHaveLength(DEFAULT_CATEGORIES.length + 1);
     await expect(commands.createCategory('x')).rejects.toThrow(/2 a 40/);
   });
 
@@ -287,9 +303,9 @@ describe('comandos: classificar e aprender', () => {
 
   it('nunca sobrescreve classificação confirmada ao aprender', async () => {
     const id = await commands.createCategory('Armazenamento');
-    await commands.classifyItems({ itemIds: [UB], category: 'software' });
+    await commands.classifyItems({ itemIds: [UB], category: 'leisure' });
     await commands.classifyAndLearn(UA, id, 'amount');
-    expect(cat(UB)).toBe('software');
+    expect(cat(UB)).toBe('leisure');
     expect(src(UB)).toBe('user');
   });
 
@@ -322,19 +338,110 @@ describe('comandos: classificar e aprender', () => {
   });
 });
 
-/* -------------------------------------------------- apresentação de gastos */
-describe('categoria personalizada na apresentação', () => {
-  const custom = [{ id: 'armazenamento', label: 'Armazenamento' }];
-  const row = (id: string, base: string, cents: number, category: string | null): SpendingRow => ({
-    id, card: 'nubank_1', invoiceMonth: '2026-11', date: '2026-10-20', description: base, baseDescription: base,
-    amountCents: cents, kind: 'purchase', status: 'active', category, purpose: null,
+/* --------------------------------------------- gerenciamento de categorias */
+describe('gerenciar categorias', () => {
+  let db: ReturnType<typeof createDb>;
+  let commands: FinanceCashCommands;
+  const UA = '00000000-0000-4000-8000-00000000000a';
+  const UB = '00000000-0000-4000-8000-00000000000b';
+  const UC = '00000000-0000-4000-8000-00000000000c';
+  const events: { type: string; payload: Record<string, unknown> }[] = [];
+
+  beforeEach(() => {
+    events.length = 0;
+    db = createDb({
+      finance_invoice_items: [
+        item(UA, 'apple com bill', 6690, { category: 'subscriptions', category_source: 'user' }),
+        item(UB, 'netflix', 5590, { category: 'subscriptions', category_source: 'rule', category_rule_id: 'rule-1' }),
+        item(UC, 'padaria', 1200, { category: 'groceries', category_source: 'user' }),
+        item('x', 'netflix', 5590, { workspace_id: OTHER, category: 'subscriptions' }),
+      ],
+      finance_category_rules: [
+        { id: 'rule-1', workspace_id: WS, merchant_key: 'netflix', amount_cents: 5590, category: 'subscriptions' },
+        { id: 'rule-2', workspace_id: WS, merchant_key: 'padaria', amount_cents: null, category: 'groceries' },
+      ],
+    });
+    const notifier = { notify: vi.fn(), subscribe: () => () => {} };
+    const repo = new SupabaseFinanceCashRepository(db as never, WS, notifier as never);
+    commands = new FinanceCashCommands(repo, { save: async (e: never) => { events.push(e); } } as never, WS);
+  });
+  const cat = (id: string) => db.tables.finance_invoice_items.find((r) => r.id === id)?.category ?? null;
+
+  it('semeia a lista inicial uma vez e não recria categorias excluídas', async () => {
+    const first = await listCategories(db as never, WS);
+    expect(first.persisted).toBe(true);
+    expect(first.categories.map((c) => c.id)).toEqual(DEFAULT_CATEGORIES.map((c) => c.id));
+    await listCategories(db as never, WS);
+    expect(db.tables.finance_item_categories).toHaveLength(DEFAULT_CATEGORIES.length); // idempotente
+    for (const c of DEFAULT_CATEGORIES) await commands.deleteCategory(c.id);
+    expect((await listCategories(db as never, WS)).categories).toEqual([]); // excluir tudo não recria
   });
 
-  it('aparece como grupo próprio com o nome criado e entra no total', () => {
-    expect(displayCategoryOf('armazenamento', 'Apple.com/Bill', custom)).toBe('armazenamento');
-    expect(displayCategoryOf('armazenamento', 'Apple.com/Bill')).toBe('other'); // sem a lista: não quebra
-    const b = breakdownSpending([row('1', 'Apple.com/Bill', 6690, 'armazenamento'), row('2', 'Shopee', 1000, 'shopping')], { ...EMPTY_FILTER, month: '2026-11' }, custom);
-    expect(b.categories.find((c) => c.id === 'armazenamento')).toMatchObject({ label: 'Armazenamento', cents: 6690 });
-    expect(b.categories.reduce((s, c) => s + c.cents, 0)).toBe(b.totalCents);
+  it('antes da migration a lista inicial é só leitura e as edições são recusadas com aviso claro', async () => {
+    db.tables.__missing = [{ name: 'finance_item_categories' }, { name: 'finance_category_seed' }];
+    const res = await listCategories(db as never, WS);
+    expect(res.persisted).toBe(false);
+    expect(res.categories.length).toBe(DEFAULT_CATEGORIES.length);
+    await expect(commands.createCategory('Nova')).rejects.toThrow(/pendente/);
+    await expect(commands.renameCategory('groceries', 'Feira')).rejects.toThrow(/pendente/);
+    await expect(commands.deleteCategory('groceries')).rejects.toThrow(/pendente/);
+  });
+
+  it('renomear (inclusive predefinida) muda só o nome: lançamentos e regras continuam apontando para o mesmo id', async () => {
+    await commands.renameCategory('subscriptions', 'Apps e assinaturas');
+    const list = (await listCategories(db as never, WS)).categories;
+    expect(categoryLabel('subscriptions', list)).toBe('Apps e assinaturas');
+    expect([UA, UB].map(cat)).toEqual(['subscriptions', 'subscriptions']);
+    expect(db.tables.finance_category_rules.map((r) => r.category)).toEqual(['subscriptions', 'groceries']);
+  });
+
+  it('não permite nome repetido nem renomear categoria inexistente', async () => {
+    await expect(commands.renameCategory('subscriptions', 'mercado')).rejects.toThrow(/Já existe/);
+    await expect(commands.renameCategory('nao_existe', 'Qualquer')).rejects.toThrow(/não encontrada/);
+    await expect(commands.renameCategory('groceries', 'Mercado')).resolves.toBeUndefined(); // o mesmo nome dela mesma
+  });
+
+  it('excluir SEM substituta: lançamentos ficam "Sem categoria" e as regras dela saem; valores e outras categorias intactos', async () => {
+    const before = JSON.stringify(financial(db.tables.finance_invoice_items));
+    await commands.deleteCategory('subscriptions');
+    expect([cat(UA), cat(UB), cat(UC)]).toEqual([null, null, 'groceries']);
+    expect(db.tables.finance_invoice_items.find((r) => r.id === UA)).toMatchObject({ category_source: null, category_rule_id: null });
+    expect(db.tables.finance_category_rules.map((r) => r.id)).toEqual(['rule-2']); // nenhuma regra aponta para categoria inexistente
+    expect(cat('x')).toBe('subscriptions'); // outro workspace intocado
+    expect(JSON.stringify(financial(db.tables.finance_invoice_items))).toBe(before);
+    expect((await listCategories(db as never, WS)).categories.some((c) => c.id === 'subscriptions')).toBe(false);
+  });
+
+  it('excluir COM substituta (escolha explícita): lançamentos e regras vão para ela', async () => {
+    await commands.deleteCategory('subscriptions', 'streaming');
+    expect([cat(UA), cat(UB), cat(UC)]).toEqual(['streaming', 'streaming', 'groceries']);
+    expect(db.tables.finance_category_rules.map((r) => r.category)).toEqual(['streaming', 'groceries']);
+    expect(db.tables.finance_invoice_items.find((r) => r.id === UA)).toMatchObject({ category_source: 'user' });
+  });
+
+  it('substituta inválida é recusada sem tocar em nada', async () => {
+    await expect(commands.deleteCategory('subscriptions', 'subscriptions')).rejects.toThrow(/substituta/);
+    await expect(commands.deleteCategory('subscriptions', 'inexistente')).rejects.toThrow(/substituta/);
+    expect(cat(UA)).toBe('subscriptions');
+    expect(db.tables.finance_category_rules).toHaveLength(2);
+  });
+
+  it('informa quantos lançamentos usam a categoria (para avisar antes de excluir)', async () => {
+    expect(await commands.countCategoryUse('subscriptions')).toBe(2); // o de outro workspace não conta
+    expect(await commands.countCategoryUse('leisure')).toBe(0);
+  });
+
+  it('cada lançamento tem uma categoria só: classificar troca, não acumula; e a finalidade não é exigida', async () => {
+    await commands.classifyItems({ itemIds: [UC], category: 'leisure' });
+    expect(cat(UC)).toBe('leisure');
+    expect(db.tables.finance_invoice_items.find((r) => r.id === UC)?.purpose).toBeNull();
+  });
+
+  it('eventos de categoria não carregam valores monetários', async () => {
+    await commands.createCategory('Armazenamento');
+    await commands.renameCategory('armazenamento', 'Nuvem');
+    await commands.deleteCategory('armazenamento');
+    expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['finance.category_created', 'finance.category_renamed', 'finance.category_deleted']));
+    expect(JSON.stringify(events)).not.toMatch(/6690|amount/);
   });
 });

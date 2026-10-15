@@ -1,4 +1,4 @@
-import { CATEGORIES, merchantKey } from './categories';
+import { merchantKey, type Category } from './categories';
 import { normalizeText } from '@/modules/finance/domain/normalize-text';
 
 /**
@@ -10,10 +10,8 @@ import { normalizeText } from '@/modules/finance/domain/normalize-text';
  * Nada aqui toca em valores, datas ou vínculos.
  */
 
-export interface CustomCategory {
-  id: string;
-  label: string;
-}
+/** Categoria da lista do workspace (id estável + nome editável). */
+export type { Category };
 
 export interface CategoryRule {
   id: string;
@@ -40,10 +38,9 @@ export interface RuleAssignment {
 }
 
 const CATEGORY_ID = /^[a-z_]{2,40}$/;
-const BUILTIN_IDS: readonly string[] = CATEGORIES.map((c) => c.id);
 
+/** Só o FORMATO do id; se existe no workspace é conferido no Command. */
 export const isValidCategoryId = (v: string) => CATEGORY_ID.test(v);
-export const isBuiltinCategory = (v: string) => BUILTIN_IDS.includes(v);
 
 /** Estabelecimentos que cobram serviços diferentes: por padrão a regra exige o mesmo valor. */
 const AMBIGUOUS_MERCHANTS = ['apple', 'google', 'amazon', 'microsoft', 'paypal', 'mercadopago', 'pagseguro', 'pagbank', 'picpay', 'mp '];
@@ -82,7 +79,7 @@ export function describeRule(rule: Pick<CategoryRule, 'merchantKey' | 'amountCen
     : `${rule.merchantKey} · ${formatMoney(rule.amountCents)}`;
 }
 
-/** Id estável (`[a-z_]{2,40}`) a partir do nome digitado; nunca colide com os ids em uso. */
+/** Id estável (`[a-z_]{2,40}`) a partir do nome digitado; nunca colide com os ids em uso. O id não muda quando a categoria é renomeada. */
 export function slugifyCategory(label: string, taken: readonly string[]): string {
   let base = normalizeText(label).replace(/[^a-z]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 36);
   if (base.length < 2) base = 'categoria';
@@ -91,10 +88,8 @@ export function slugifyCategory(label: string, taken: readonly string[]): string
   return id;
 }
 
-/** Nome já existente (nativo ou personalizado)? Compara sem acentos nem maiúsculas. */
-export function findCategoryByLabel(label: string, custom: readonly CustomCategory[], builtinLabel: (id: string) => string): string | null {
+/** Já existe categoria com esse nome (comparando sem acentos nem maiúsculas)? Devolve o id. */
+export function findCategoryByLabel(label: string, categories: readonly Category[], exceptId?: string): string | null {
   const n = normalizeText(label);
-  const builtin = BUILTIN_IDS.find((id) => normalizeText(builtinLabel(id)) === n);
-  if (builtin) return builtin;
-  return custom.find((c) => normalizeText(c.label) === n)?.id ?? null;
+  return categories.find((c) => c.id !== exceptId && normalizeText(c.label) === n)?.id ?? null;
 }

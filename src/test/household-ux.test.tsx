@@ -14,11 +14,12 @@ vi.mock('next/link', () => ({
 afterEach(cleanup);
 
 describe('Home "Nossa casa"', () => {
-  it('é uma porta de entrada: só Compras, Finanças e Notas, sem indicadores', () => {
+  it('é uma porta de entrada: Compras, Finanças e Notas, com acesso discreto ao Japonês e sem indicadores', () => {
     render(<Home />);
     expect(screen.getByRole('heading', { name: 'Nossa casa' })).toBeTruthy();
     const links = [...screen.getByRole('navigation', { name: /áreas da casa/i }).querySelectorAll('a')];
     expect(links.map((a) => a.getAttribute('href'))).toEqual(['/compras', '/financas', '/notas']);
+    expect(screen.getByRole('link', { name: /Aprender japonês/i }).getAttribute('href')).toBe('/aprendizado');
     expect(document.querySelector('svg[role="img"], canvas, table')).toBeNull();
     expect(document.body.textContent).not.toMatch(/R\$/);
   });

@@ -1,7 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import {
-  planRuleApplication, type CategoryRule, type CustomCategory, type RuleTarget,
-} from '../domain/category-rules';
+import { planRuleApplication, type CategoryRule, type RuleTarget } from '../domain/category-rules';
 
 /**
  * Persistência das categorias personalizadas e das regras aprendidas.
@@ -29,25 +27,6 @@ const toRule = (r: Row): CategoryRule => ({
   amountCents: r.amount_cents === null || r.amount_cents === undefined ? null : Number(r.amount_cents),
   category: r.category,
 });
-
-/** Antes da migration as tabelas não existem: a lista vem vazia, sem quebrar a tela. */
-export async function listCustomCategories(supabase: SupabaseClient, workspaceId: string): Promise<CustomCategory[]> {
-  const { data, error } = await supabase.from('finance_custom_categories').select('id, label')
-    .eq('workspace_id', workspaceId).order('created_at');
-  if (error) {
-    if (error.code && MISSING_SCHEMA.has(error.code)) return [];
-    fail('Não foi possível carregar as categorias', error);
-  }
-  return (data ?? []) as CustomCategory[];
-}
-
-export async function createCustomCategory(supabase: SupabaseClient, workspaceId: string, c: CustomCategory): Promise<void> {
-  const { error } = await supabase.from('finance_custom_categories').insert({ workspace_id: workspaceId, id: c.id, label: c.label.trim() });
-  if (error) {
-    if (error.code === '23505') throw new CategoryLearningError('Já existe uma categoria com esse nome.');
-    fail('Não foi possível criar a categoria', error);
-  }
-}
 
 export async function listCategoryRules(supabase: SupabaseClient, workspaceId: string): Promise<CategoryRule[]> {
   const { data, error } = await supabase.from('finance_category_rules').select('*')

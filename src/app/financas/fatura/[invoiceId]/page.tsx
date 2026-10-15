@@ -31,7 +31,7 @@ export default function FaturaDetalhePage({ params }: { params: Promise<{ invoic
   const invoice = data?.snapshot.invoices.find((i) => i.id === invoiceId);
   // O histórico de TODAS as faturas alimenta as sugestões (mesmo estabelecimento).
   const classification = useClassification(data?.snapshot.items ?? [], {
-    customCategories: data?.snapshot.customCategories ?? [],
+    categories: data?.snapshot.categories ?? [],
     rules: data?.snapshot.categoryRules ?? [],
   });
   const commitments = data?.snapshot.commitments.filter((c) => c.billing === 'card' && c.card === invoice?.card && c.active) ?? [];

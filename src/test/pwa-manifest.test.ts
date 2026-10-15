@@ -5,9 +5,10 @@ describe('manifest da PWA', () => {
   const result = manifest();
 
   it('define nome, descrição e idioma coerentes com o painel', () => {
-    expect(result.name).toBe('Painel Lucas');
-    expect(result.short_name).toBe('Painel Lucas');
-    expect(result.description).toMatch(/pessoal/i);
+    expect(result.name).toBe('Nossa Casa');
+    expect(result.short_name).toBe('Nossa Casa');
+    expect(result.description).toMatch(/compras.*finanças.*notas.*aprendizado/i);
+    expect(result.description).not.toMatch(/projetos|captura/i);
     expect(result.lang).toBe('pt-BR');
   });
 

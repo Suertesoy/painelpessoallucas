@@ -10,7 +10,9 @@ import type { CardId, MonthKey } from './month';
 
 export interface SpendingRow {
   id: string;
-  card: CardId;
+  /** null = despesa pontual (Pix, débito, dinheiro), sem cartão. */
+  card: CardId | null;
+  /** Mês da fatura (vencimento) ou, nas despesas pontuais, o mês do gasto. */
   invoiceMonth: MonthKey;
   date: string;
   description: string;
@@ -21,6 +23,8 @@ export interface SpendingRow {
   status: 'active' | 'missing' | 'removed';
   category: string | null;
   purpose: string | null;
+  source?: 'invoice' | 'expense';
+  paymentMethod?: string;
 }
 
 export interface SpendingFilter {
@@ -87,7 +91,7 @@ export function summarizeSpending(rows: readonly SpendingRow[]): SpendingSummary
     unclassifiedCents: unclassified.reduce((s, r) => s + r.amountCents, 0),
     byCategory: groupBy(rows, (r) => r.category ?? 'none').sort(byValueDesc),
     byPurpose: groupBy(rows, (r) => r.purpose ?? 'none').sort(byValueDesc),
-    byCard: groupBy(rows, (r) => r.card).sort(byValueDesc),
+    byCard: groupBy(rows, (r) => r.card ?? 'none').sort(byValueDesc),
     byMonth: groupBy(rows, (r) => r.invoiceMonth).sort((a, b) => a.key.localeCompare(b.key)),
   };
 }

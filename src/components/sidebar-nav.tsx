@@ -3,19 +3,20 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Settings, LogOut, ShoppingCart, Wallet, StickyNote } from 'lucide-react';
+import { Home, Settings, LogOut, ShoppingCart, Wallet, StickyNote, GraduationCap } from 'lucide-react';
 import { useAuth } from '@/providers/auth.provider';
 
 /**
- * Navegação da central doméstica: quatro lugares e Configurações.
- * As demais rotas (Hoje, Entrada, Projetos, Planos, Aprendizado, Revisão…)
- * continuam existindo por URL, mas não aparecem aqui.
+ * Navegação da central doméstica: cinco lugares (incluindo Aprender, onde fica o
+ * curso de Japonês) e Configurações. As demais rotas (Hoje, Entrada, Projetos,
+ * Planos, Revisão…) continuam existindo por URL, mas não aparecem aqui.
  */
 const NAV_ITEMS = [
   { href: '/', label: 'Nossa casa', icon: Home },
   { href: '/compras', label: 'Compras', icon: ShoppingCart },
   { href: '/financas', label: 'Finanças', icon: Wallet },
   { href: '/notas', label: 'Notas', icon: StickyNote },
+  { href: '/aprendizado', label: 'Aprender', icon: GraduationCap },
 ];
 
 const SETTINGS_ITEM = { href: '/configuracoes', label: 'Configurações', icon: Settings };
@@ -110,7 +111,7 @@ export function SidebarNav() {
       {/* Barra inferior (mobile): os quatro lugares, com áreas de toque amplas */}
       <nav
         aria-label="Navegação principal (celular)"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
       >
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = isActivePath(pathname, href);

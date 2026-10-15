@@ -86,6 +86,22 @@ export interface InvoiceItem {
   categoryRuleId?: string | null;
 }
 
+/** Despesa pontual já paga (Pix, débito, dinheiro). Não é compromisso futuro. */
+export interface Expense {
+  id: string;
+  description: string;
+  amountCents: number;
+  /** Data do gasto (AAAA-MM-DD, dia local). */
+  spentOn: string;
+  paymentMethod: 'pix' | 'debit' | 'cash' | 'other';
+  category: string | null;
+  deductedFromBalance: boolean;
+  /** Só 'expense' conta como gasto; os demais preparam a futura conciliação de extratos. */
+  kind: 'expense' | 'internal_transfer' | 'invoice_payment';
+  source: 'manual' | 'bank_statement';
+  reconciledAt: string | null;
+}
+
 export interface FixedIncome {
   id: string;
   description: string;

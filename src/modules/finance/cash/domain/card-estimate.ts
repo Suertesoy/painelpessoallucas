@@ -2,23 +2,35 @@ import { CARD_IDS, compareMonths, type CardId, type MonthKey } from './month';
 import type { InvoiceInput, MonthProjection } from './projection';
 
 /**
- * Estimativa OPCIONAL de gastos no cartão — função pura.
+ * Estimativa de gastos futuros no cartão — função pura, média móvel de 3 meses.
  *
- * Nunca entra nos totais confirmados da projeção: é calculada à parte e só
- * aparece quando o usuário pede. Regras para não duplicar valores:
- *  - só usa como histórico faturas de meses ANTERIORES ao atual, com valor;
- *  - exige um mínimo de faturas por cartão; sem isso, não inventa valor;
- *  - fatura fechada ou paga já é definitiva: estimativa zero para o mês;
- *  - o que a fatura (ou os fixos "no cartão" ainda sem fatura) já soma no
- *    mês é DESCONTADO da média — a estimativa cobre só a diferença.
+ * Fica SEMPRE separada dos valores confirmados da projeção e nunca é gravada
+ * como fatura. Regras:
+ *  - Cada cartão (Lucas, Matheus) tem a sua média, só com as 3 faturas
+ *    COMPLETAS e REAIS mais recentes: mês de vencimento anterior ao atual,
+ *    com valor lançado. Fatura paga (histórica) conta; fatura aberta do mês
+ *    atual ou de meses futuros nunca entra na média.
+ *  - A média avança sozinha quando chega um novo mês real.
+ *  - Sem 3 faturas completas o cartão fica SEM estimativa e a interface diz
+ *    quantas faltam: ausência de dados nunca vira "gasto zero" nem valor inventado.
+ *  - Mês com fatura FECHADA ou PAGA é definitivo: a fatura real substitui a
+ *    estimativa (estimativa zero).
+ *  - Mês com fatura ainda ABERTA (ou sem fatura): o esperado é o MAIOR entre o
+ *    que já está lançado (fatura + gastos fixos no cartão ainda sem fatura) e a
+ *    média; a estimativa é só a diferença, então nunca soma por cima do que já
+ *    foi contado.
+ *  - Sem suavização: a média simples dos 3 meses, inclusive os altos.
  */
 
-export const MIN_HISTORY_INVOICES = 3;
-export const MAX_HISTORY_INVOICES = 6;
+export const HISTORY_INVOICES = 3;
+/** Mantido por compatibilidade com textos existentes. */
+export const MIN_HISTORY_INVOICES = HISTORY_INVOICES;
 
 export interface CardEstimateByCard {
   card: CardId;
   averageCents: number;
+  /** Meses de vencimento das faturas usadas na média (mais recente primeiro). */
+  basedOnMonths: MonthKey[];
   basedOnInvoices: number;
 }
 
@@ -31,11 +43,13 @@ export interface CardEstimateMonth {
 }
 
 export interface CardEstimate {
-  /** Há histórico suficiente em pelo menos um cartão. */
+  /** Há média confiável em pelo menos um cartão. */
   enough: boolean;
   byCard: CardEstimateByCard[];
-  /** Cartões sem histórico suficiente (ficam fora da estimativa). */
+  /** Cartões sem 3 faturas completas (ficam fora da estimativa). */
   insufficientCards: CardId[];
+  /** Quantas faturas completas cada cartão tem hoje (para dizer "faltam N"). */
+  availableByCard: Record<CardId, number>;
   months: CardEstimateMonth[];
 }
 
@@ -46,18 +60,25 @@ export function estimateCardSpending(
 ): CardEstimate {
   const byCard: CardEstimateByCard[] = [];
   const insufficientCards: CardId[] = [];
+  const availableByCard = {} as Record<CardId, number>;
 
   for (const card of CARD_IDS) {
-    const history = invoices
+    const complete = invoices
       .filter((i) => i.card === card && compareMonths(i.month, currentMonth) < 0 && i.amountCents !== null && i.amountCents > 0)
-      .sort((a, b) => compareMonths(b.month, a.month))
-      .slice(0, MAX_HISTORY_INVOICES);
-    if (history.length < MIN_HISTORY_INVOICES) {
+      .sort((a, b) => compareMonths(b.month, a.month));
+    availableByCard[card] = Math.min(complete.length, HISTORY_INVOICES);
+    if (complete.length < HISTORY_INVOICES) {
       insufficientCards.push(card);
       continue;
     }
-    const total = history.reduce((s, i) => s + (i.amountCents ?? 0), 0);
-    byCard.push({ card, averageCents: Math.round(total / history.length), basedOnInvoices: history.length });
+    const last = complete.slice(0, HISTORY_INVOICES);
+    const total = last.reduce((s, i) => s + (i.amountCents ?? 0), 0);
+    byCard.push({
+      card,
+      averageCents: Math.round(total / last.length),
+      basedOnMonths: last.map((i) => i.month),
+      basedOnInvoices: last.length,
+    });
   }
 
   let cumulative = 0;
@@ -65,7 +86,7 @@ export function estimateCardSpending(
     let cents = 0;
     for (const entry of byCard) {
       const invoice = invoices.find((i) => i.card === entry.card && i.month === m.month);
-      if (invoice && invoice.status !== 'open') continue; // fechada/paga: definitiva
+      if (invoice && invoice.status !== 'open') continue; // fechada/paga: a fatura real vale
       const known =
         (invoice?.amountCents ?? 0) +
         m.cardFixedLines.filter((l) => l.card === entry.card).reduce((s, l) => s + l.countedCents, 0);
@@ -75,5 +96,5 @@ export function estimateCardSpending(
     return { month: m.month, cents, cumulativeCents: cumulative };
   });
 
-  return { enough: byCard.length > 0, byCard, insufficientCards, months };
+  return { enough: byCard.length > 0, byCard, insufficientCards, availableByCard, months };
 }

@@ -4,8 +4,8 @@ import { render, cleanup, within } from '@testing-library/react';
 import { SidebarNav } from '@/components/sidebar-nav';
 
 /**
- * Navegação da central doméstica: Nossa casa, Compras, Finanças e Notas, com
- * Configurações à parte. Projetos, Planos, Rotina, Agenda e Aprendizado
+ * Navegação da central doméstica: Nossa casa, Compras, Finanças, Notas e Aprender
+ * (curso de Japonês), com Configurações à parte. Projetos, Planos, Rotina e Agenda
  * continuam existindo por URL, mas não aparecem na navegação.
  */
 
@@ -33,7 +33,7 @@ const desktopNav = () => document.querySelector('aside nav') as HTMLElement;
 const mobileNav = () => document.querySelector('nav[aria-label="Navegação principal (celular)"]') as HTMLElement;
 
 describe('SidebarNav simplificada', () => {
-  it('mostra só as quatro áreas, na ordem, no desktop e no celular', () => {
+  it('mostra só as cinco áreas, na ordem, no desktop e no celular', () => {
     render(<SidebarNav />);
     for (const nav of [desktopNav(), mobileNav()]) {
       const links = [...nav.querySelectorAll('a')].map((a) => [a.textContent?.trim(), a.getAttribute('href')]);
@@ -42,14 +42,15 @@ describe('SidebarNav simplificada', () => {
         ['Compras', '/compras'],
         ['Finanças', '/financas'],
         ['Notas', '/notas'],
+        ['Aprender', '/aprendizado'],
       ]);
     }
   });
 
-  it('não expõe Projetos, Planos, Hoje, Agenda, Rotina, Entrada, Aprendizado nem Revisão', () => {
+  it('não expõe Projetos, Planos, Hoje, Agenda, Rotina, Entrada nem Revisão', () => {
     render(<SidebarNav />);
     const text = document.body.textContent ?? '';
-    for (const label of ['Projetos', 'Planos', 'Hoje', 'Agenda', 'Rotina', 'Caixa de Entrada', 'Aprendizado', 'Revisão']) {
+    for (const label of ['Projetos', 'Planos', 'Hoje', 'Agenda', 'Rotina', 'Caixa de Entrada', 'Revisão']) {
       expect(text).not.toContain(label);
     }
   });

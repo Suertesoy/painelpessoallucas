@@ -1,10 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { CATEGORIES, suggestClassification } from '@/modules/finance/cash/domain/categories';
+import { DEFAULT_CATEGORIES, LEGACY_CATEGORY_ALIAS, categoryLabel, resolveCategoryId, suggestClassification } from '@/modules/finance/cash/domain/categories';
 import { EMPTY_FILTER, type SpendingRow } from '@/modules/finance/cash/domain/spending';
-import {
-  DISPLAY_OF, breakdownSpending, displayCategoryOf, merchantName,
-} from '@/modules/finance/cash/domain/spending-groups';
+import { breakdownSpending, displayCategoryOf, merchantName } from '@/modules/finance/cash/domain/spending-groups';
 
 let n = 0;
 const row = (description: string, amountCents: number, category: string | null, over: Partial<SpendingRow> = {}): SpendingRow => ({
@@ -12,28 +10,38 @@ const row = (description: string, amountCents: number, category: string | null, 
   amountCents, kind: 'purchase', status: 'active', category, purpose: null, ...over,
 });
 
-describe('mapeamento de leitura das categorias', () => {
-  it('todo id persistido possível tem tradução explícita', () => {
-    for (const c of CATEGORIES) expect(DISPLAY_OF[c.id], c.id).toBeTruthy();
+const LIST = [...DEFAULT_CATEGORIES];
+
+describe('lista inicial de categorias', () => {
+  it('traz as 11 categorias domésticas aprovadas, com ids estáveis', () => {
+    expect(DEFAULT_CATEGORIES.map((c) => c.label)).toEqual([
+      'Mercado', 'Restaurantes e delivery', 'Compras online', 'Streaming', 'Assinaturas e aplicativos', 'Lazer',
+      'Moradia e contas', 'Transporte', 'Saúde', 'Viagens', 'Outros',
+    ]);
+    expect(new Set(DEFAULT_CATEGORIES.map((c) => c.id)).size).toBe(11);
   });
 
-  it('ids antigos continuam válidos e sem categoria vira grupo próprio', () => {
-    expect(displayCategoryOf('groceries', 'Supermercado X')).toBe('groceries');
-    expect(displayCategoryOf('shopping', 'Shopee')).toBe('online');
-    expect(displayCategoryOf('ai', 'OpenAI')).toBe('apps');
-    expect(displayCategoryOf('infrastructure', 'Vercel')).toBe('apps');
-    expect(displayCategoryOf(null, 'Qualquer')).toBe('none');
-    expect(displayCategoryOf('id_desconhecido', 'X')).toBe('other');
+  it('o nome vem da lista do workspace: renomear não muda o id nem quebra a leitura', () => {
+    const renamed = LIST.map((c) => (c.id === 'groceries' ? { ...c, label: 'Supermercado' } : c));
+    expect(categoryLabel('groceries', renamed)).toBe('Supermercado');
+    expect(displayCategoryOf('groceries', renamed)).toBe('groceries');
   });
 
-  it("'subscriptions' antigo com nome de streaming aparece em Streaming; o resto em Assinaturas", () => {
-    expect(displayCategoryOf('subscriptions', 'Netflix.Com')).toBe('streaming');
-    expect(displayCategoryOf('subscriptions', 'AmazonPrimeBR')).toBe('streaming');
-    expect(displayCategoryOf('subscriptions', 'Apple.Com/Bill')).toBe('apps');
+  it('categoria excluída ou desconhecida aparece como "Sem categoria" (nunca some nem vira outra)', () => {
+    const without = LIST.filter((c) => c.id !== 'leisure');
+    expect(displayCategoryOf('leisure', without)).toBe('none');
+    expect(categoryLabel('leisure', without)).toBe('Sem categoria');
+    expect(displayCategoryOf(null, LIST)).toBe('none');
+  });
+
+  it('ids legados (ai, infrastructure, software) leem como Assinaturas e aplicativos, só se ela existir', () => {
+    expect(LEGACY_CATEGORY_ALIAS).toEqual({ ai: 'subscriptions', infrastructure: 'subscriptions', software: 'subscriptions' });
+    expect(displayCategoryOf('infrastructure', LIST)).toBe('subscriptions');
+    expect(resolveCategoryId('ai', LIST.filter((c) => c.id !== 'subscriptions'))).toBeNull();
   });
 });
 
-describe('estabelecimentos', () => {
+describe('estabelecimentos e sugestões', () => {
   it('reconhece lojas, sem presumir a Amazon', () => {
     expect(merchantName('SHOPEE *LOJA123')).toBe('Shopee');
     expect(merchantName('Shein.com')).toBe('Shein');
@@ -63,31 +71,39 @@ describe('agrupamento dos gastos', () => {
     row('Removido', 9999, 'groceries', { status: 'removed' }),
     row('Outro mês', 1234, 'groceries', { invoiceMonth: '2026-12' }),
   ];
+  const filter = { ...EMPTY_FILTER, month: '2026-11' };
 
   it('soma só compras do mês: ignora pagamento de fatura, removidos e outros meses', () => {
-    const b = breakdownSpending(rows, { ...EMPTY_FILTER, month: '2026-11' });
+    const b = breakdownSpending(rows, filter, LIST);
     expect(b.totalCents).toBe(10000 + 5000 + 7000 + 4000 + 3000);
     expect(b.count).toBe(5);
   });
 
   it('agrupa por categoria e por loja; categorias somam o total (nada some)', () => {
-    const b = breakdownSpending(rows, { ...EMPTY_FILTER, month: '2026-11' });
-    const online = b.categories.find((c) => c.id === 'online')!;
-    expect(online.cents).toBe(22000);
+    const b = breakdownSpending(rows, filter, LIST);
+    const online = b.categories.find((c) => c.id === 'shopping')!;
+    expect(online).toMatchObject({ label: 'Compras online', cents: 22000 });
     expect(online.merchants.map((m) => [m.name, m.cents])).toEqual([['Shopee', 15000], ['Shein', 7000]]);
     expect(b.categories.reduce((s, c) => s + c.cents, 0)).toBe(b.totalCents);
   });
 
   it('lançamentos sem categoria ficam explícitos e a Amazon não é presumida', () => {
-    const b = breakdownSpending(rows, { ...EMPTY_FILTER, month: '2026-11' });
+    const b = breakdownSpending(rows, filter, LIST);
     expect(b.uncategorizedCents).toBe(3000);
     expect(b.uncategorizedCount).toBe(1);
     expect(b.categories.find((c) => c.id === 'none')?.merchants[0].name).toBe('Amazon');
   });
 
+  it('categoria criada pelo usuário e categoria renomeada aparecem com o nome atual', () => {
+    const custom = [...LIST.map((c) => (c.id === 'shopping' ? { ...c, label: 'Lojas online' } : c)), { id: 'armazenamento', label: 'Armazenamento' }];
+    const b = breakdownSpending([...rows, row('Apple.com/Bill', 6690, 'armazenamento')], filter, custom);
+    expect(b.categories.find((c) => c.id === 'armazenamento')).toMatchObject({ label: 'Armazenamento', cents: 6690 });
+    expect(b.categories.find((c) => c.id === 'shopping')?.label).toBe('Lojas online');
+  });
+
   it('não altera os dados de origem', () => {
     const before = JSON.stringify(rows);
-    breakdownSpending(rows, { ...EMPTY_FILTER, month: '2026-11' });
+    breakdownSpending(rows, filter, LIST);
     expect(JSON.stringify(rows)).toBe(before);
   });
 });
