@@ -81,3 +81,12 @@ export function summarizeBodyWeight(logs: BodyWeightLog[]): BodyWeightSummary {
     deltaKg: sorted.length > 1 ? Math.round((latest.weightKg - first.weightKg) * 10) / 10 : undefined,
   };
 }
+
+/**
+ * Carga a gravar ao (re)confirmar uma série. Série JÁ concluída preserva a
+ * carga com que foi feita — mudar a carga do exercício depois só vale para as
+ * próximas séries. Série nova usa a carga atual do exercício.
+ */
+export function loadForSet(logged: Pick<SetLog, 'loadKg'> | undefined, currentLoadKg: number | undefined): number | undefined {
+  return logged ? logged.loadKg : currentLoadKg;
+}

@@ -2,24 +2,28 @@
 
 import { use, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
-import { LineChart as ChartIcon, Play } from 'lucide-react';
+import { ChevronRight, LineChart as ChartIcon, Play } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { useWorkspace } from '@/providers/auth.provider';
+import { SessionClock } from '@/components/workouts/session-clock';
 import { DataErrorNotice } from '@/components/data-error-notice';
 
+/**
+ * Escolher o treino: cada dia (A–E) abre uma tela de consulta — dá para olhar
+ * o A, o B, voltar, sem iniciar nada e sem cancelar nada. Só "Começar treino",
+ * dentro do dia, entra no fluxo ativo.
+ */
 export default function AtletaPage({ params }: { params: Promise<{ athleteId: string }> }) {
   const { athleteId } = use(params);
-  const { workspaceId } = useWorkspace();
-  const router = useRouter();
-  const { workout: cmds } = useCommands();
   const { workout: queries } = useQueries();
+  const { workout: cmds } = useCommands();
+  const { workspaceId } = useWorkspace();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const { data, isLoading, error, isOffline, refetch } = useReactiveQuery(() => queries.getAthleteOverview(athleteId), [athleteId]);
-  const [busyDay, setBusyDay] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   if (error) {
     return (
@@ -38,62 +42,101 @@ export default function AtletaPage({ params }: { params: Promise<{ athleteId: st
     );
   }
 
-  const start = async (dayId: string) => {
-    setBusyDay(dayId);
-    setActionError(null);
+  const active = data.activeSession;
+  const activeCode = active ? data.days.find((d) => d.day.id === active.dayId)?.day.code : undefined;
+
+  const startGym = async () => {
+    setBusy(true);
+    setMessage(null);
     try {
-      const session = await cmds.startSession(workspaceId, athleteId, dayId);
-      router.push(`/treinos/${athleteId}/sessao/${session.id}`);
+      await cmds.startGeneralSession(workspaceId, athleteId);
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : 'Não foi possível iniciar o treino.');
+      setMessage(e instanceof Error ? e.message : 'Não foi possível iniciar a academia.');
     } finally {
-      setBusyDay(null);
+      setBusy(false);
     }
   };
 
-  const active = data.activeSession;
+  const endGym = async () => {
+    if (!active) return;
+    if (!window.confirm('Encerrar a academia de hoje? As séries registradas ficam salvas.')) return;
+    setBusy(true);
+    try {
+      await cmds.finishSession(active.id);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Não foi possível encerrar.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-2xl p-4 md:p-8">
       <Link href="/treinos" className="text-sm text-blue-600 hover:underline">← Treinos</Link>
       <h1 className="mt-2 text-3xl font-bold text-gray-900">{data.athlete.name}</h1>
-      <p className="mt-1 text-sm text-gray-500">Qual treino hoje?</p>
+      <p className="mt-1 text-sm text-gray-500">Abra qualquer treino para consultar os exercícios e as cargas.</p>
 
-      {active && (
-        <Link
-          href={`/treinos/${athleteId}/sessao/${active.id}`}
-          className="mt-5 flex min-h-14 items-center justify-between rounded-2xl bg-blue-600 px-5 font-semibold text-white"
+      {message && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{message}</p>}
+
+      {active ? (
+        <section aria-label="Academia em andamento" className="mt-5 rounded-3xl border border-blue-300 bg-blue-50 p-4">
+          <SessionClock startedAt={active.startedAt} />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              href={`/treinos/${athleteId}/sessao/${active.id}`}
+              className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 font-semibold text-white"
+            >
+              Ir para o treino {activeCode} <Play size={16} />
+            </Link>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void endGym()}
+              className="min-h-12 rounded-2xl border border-gray-300 bg-white px-4 text-sm font-medium text-gray-800 disabled:opacity-60"
+            >
+              Encerrar academia
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-gray-500">O cronômetro segue contando enquanto você consulta ou troca de treino. Só “Encerrar” o para.</p>
+        </section>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void startGym()}
+          className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 text-lg font-semibold text-white disabled:opacity-60"
         >
-          Continuar treino em andamento <Play size={18} />
-        </Link>
+          <Play size={20} /> Iniciar academia (cronômetro)
+        </button>
       )}
-      {actionError && <p role="alert" className="mt-3 text-sm text-red-600">{actionError}</p>}
 
       <div className="mt-5 grid grid-cols-1 gap-3">
-        {data.days.map(({ day, exerciseCount, lastDoneOn }) => (
-          <button
+        {data.days.map(({ day, exerciseCount, lastDoneOn, loggedInActive }) => (
+          <Link
             key={day.id}
-            type="button"
-            disabled={!!active || exerciseCount === 0 || busyDay !== null}
-            onClick={() => void start(day.id)}
-            className="flex min-h-20 items-center gap-4 rounded-3xl border border-gray-200 bg-white p-4 text-left shadow-[0_12px_28px_-16px_rgba(0,0,0,0.7)] transition hover:bg-gray-50 active:scale-[0.99] disabled:opacity-50"
+            href={`/treinos/${athleteId}/dia/${day.id}`}
+            className="flex min-h-20 items-center gap-4 rounded-3xl border border-gray-200 bg-white p-4 text-left shadow-[0_12px_28px_-16px_rgba(0,0,0,0.7)] transition hover:bg-gray-50 active:scale-[0.99]"
           >
             <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-3xl font-bold text-blue-700">
               {day.code}
             </span>
-            <span>
+            <span className="min-w-0 flex-1">
               <span className="block font-semibold text-gray-900">
-                Treino {day.code} · {exerciseCount} {exerciseCount === 1 ? 'exercício' : 'exercícios'}
+                Treino {day.code}
+                {day.title && <span className="font-normal text-gray-500"> · {day.title}</span>}
+                {loggedInActive > 0 && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">{loggedInActive} séries hoje</span>}
               </span>
               <span className="block text-xs text-gray-500">
+                {exerciseCount} {exerciseCount === 1 ? 'exercício' : 'exercícios'} ·{' '}
                 {exerciseCount === 0
-                  ? 'Sem exercícios — monte a rotina'
+                  ? 'monte a rotina'
                   : lastDoneOn
-                    ? `Último: ${format(parseISO(`${lastDoneOn}T00:00:00`), "d 'de' MMM", { locale: ptBR })}`
-                    : 'Ainda não feito'}
+                    ? `último: ${format(parseISO(`${lastDoneOn}T00:00:00`), "d 'de' MMM", { locale: ptBR })}`
+                    : 'ainda não feito'}
               </span>
             </span>
-          </button>
+            <ChevronRight size={18} className="shrink-0 text-gray-400" />
+          </Link>
         ))}
       </div>
 

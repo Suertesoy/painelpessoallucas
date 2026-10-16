@@ -32,15 +32,13 @@ export default function Home() {
       className="min-h-full"
       style={{ backgroundImage: 'radial-gradient(60rem 24rem at 50% -8rem, color-mix(in srgb, var(--accent) 14%, transparent), transparent)' }}
     >
-      <div className="mx-auto max-w-xl px-4 pb-16 pt-[max(1rem,env(safe-area-inset-top))] md:px-8 md:pt-10">
+      <div className="mx-auto max-w-xl px-4 pb-16 pt-[calc(env(safe-area-inset-top)+0.75rem)] md:px-8 md:pt-10">
         <HomeTopBar />
 
-        <header className="mt-6">
-          <h1 className="text-4xl font-bold tracking-tight md:text-5xl">Nossa casa</h1>
-          <p className="mt-2 text-lg text-[var(--text-muted)]">Para onde vamos agora?</p>
-        </header>
+        {/* Sem título visível: os cartões são o foco. O h1 fica só para leitores de tela. */}
+        <h1 className="sr-only">Lutheus</h1>
 
-        <nav aria-label="Áreas da casa" className="mt-8 grid grid-cols-2 gap-3 md:gap-4">
+        <nav aria-label="Áreas da casa" className="mt-3 grid grid-cols-2 gap-3 md:gap-4">
           {ROOMS.map(({ href, title, hint, tint, layout, icon: Icon, glyph }, index) => (
             <Link
               key={href}

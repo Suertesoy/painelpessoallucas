@@ -1,4 +1,5 @@
 import type { MetadataRoute } from 'next';
+import { BRAND } from '@/branding/brand';
 
 /**
  * Cores derivadas da identidade visual atual (ver globals.css e
@@ -7,9 +8,9 @@ import type { MetadataRoute } from 'next';
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Nossa Casa',
-    short_name: 'Nossa Casa',
-    description: 'Compras, finanças, notas e aprendizado da nossa casa, em um só lugar.',
+    name: BRAND.appName,
+    short_name: BRAND.appName,
+    description: BRAND.description,
     start_url: '/',
     scope: '/',
     display: 'standalone',

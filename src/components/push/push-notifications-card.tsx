@@ -61,7 +61,7 @@ export function PushNotificationsCard() {
       {push.state === 'ios_not_installed' && (
         <p className="mt-3 flex items-start gap-2 text-sm text-gray-600">
           <Share size={16} className="mt-0.5 shrink-0 text-gray-400" />
-          No iPhone ou iPad, notificações só funcionam com a Nossa Casa adicionada à Tela de
+          No iPhone ou iPad, notificações só funcionam com o Lutheus adicionado à Tela de
           Início. Toque em <strong className="font-medium">Compartilhar</strong> e depois em{' '}
           <strong className="font-medium">&quot;Adicionar à Tela de Início&quot;</strong> antes de
           ativar.

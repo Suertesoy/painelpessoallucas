@@ -8,7 +8,7 @@ describe('buildNotificationContent', () => {
       showDetails: false,
       itemTitle: 'Ligar para o dentista',
     });
-    expect(content.title).toBe('Painel Lucas');
+    expect(content.title).toBe('Lutheus');
     expect(content.body).toBe('Você tem um lembrete para revisar.');
     expect(content.body).not.toContain('dentista');
   });
@@ -37,7 +37,7 @@ describe('buildNotificationContent', () => {
     const content = buildNotificationContent({ category: 'daily_planning', showDetails: true });
     expect(content).toEqual({
       title: 'Organize seu dia',
-      body: 'Abra o Painel Lucas e escolha seus focos de hoje.',
+      body: 'Abra o Lutheus e escolha seus focos de hoje.',
     });
   });
 

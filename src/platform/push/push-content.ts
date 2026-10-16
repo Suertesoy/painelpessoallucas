@@ -7,7 +7,7 @@
 
 export type PushCategory = 'task_reminder' | 'daily_planning' | 'weekly_review' | 'capture_failure';
 
-const GENERIC_TITLE = 'Painel Lucas';
+const GENERIC_TITLE = 'Lutheus';
 const MAX_DETAIL_LENGTH = 140;
 
 export interface NotificationContent {
@@ -29,7 +29,7 @@ function genericContentFor(category: PushCategory): NotificationContent {
     case 'task_reminder':
       return { title: GENERIC_TITLE, body: 'Você tem um lembrete para revisar.' };
     case 'daily_planning':
-      return { title: 'Organize seu dia', body: 'Abra o Painel Lucas e escolha seus focos de hoje.' };
+      return { title: 'Organize seu dia', body: 'Abra o Lutheus e escolha seus focos de hoje.' };
     case 'weekly_review':
       return { title: 'Hora da revisão semanal', body: 'Revise o que avançou e prepare a próxima semana.' };
     case 'capture_failure':

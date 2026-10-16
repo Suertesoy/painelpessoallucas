@@ -16,7 +16,7 @@ describe('página offline estática (public/offline.html)', () => {
 
   it('segue a identidade visual do painel (azul de ação, sem tema genérico)', () => {
     expect(OFFLINE_HTML).toMatch(/#2563eb/);
-    expect(OFFLINE_HTML).toMatch(/Painel Lucas/);
+    expect(OFFLINE_HTML).toMatch(/Lutheus/);
   });
 
   it('não referencia nenhuma API, token ou dado pessoal — é puramente estática', () => {

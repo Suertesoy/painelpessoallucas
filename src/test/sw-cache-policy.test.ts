@@ -154,6 +154,7 @@ describe('service worker — política de cache (public/sw.js)', () => {
     const sw = loadServiceWorker();
     sw.cacheStores.set('painel-lucas-v1-static', new Map());
     sw.cacheStores.set('painel-lucas-v2-static', new Map());
+    sw.cacheStores.set('painel-lucas-v3-static', new Map());
     sw.cacheStores.set('some-other-app-cache', new Map());
 
     const waits: Promise<unknown>[] = [];
@@ -161,7 +162,8 @@ describe('service worker — política de cache (public/sw.js)', () => {
     await Promise.all(waits);
 
     expect(sw.cachesMock.delete).toHaveBeenCalledWith('painel-lucas-v1-static');
-    expect(sw.cachesMock.delete).not.toHaveBeenCalledWith('painel-lucas-v2-static');
+    expect(sw.cachesMock.delete).toHaveBeenCalledWith('painel-lucas-v2-static');
+    expect(sw.cachesMock.delete).not.toHaveBeenCalledWith('painel-lucas-v3-static');
     expect(sw.cachesMock.delete).not.toHaveBeenCalledWith('some-other-app-cache');
   });
 

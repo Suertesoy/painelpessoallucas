@@ -10,7 +10,7 @@ import { ActiveTimerChips } from '@/components/active-timer-chip';
  */
 export function HomeBar({ areaLabel }: { areaLabel?: string }) {
   return (
-    <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--background)] px-2 pt-[env(safe-area-inset-top)]">
+    <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--background)] px-2 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
       <Link
         href="/"
         aria-label="Voltar para Nossa casa"

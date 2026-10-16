@@ -212,3 +212,9 @@ input[type="datetime-local"] {
   --color-blue-800: #fabd90; --color-blue-900: #fcd5b8;
 }
 [data-area] { background-image: radial-gradient(48rem 16rem at 50% -6rem, color-mix(in srgb, var(--accent) 10%, transparent), transparent); }
+[data-area='compras'] {
+  --accent: #3fbf8f;
+  --color-blue-50: #11291f; --color-blue-100: #163a2b; --color-blue-200: #1f5a42; --color-blue-300: #2b8760;
+  --color-blue-400: #3fbf8f; --color-blue-500: #3fbf8f; --color-blue-600: #25a06e; --color-blue-700: #5fd9a8;
+  --color-blue-800: #8be8c4; --color-blue-900: #b3f0d9;
+}

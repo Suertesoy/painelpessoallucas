@@ -305,6 +305,18 @@ export class WorkoutCommands {
     return updated;
   }
 
+  /** Ajuste rápido do descanso sugerido de um exercício (valor padrão da rotina). */
+  async setExerciseRest(exerciseId: string, seconds: number): Promise<WorkoutExercise> {
+    const existing = await this.repo.findExercise(exerciseId);
+    if (!existing) throw new Error('Exercício não encontrado');
+    const rest = Math.round(Math.min(MAX_REST_SECONDS, Math.max(0, seconds)));
+    const now = new Date().toISOString();
+    // A observação "da planilha" deixa de descrever o valor atual.
+    const updated = WorkoutExerciseSchema.parse({ ...existing, restSeconds: rest, restNote: undefined, updatedAt: now });
+    await this.repo.saveExercises([updated]);
+    return updated;
+  }
+
   /** Troca a posição com o vizinho (ordem prescrita dentro do dia). */
   async moveExercise(exerciseId: string, direction: 'up' | 'down'): Promise<void> {
     const all = await this.repo.listExercises();
@@ -370,6 +382,37 @@ export class WorkoutCommands {
     return session;
   }
 
+  /**
+   * Inicia a SESSÃO GERAL de academia (e o cronômetro) de uma pessoa, sem
+   * depender de qual treino será feito. `dayId` é só o treino "em foco" inicial
+   * (por padrão o primeiro); trocar de treino depois (`focusDay`) não reinicia
+   * o cronômetro nem conclui nada. Só `finishSession`/`cancelSession` encerram.
+   * Se já existe sessão em andamento, devolve a mesma.
+   */
+  async startGeneralSession(workspaceId: string, athleteId: string, dayId?: string, today: string = todayDateStr()): Promise<WorkoutSession> {
+    const active = await this.repo.findActiveSession(athleteId);
+    if (active) return active;
+    const days = (await this.repo.listDays()).sort((x, y) => x.position - y.position);
+    const focus = dayId ?? days[0]?.id;
+    if (!focus) throw new Error('Nenhum treino cadastrado ainda');
+    return this.startSession(workspaceId, athleteId, focus, today);
+  }
+
+  /**
+   * Muda o treino em foco da sessão em andamento (A → B → A…). Não encerra
+   * nem cria registro algum: as séries já feitas continuam na sessão e o
+   * cronômetro geral segue contando.
+   */
+  async focusDay(sessionId: string, dayId: string): Promise<WorkoutSession> {
+    const session = await this.loadActiveSession(sessionId);
+    if (session.dayId === dayId) return session;
+    const day = (await this.repo.listDays()).find((d) => d.id === dayId);
+    if (!day) throw new Error('Treino não encontrado');
+    const updated = WorkoutSessionSchema.parse({ ...session, dayId, updatedAt: new Date().toISOString() });
+    await this.repo.saveSession(updated);
+    return updated;
+  }
+
   private async loadActiveSession(sessionId: string): Promise<WorkoutSession> {
     const session = await this.repo.findSession(sessionId);
     if (!session) throw new Error('Treino não encontrado');
@@ -382,7 +425,7 @@ export class WorkoutCommands {
     const parsed = LogSetSchema.parse(dto);
     const session = await this.loadActiveSession(sessionId);
     const exercise = await this.repo.findExercise(parsed.exerciseId);
-    if (!exercise || exercise.dayId !== session.dayId) throw new Error('Este exercício não faz parte do treino');
+    if (!exercise || exercise.removedAt) throw new Error('Este exercício não faz parte do treino');
 
     const now = new Date().toISOString();
     const log = SetLogSchema.parse({

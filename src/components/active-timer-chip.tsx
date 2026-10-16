@@ -45,7 +45,11 @@ export function ActiveTimerChips() {
         aria-label="Treino em andamento"
       >
         <Dumbbell size={14} aria-hidden="true" />
-        {rest > 0 ? <span className="tabular">descanso {formatClock(rest)}</span> : <span>Treino</span>}
+        {rest > 0 ? (
+          <span className="tabular">descanso {formatClock(rest)}</span>
+        ) : (
+          <span className="tabular">{formatClock(Math.max(0, Math.floor((now.getTime() - new Date(training.startedAt).getTime()) / 1000)))}</span>
+        )}
       </Link>
     );
   }

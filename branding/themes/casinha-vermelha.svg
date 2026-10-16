@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Tema inicial: casinha kawaii vermelha com uma grande estrela amarela.
+       Para um tema sazonal, copie este arquivo, troque as cores/formas e rode:
+       node scripts/build-brand-assets.mjs branding/themes/<novo>.svg -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#FFF4E6"/>
+      <stop offset="1" stop-color="#FFD9C2"/>
+    </radialGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F0444A"/>
+      <stop offset="1" stop-color="#D62B34"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- sombra no chão -->
+  <ellipse cx="512" cy="878" rx="330" ry="38" fill="#B71C25" opacity="0.18"/>
+  <!-- chaminé -->
+  <rect x="690" y="330" width="78" height="150" rx="20" fill="#9E1B25"/>
+  <!-- corpo -->
+  <rect x="204" y="480" width="616" height="390" rx="84" fill="url(#body)"/>
+  <!-- telhado -->
+  <path d="M150 520 L512 232 L874 520" fill="#B71C25" stroke="#B71C25" stroke-width="84" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- grande estrela amarela -->
+  <polygon points="512.0,83.0 575.5,230.6 735.5,245.4 614.7,351.4 650.1,508.1 512.0,426.0 373.9,508.1 409.3,351.4 288.5,245.4 448.5,230.6"
+           fill="#FFD23F" stroke="#F4A300" stroke-width="18" stroke-linejoin="round"/>
+  <polygon points="512.0,150.0 548,238 640,246 570,306 590,396 512,350 434,396 454,306 384,246 476,238" fill="#FFE98A" opacity="0.7"/>
+  <!-- rostinho kawaii -->
+  <ellipse cx="400" cy="660" rx="30" ry="36" fill="#3B0A10"/>
+  <ellipse cx="624" cy="660" rx="30" ry="36" fill="#3B0A10"/>
+  <circle cx="411" cy="646" r="10" fill="#fff"/>
+  <circle cx="635" cy="646" r="10" fill="#fff"/>
+  <ellipse cx="338" cy="718" rx="44" ry="26" fill="#FF9AA8" opacity="0.85"/>
+  <ellipse cx="686" cy="718" rx="44" ry="26" fill="#FF9AA8" opacity="0.85"/>
+  <path d="M474 704 Q512 746 550 704" fill="none" stroke="#3B0A10" stroke-width="14" stroke-linecap="round"/>
+</svg>

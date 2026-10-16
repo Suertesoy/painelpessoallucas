@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   try {
     await sendWebPush(
       { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth_key } },
-      { title: 'Painel Lucas', body: 'Notificação de teste — tudo funcionando neste dispositivo.', url: '/configuracoes', tag: 'push-test' }
+      { title: 'Lutheus', body: 'Notificação de teste — tudo funcionando neste dispositivo.', url: '/configuracoes', tag: 'push-test' }
     );
     return NextResponse.json({ ok: true });
   } catch (e) {

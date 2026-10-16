@@ -37,9 +37,9 @@ function LoginContent() {
   };
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-gray-50 px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-gray-50 px-4 pt-[env(safe-area-inset-top)]">
       <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
-        <h1 className="text-xl font-semibold text-gray-900">Nossa Casa</h1>
+        <h1 className="text-xl font-semibold text-gray-900">Lutheus</h1>
         <p className="mt-1 text-sm text-gray-500">
           Entre para acessar seus dados em qualquer dispositivo.
         </p>

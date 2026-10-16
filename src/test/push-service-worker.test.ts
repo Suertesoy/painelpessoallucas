@@ -82,7 +82,7 @@ describe('service worker — push', () => {
     await Promise.all(waits);
 
     expect(sw.showNotification).toHaveBeenCalledWith(
-      'Painel Lucas',
+      'Lutheus',
       expect.objectContaining({ body: 'Você tem um lembrete para revisar.', data: { url: '/' } })
     );
   });
@@ -94,7 +94,7 @@ describe('service worker — push', () => {
     await expect(sw.emit('push', event)).resolves.not.toThrow();
     await Promise.all(waits);
 
-    expect(sw.showNotification).toHaveBeenCalledWith('Painel Lucas', expect.objectContaining({ data: { url: '/' } }));
+    expect(sw.showNotification).toHaveBeenCalledWith('Lutheus', expect.objectContaining({ data: { url: '/' } }));
   });
 
   it('rejeita URL externa no payload — nunca abre outra origem', async () => {

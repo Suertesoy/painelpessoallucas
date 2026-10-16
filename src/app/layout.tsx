@@ -5,12 +5,23 @@ import { AuthProvider } from '@/providers/auth.provider';
 import { RepositoryProvider } from '@/providers/repository.provider';
 import { AppShell } from '@/components/app-shell';
 import { PwaRuntime } from '@/components/pwa/pwa-runtime';
+import { BRAND } from '@/branding/brand';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Nossa Casa',
-  description: 'Compras, finanças, notas e aprendizado da nossa casa.',
+  metadataBase: new URL(`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL ?? 'painelpessoallucas.vercel.app'}`),
+  title: BRAND.appName,
+  description: BRAND.description,
+  openGraph: {
+    title: BRAND.appName,
+    description: BRAND.tagline,
+    siteName: BRAND.appName,
+    type: 'website',
+    locale: 'pt_BR',
+    images: [{ url: BRAND.shareImage.url, width: BRAND.shareImage.width, height: BRAND.shareImage.height, alt: BRAND.appName }],
+  },
+  twitter: { card: 'summary_large_image', title: BRAND.appName, description: BRAND.tagline, images: [BRAND.shareImage.url] },
   icons: {
     icon: [
       { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
@@ -20,7 +31,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: 'Nossa Casa',
+    title: BRAND.appName,
     statusBarStyle: 'black-translucent',
   },
 };

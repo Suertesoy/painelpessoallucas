@@ -44,6 +44,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <>
+      {/* Faixa sólida sob a área do relógio/Dynamic Island: o conteúdo nunca rola "por baixo" do recorte. */}
+      <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 z-[60] bg-[var(--background)]" style={{ height: 'env(safe-area-inset-top)' }} />
       <div className="flex h-dvh flex-col" data-area={isHome ? undefined : area.id}>
         {!isHome && <HomeBar areaLabel={area.label} />}
         <main className="flex-1 overflow-auto">

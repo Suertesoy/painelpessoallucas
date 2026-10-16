@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WorkoutCommands } from '@/modules/workouts/application/workout.commands';
 import { WorkoutQueries } from '@/modules/workouts/application/workout.queries';
-import { buildExerciseSeries } from '@/modules/workouts/domain/workout-stats';
+import { buildExerciseSeries, loadForSet } from '@/modules/workouts/domain/workout-stats';
 import { remainingSeconds } from '@/lib/timer';
 import { restCountdownOf } from '@/modules/workouts/domain/workout.schema';
 import { FakeWorkoutRepository } from './workout-fakes';
@@ -126,12 +126,14 @@ describe('sessões, séries e históricos separados', () => {
     expect(ctx.repo.setLogs.size).toBe(0);
   });
 
-  it('rejeita repetições negativas e exercício de outro dia', async () => {
+  it('rejeita repetições negativas e exercício removido; exercício de outro treino é aceito (sessão geral)', async () => {
     const s = await ctx.cmds.startSession(WS, ctx.lucas.id, ctx.dayA.id);
     await expect(ctx.cmds.logSet(s.id, { exerciseId: exId, setNumber: 1, reps: -1 })).rejects.toThrow();
     const dayB = ctx.base.days.find((d) => d.code === 'B')!;
     const other = await ctx.cmds.saveExercise(WS, { dayId: dayB.id, name: 'Outro', sets: 3 });
-    await expect(ctx.cmds.logSet(s.id, { exerciseId: other.id, setNumber: 1, reps: 5 })).rejects.toThrow(/não faz parte/);
+    await expect(ctx.cmds.logSet(s.id, { exerciseId: other.id, setNumber: 1, reps: 5 })).resolves.toBeDefined();
+    await ctx.cmds.removeExercise(other.id);
+    await expect(ctx.cmds.logSet(s.id, { exerciseId: other.id, setNumber: 2, reps: 5 })).rejects.toThrow(/não faz parte/);
   });
 
   it('concluir o treino atualiza só a carga atual de quem treinou; histórico fica separado', async () => {
@@ -314,5 +316,132 @@ describe('correções do pré-visualizador de importação', () => {
     expect(nordica.restSeconds).toBe(120);
     expect(nordica.needsReview).toBe(false);
     expect(repo.loads.get(`${byName('Stiff').id}:${matheus.id}`)?.loadKg).toBe(20);
+  });
+});
+
+describe('fluxo novo: consultar treinos sem iniciar, trocar sem cancelar', () => {
+  it('consultar um dia não cria sessão; mostra as cargas dos DOIS e a última vez de cada um', async () => {
+    const { cmds, queries, repo, lucas, matheus, dayA } = await setup();
+    const ex = await cmds.saveExercise(WS, { dayId: dayA.id, name: 'Leg 45', sets: 3, repsMin: 10, repsMax: 12, restSeconds: 120 });
+    await cmds.setAthleteLoad(WS, { exerciseId: ex.id, athleteId: lucas.id, loadKg: 70 });
+    await cmds.setAthleteLoad(WS, { exerciseId: ex.id, athleteId: matheus.id, loadKg: 80 });
+
+    const preview = await queries.getDayPreview(lucas.id, dayA.id);
+    expect(repo.sessions.size).toBe(0);
+    expect(preview?.activeSession).toBeNull();
+    expect(preview?.athletes.map((a) => a.name)).toEqual(['Lucas', 'Matheus']);
+    expect(preview?.exercises[0].loadsByAthlete[lucas.id]?.loadKg).toBe(70);
+    expect(preview?.exercises[0].loadsByAthlete[matheus.id]?.loadKg).toBe(80);
+  });
+
+  it('sessão geral: o cronômetro é independente do treino; A → B → A não conclui nada nem reinicia', async () => {
+    const { cmds, queries, repo, lucas, base, dayA } = await setup();
+    const dayB = base.days.find((d) => d.code === 'B')!;
+    const exA = await cmds.saveExercise(WS, { dayId: dayA.id, name: 'Leg 45', sets: 3 });
+    const exB = await cmds.saveExercise(WS, { dayId: dayB.id, name: 'Supino', sets: 3 });
+
+    // inicia a academia sem escolher treino
+    const g = await cmds.startGeneralSession(WS, lucas.id, undefined, '2026-10-16');
+    expect(g.status).toBe('in_progress');
+    expect(g.dayId).toBe(base.days[0].id); // treino em foco inicial: o primeiro (só um marcador)
+    const startedAt = g.startedAt;
+
+    // consultar o B não cria nem muda sessão
+    const previewB = await queries.getDayPreview(lucas.id, dayB.id);
+    expect(previewB?.activeSession?.id).toBe(g.id);
+    expect(repo.sessions.size).toBe(1);
+
+    // executar A, registrar, ir para B (foco), registrar, voltar para A
+    await cmds.focusDay(g.id, dayA.id);
+    await cmds.logSet(g.id, { exerciseId: exA.id, setNumber: 1, loadKg: 70, reps: 10 });
+    const inB = await cmds.focusDay(g.id, dayB.id);
+    expect(inB.id).toBe(g.id);
+    expect(inB.startedAt).toBe(startedAt); // cronômetro NÃO reiniciou
+    expect(inB.status).toBe('in_progress'); // nada foi concluído
+    await cmds.logSet(g.id, { exerciseId: exB.id, setNumber: 1, loadKg: 30, reps: 12 });
+    await cmds.focusDay(g.id, dayA.id);
+
+    expect(repo.sessions.size).toBe(1);
+    expect([...repo.sessions.values()][0].status).toBe('in_progress');
+    expect(repo.setLogs.size).toBe(2); // só as séries realmente feitas
+    const view = await queries.getSessionView(g.id);
+    expect(view?.day.code).toBe('A');
+    expect(view?.totalSets).toBe(2);
+    expect(view?.setsByDay[dayA.id]).toBe(1);
+    expect(view?.setsByDay[dayB.id]).toBe(1);
+
+    // começar de novo devolve a MESMA sessão
+    expect((await cmds.startGeneralSession(WS, lucas.id)).id).toBe(g.id);
+
+    // só a ação explícita encerra; e o histórico por treino vem das séries
+    await cmds.finishSession(g.id);
+    expect([...repo.sessions.values()][0].status).toBe('completed');
+    const overview = await queries.getAthleteOverview(lucas.id);
+    expect(overview?.activeSession).toBeNull();
+    expect(overview?.days.find((d) => d.day.id === dayA.id)?.lastDoneOn).toBe('2026-10-16');
+    expect(overview?.days.find((d) => d.day.id === dayB.id)?.lastDoneOn).toBe('2026-10-16');
+    expect(overview?.days.find((d) => d.day.code === 'C')?.lastDoneOn).toBeUndefined();
+  });
+
+  it('trocar o foco exige sessão ativa e treino existente', async () => {
+    const { cmds, lucas, dayA } = await setup();
+    const g = await cmds.startGeneralSession(WS, lucas.id);
+    await expect(cmds.focusDay(g.id, '00000000-0000-4000-8000-000000000000')).rejects.toThrow(/Treino não encontrado/);
+    await cmds.cancelSession(g.id);
+    await expect(cmds.focusDay(g.id, dayA.id)).rejects.toThrow(/encerrado/);
+  });
+
+  it('carga alterada no meio do treino: séries já feitas preservam a carga; as próximas usam a nova', async () => {
+    const { cmds, repo, lucas, dayA } = await setup();
+    const ex = await cmds.saveExercise(WS, { dayId: dayA.id, name: 'Extensora', sets: 4 });
+    const g = await cmds.startGeneralSession(WS, lucas.id, dayA.id);
+    const logWith = async (n: number, current: number | undefined, existing?: { loadKg?: number }) =>
+      cmds.logSet(g.id, { exerciseId: ex.id, setNumber: n, loadKg: loadForSet(existing, current), reps: 10 });
+
+    await logWith(1, 40);
+    await logWith(2, 40);
+    // sobe a carga para 45: séries 3 e 4 usam 45
+    await logWith(3, 45);
+    await logWith(4, 45);
+    // reconfirmar a série 1 depois de mudar a carga NÃO a altera
+    const first = [...repo.setLogs.values()].find((l) => l.setNumber === 1)!;
+    await logWith(1, 45, first);
+    const byNumber = Object.fromEntries([...repo.setLogs.values()].map((l) => [l.setNumber, l.loadKg]));
+    expect(byNumber).toEqual({ 1: 40, 2: 40, 3: 45, 4: 45 });
+  });
+
+  it('dentro do treino: carga é uma por exercício e as séries usam essa carga', async () => {
+    const { cmds, repo, lucas, dayA } = await setup();
+    const ex = await cmds.saveExercise(WS, { dayId: dayA.id, name: 'Extensora', sets: 3 });
+    const s = await cmds.startSession(WS, lucas.id, dayA.id);
+    for (const n of [1, 2, 3]) await cmds.logSet(s.id, { exerciseId: ex.id, setNumber: n, loadKg: 43, reps: 12 });
+    expect([...repo.setLogs.values()].every((l) => l.loadKg === 43)).toBe(true);
+  });
+
+  it('treinar junto: a sessão do Lucas mostra e permite editar a carga do Matheus sem misturar históricos', async () => {
+    const { cmds, queries, repo, lucas, matheus, dayA } = await setup();
+    const ex = await cmds.saveExercise(WS, { dayId: dayA.id, name: 'Leg 45', sets: 3 });
+    await cmds.setAthleteLoad(WS, { exerciseId: ex.id, athleteId: matheus.id, loadKg: 60 });
+    const s = await cmds.startSession(WS, lucas.id, dayA.id);
+
+    let view = await queries.getSessionView(s.id);
+    expect(view?.athletes).toHaveLength(2);
+    expect(view?.exercises[0].loadsByAthlete[matheus.id]?.loadKg).toBe(60);
+
+    await cmds.setAthleteLoad(WS, { exerciseId: ex.id, athleteId: matheus.id, loadKg: 65 });
+    view = await queries.getSessionView(s.id);
+    expect(view?.exercises[0].loadsByAthlete[matheus.id]?.loadKg).toBe(65);
+    expect(view?.exercises[0].loadsByAthlete[lucas.id]).toBeUndefined();
+    expect([...repo.setLogs.values()].filter((l) => l.athleteId === matheus.id)).toHaveLength(0);
+  });
+
+  it('descanso do exercício é ajustável e fica salvo como novo padrão', async () => {
+    const { cmds, repo, dayA } = await setup();
+    const ex = await cmds.saveExercise(WS, { dayId: dayA.id, name: 'Cadeira adutora', sets: 2, restSeconds: 60 });
+    const up = await cmds.setExerciseRest(ex.id, 75);
+    expect(up.restSeconds).toBe(75);
+    expect(repo.exercises.get(ex.id)?.restSeconds).toBe(75);
+    expect((await cmds.setExerciseRest(ex.id, 99999)).restSeconds).toBe(1800);
+    expect((await cmds.setExerciseRest(ex.id, -5)).restSeconds).toBe(0);
   });
 });

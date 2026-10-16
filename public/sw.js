@@ -14,7 +14,7 @@
  * exija invalidar o cache antigo — é o que aciona a detecção de "nova
  * versão" no cliente (comparação de bytes do próprio arquivo pelo navegador).
  */
-const CACHE_VERSION = 'painel-lucas-v2';
+const CACHE_VERSION = 'painel-lucas-v3'; // id interno do cache (o prefixo é usado na limpeza); v3 = novo ícone Lutheus
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = '/offline.html';
 
@@ -111,7 +111,7 @@ self.addEventListener('fetch', (event) => {
 // própria origem ou abre uma nova, nunca uma URL externa vinda do payload.
 
 const GENERIC_NOTIFICATION = {
-  title: 'Painel Lucas',
+  title: 'Lutheus',
   body: 'Você tem um lembrete para revisar.',
 };
 

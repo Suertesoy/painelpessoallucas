@@ -32,14 +32,14 @@ export function InstallAppCard() {
       {isStandalone && (
         <p className="mt-2 flex items-center gap-2 text-sm text-gray-600">
           <CheckCircle2 size={16} className="text-green-600" />
-          O Nossa Casa já está instalado neste dispositivo.
+          O Lutheus já está instalado neste dispositivo.
         </p>
       )}
 
       {showButton && (
         <div className="mt-3">
           <p className="text-sm text-gray-600">
-            Instale o Painel Lucas para abrir em janela própria, com ícone na tela
+            Instale o Lutheus para abrir em janela própria, com ícone na tela
             inicial ou na área de trabalho.
           </p>
           <button

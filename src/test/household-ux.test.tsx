@@ -17,7 +17,9 @@ afterEach(cleanup);
 describe('Home "Nossa casa"', () => {
   it('é o centro: cinco ambientes (Compras, Finanças, Notas, Estudos, Treinos), sem indicadores', () => {
     render(<Home />);
-    expect(screen.getByRole('heading', { name: 'Nossa casa' })).toBeTruthy();
+    // Sem título/subtítulo visíveis: só um h1 para leitores de tela.
+    expect(screen.getByRole('heading', { name: 'Lutheus' }).className).toContain('sr-only');
+    expect(document.body.textContent).not.toMatch(/Para onde vamos agora/);
     const links = [...screen.getByRole('navigation', { name: /áreas da casa/i }).querySelectorAll('a')];
     expect(links.map((a) => a.getAttribute('href'))).toEqual(['/compras', '/financas', '/notas', '/aprendizado', '/treinos']);
     expect(links.map((a) => a.textContent)).toEqual([

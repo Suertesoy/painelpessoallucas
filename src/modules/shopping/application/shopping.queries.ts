@@ -2,11 +2,14 @@ import { ShoppingListRepository } from './shopping-list.repository';
 import { ShoppingList } from '../domain/shopping-list.schema';
 import { ItemRepository } from '@/modules/items/application/item.repository';
 import { Item } from '@/modules/items/domain/item.schema';
+import type { ShoppingHistoryEntry } from '../domain/shopping-suggestions';
 
 export interface ShoppingListBoard {
   list: ShoppingList;
   pending: Item[];
   purchased: Item[];
+  /** Tudo que já foi adicionado a esta lista (inclui comprados e "limpos"): base das sugestões. */
+  history?: ShoppingHistoryEntry[];
 }
 
 function splitAndSort(items: Item[]): { pending: Item[]; purchased: Item[] } {
@@ -39,12 +42,17 @@ export class ShoppingQueries {
   async getBoard(): Promise<ShoppingListBoard[]> {
     const [lists, allItems] = await Promise.all([this.listRepo.findAll(), this.itemRepo.findAll()]);
 
-    const shoppingItems = allItems.filter((i) => i.type === 'shopping_item' && i.status !== 'archived');
+    const allShopping = allItems.filter((i) => i.type === 'shopping_item');
+    const shoppingItems = allShopping.filter((i) => i.status !== 'archived');
 
     return lists.map((list) => {
       const itemsForList = shoppingItems.filter((i) => i.shoppingListId === list.id);
       const { pending, purchased } = splitAndSort(itemsForList);
-      return { list, pending, purchased };
+      // O histórico inclui itens arquivados ("Limpar comprados" não apaga o aprendizado).
+      const history = allShopping
+        .filter((i) => i.shoppingListId === list.id && (i.title ?? i.content))
+        .map((i) => ({ title: (i.title ?? i.content) as string, createdAt: i.createdAt, completedAt: i.completedAt }));
+      return { list, pending, purchased, history };
     });
   }
 }
