@@ -34,9 +34,9 @@ export class FinanceCashCommands {
     });
   }
 
-  async setBalance(input: SetBalanceInputT) {
+  async setBalance(input: SetBalanceInputT, expected?: { updatedAt?: string | null; availableUpdatedAt?: string | null; reserveUpdatedAt?: string | null }) {
     const v = SetBalanceInput.parse(input);
-    const balance = await this.repo.setBalance(v.availableCents ?? null, v.reserveCents ?? null);
+    const balance = await this.repo.setBalance(v.availableCents ?? null, v.reserveCents ?? null, expected);
     await this.emit('finance.balance_updated', this.workspaceId, {
       available: v.availableCents !== undefined, reserve: v.reserveCents !== undefined,
     });
@@ -56,8 +56,8 @@ export class FinanceCashCommands {
     return created;
   }
 
-  async updateReceivable(id: string, input: ReceivableInputT) {
-    await this.repo.updateReceivable(id, ReceivableInput.parse(input));
+  async updateReceivable(id: string, input: ReceivableInputT, expectedUpdatedAt?: string) {
+    await this.repo.updateReceivable(id, ReceivableInput.parse(input), expectedUpdatedAt);
     await this.emit('finance.receivable_updated', id);
   }
 
@@ -83,8 +83,8 @@ export class FinanceCashCommands {
     return created;
   }
 
-  async updateCommitment(id: string, input: CommitmentInputT) {
-    await this.repo.updateCommitment(id, CommitmentInput.parse(input));
+  async updateCommitment(id: string, input: CommitmentInputT, expectedUpdatedAt?: string) {
+    await this.repo.updateCommitment(id, CommitmentInput.parse(input), expectedUpdatedAt);
     await this.emit('finance.commitment_updated', id);
   }
 

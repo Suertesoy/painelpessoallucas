@@ -7,6 +7,7 @@ import Home from '@/app/page';
 import { EndMonthField } from '@/components/finance-cash/ui';
 import { DonutChart } from '@/components/finance-cash/donut-chart';
 
+vi.mock('@/components/home-top-bar', () => ({ HomeTopBar: () => null }));
 vi.mock('next/link', () => ({
   default: ({ href, children, ...rest }: React.ComponentProps<'a'>) => <a href={href as string} {...rest}>{children}</a>,
 }));
@@ -14,21 +15,32 @@ vi.mock('next/link', () => ({
 afterEach(cleanup);
 
 describe('Home "Nossa casa"', () => {
-  it('é uma porta de entrada: Compras, Finanças e Notas, com acesso discreto ao Japonês e sem indicadores', () => {
+  it('é o centro: cinco ambientes (Compras, Finanças, Notas, Estudos, Treinos), sem indicadores', () => {
     render(<Home />);
     expect(screen.getByRole('heading', { name: 'Nossa casa' })).toBeTruthy();
     const links = [...screen.getByRole('navigation', { name: /áreas da casa/i }).querySelectorAll('a')];
-    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/compras', '/financas', '/notas']);
-    expect(screen.getByRole('link', { name: /Aprender japonês/i }).getAttribute('href')).toBe('/aprendizado');
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/compras', '/financas', '/notas', '/aprendizado', '/treinos']);
+    expect(links.map((a) => a.textContent)).toEqual([
+      expect.stringContaining('Compras'),
+      expect.stringContaining('Finanças'),
+      expect.stringContaining('Notas'),
+      expect.stringContaining('Estudos'),
+      expect.stringContaining('Treinos'),
+    ]);
     expect(document.querySelector('svg[role="img"], canvas, table')).toBeNull();
-    expect(document.body.textContent).not.toMatch(/R\$/);
+    expect(document.body.textContent).not.toMatch(/R$/);
   });
 
-  it('cartões com área de toque ampla', () => {
+  it('cartões de tamanhos variados (composição assimétrica) com área de toque ampla', () => {
     render(<Home />);
-    for (const a of screen.getByRole('navigation', { name: /áreas da casa/i }).querySelectorAll('a')) {
-      expect(a.className).toContain('min-h-28');
-    }
+    const links = [...screen.getByRole('navigation', { name: /áreas da casa/i }).querySelectorAll('a')];
+    expect(new Set(links.map((a) => a.className.match(/(col-span-2|row-span-2)/)?.[0] ?? 'normal')).size).toBeGreaterThan(1);
+    for (const a of links) expect(a.className).toMatch(/min-h-(32|36|64)/);
+  });
+
+  it('não há barra de navegação global com vários destinos', () => {
+    render(<Home />);
+    expect(document.querySelectorAll('nav').length).toBe(1);
   });
 });
 

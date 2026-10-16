@@ -184,3 +184,31 @@ input[type="datetime-local"] {
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* --- Nossa casa: entrada suave dos cartões (desligada com movimento reduzido) --- */
+@keyframes house-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.house-rise { animation: house-rise 380ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .house-rise { animation: none; }
+}
+
+/*
+ * Atmosferas por ambiente: o shell marca data-area e a escala 'blue' (usada
+ * por botões/links de todo o app) é redefinida só dentro do ambiente.
+ */
+[data-area='estudos'] {
+  --accent: #a98bff;
+  --color-blue-50: #1d1a33; --color-blue-100: #272148; --color-blue-200: #3a3068; --color-blue-300: #5a4a9c;
+  --color-blue-400: #8a74e0; --color-blue-500: #a98bff; --color-blue-600: #7c5cf0; --color-blue-700: #b9a1ff;
+  --color-blue-800: #cdbcff; --color-blue-900: #ddd2ff;
+}
+[data-area='treinos'] {
+  --accent: #f08a45;
+  --color-blue-50: #2b1b10; --color-blue-100: #3a2414; --color-blue-200: #5a361c; --color-blue-300: #8a5228;
+  --color-blue-400: #d9743a; --color-blue-500: #f08a45; --color-blue-600: #e0702a; --color-blue-700: #f7a468;
+  --color-blue-800: #fabd90; --color-blue-900: #fcd5b8;
+}
+[data-area] { background-image: radial-gradient(48rem 16rem at 50% -6rem, color-mix(in srgb, var(--accent) 10%, transparent), transparent); }

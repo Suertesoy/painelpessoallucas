@@ -1,4 +1,5 @@
 import { EventRepository } from '@/platform/events/event.repository';
+import { elapsedSeconds, pausedSecondsSoFar } from '@/lib/timer';
 import { LearningContentRepository } from './learning-content.repository';
 import { StudySessionRepository } from './study-session.repository';
 import { LessonProgressRepository } from './lesson-progress.repository';
@@ -15,6 +16,7 @@ import {
   CoursePreferencesSchema,
   StudySession,
   StudySessionSchema,
+  studySessionStopwatch,
   UpdateLearningPreferencesDTO,
   UpdateLearningPreferencesSchema,
   UpdateCoursePreferencesDTO,
@@ -57,6 +59,8 @@ import hiraganaRevisaoFinalContent from '../content/hiragana-revisao-final';
  * apenas o registro inicial do Learning Engine genérico. */
 export const JAPANESE_COURSE_SLUG = 'japones';
 const DEFAULT_DAILY_GOAL_MINUTES = 15;
+/** Limite de uma sessão (mesmo teto da coluna `duration_minutes`: 600 min). */
+const MAX_SESSION_SECONDS = 600 * 60;
 
 interface DefaultLessonSeed {
   /** Identidade estável usada para reconciliar — nunca o título (editorial,
@@ -230,6 +234,12 @@ export class LearningCommands {
    * duplicam dados nem reemitem o evento de inicialização.
    */
   async initializeDefaultLearningContent(workspaceId: string): Promise<Course> {
+    // Workspace compartilhado: o curso de Japonês é de quem administra a casa.
+    // Quem não é o administrador não recebe (nem cria) esse curso.
+    const viewer = (await this.contentRepo.getViewer?.()) ?? null;
+    if (viewer && !viewer.isOwner) {
+      throw new Error('Você ainda não tem cursos por aqui. O Japonês é de outra pessoa da casa.');
+    }
     const existing = await this.contentRepo.findCourseBySlug(JAPANESE_COURSE_SLUG);
     const now = new Date().toISOString();
 
@@ -244,6 +254,7 @@ export class LearningCommands {
           'Aprender a reconhecer, ler e compreender japonês em conteúdos reais, com foco inicial em fundamentos, vocabulário e estruturas frequentes.',
         status: 'active',
         dailyGoalMinutes: DEFAULT_DAILY_GOAL_MINUTES,
+        ownerUserId: viewer?.userId,
         createdAt: now,
         updatedAt: now,
       };
@@ -509,6 +520,10 @@ export class LearningCommands {
       status: 'completed',
       endedAt: now,
       durationMinutes: parsed.durationMinutes,
+      // Duração informada manualmente: o tempo exato do cronômetro não vale.
+      activeSeconds: parsed.durationMinutes * 60,
+      pausedAt: undefined,
+      pausedTotalSeconds: pausedSecondsSoFar(existing, Date.parse(now)),
       updatedAt: now,
     };
     StudySessionSchema.parse(updated);
@@ -527,6 +542,113 @@ export class LearningCommands {
       createdAt: now,
     });
 
+    return updated;
+  }
+
+  /**
+   * Pausa o cronômetro da sessão em andamento. O relógio congela em
+   * `pausedAt` (timestamp persistido): fechar o app, recarregar ou navegar
+   * não altera o tempo contabilizado. Idempotente: pausar de novo não muda
+   * o instante original da pausa.
+   */
+  async pauseStudySession(sessionId: string): Promise<StudySession> {
+    const existing = await this.sessionRepo.findById(sessionId);
+    if (!existing) throw new Error('Sessão de estudo não encontrada');
+    if (existing.status !== 'in_progress') throw new Error('Somente sessões em andamento podem ser pausadas');
+    if (existing.pausedAt) return existing;
+
+    const now = new Date().toISOString();
+    const updated: StudySession = { ...existing, pausedAt: now, updatedAt: now };
+    StudySessionSchema.parse(updated);
+    await this.sessionRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'learning.session.paused',
+      entityId: updated.id,
+      workspaceId: updated.workspaceId,
+      source: 'manual',
+      payload: {},
+      createdAt: now,
+    });
+    return updated;
+  }
+
+  /** Retoma a sessão pausada: o tempo parado é somado ao total de pausas. Idempotente. */
+  async resumeStudySession(sessionId: string): Promise<StudySession> {
+    const existing = await this.sessionRepo.findById(sessionId);
+    if (!existing) throw new Error('Sessão de estudo não encontrada');
+    if (existing.status !== 'in_progress') throw new Error('Somente sessões em andamento podem ser retomadas');
+    if (!existing.pausedAt) return existing;
+
+    const now = new Date().toISOString();
+    const updated: StudySession = {
+      ...existing,
+      pausedAt: undefined,
+      pausedTotalSeconds: pausedSecondsSoFar(existing, Date.parse(now)),
+      updatedAt: now,
+    };
+    StudySessionSchema.parse(updated);
+    await this.sessionRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'learning.session.resumed',
+      entityId: updated.id,
+      workspaceId: updated.workspaceId,
+      source: 'manual',
+      payload: {},
+      createdAt: now,
+    });
+    return updated;
+  }
+
+  /**
+   * Encerra a sessão calculando o tempo estudado a partir dos timestamps
+   * (início, fim e pausas) — sem depender de contador em memória nem de
+   * duração digitada. Períodos pausados nunca entram na conta.
+   */
+  async finishStudySession(sessionId: string): Promise<StudySession> {
+    const existing = await this.sessionRepo.findById(sessionId);
+    if (!existing) throw new Error('Sessão de estudo não encontrada');
+    if (existing.status !== 'in_progress') throw new Error('Somente sessões em andamento podem ser encerradas');
+
+    const now = new Date().toISOString();
+    const nowMs = Date.parse(now);
+    const activeSeconds = Math.min(
+      MAX_SESSION_SECONDS,
+      elapsedSeconds(studySessionStopwatch(existing), nowMs)
+    );
+    // O banco exige duração > 0 (minutos): sessões muito curtas ficam com 1 min
+    // de "duração nominal", mas o progresso do dia usa `activeSeconds`.
+    const durationMinutes = Math.min(600, Math.max(1, Math.round(activeSeconds / 60)));
+
+    const updated: StudySession = {
+      ...existing,
+      status: 'completed',
+      endedAt: now,
+      pausedAt: undefined,
+      pausedTotalSeconds: pausedSecondsSoFar(existing, nowMs),
+      activeSeconds,
+      durationMinutes,
+      updatedAt: now,
+    };
+    StudySessionSchema.parse(updated);
+    await this.sessionRepo.save(updated);
+
+    await this.eventRepo.save({
+      id: crypto.randomUUID(),
+      type: 'learning.session.completed',
+      entityId: updated.id,
+      workspaceId: updated.workspaceId,
+      source: 'manual',
+      payload: {
+        durationMinutes,
+        activeSeconds,
+        goalMet: isDailyGoalMet(durationMinutes, updated.dailyGoalMinutesSnapshot),
+      },
+      createdAt: now,
+    });
     return updated;
   }
 

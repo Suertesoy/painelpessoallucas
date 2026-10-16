@@ -4,6 +4,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   Course,
   CourseSchema,
+  LearningViewer,
+  isCourseVisibleTo,
   LearningModule,
   LearningModuleSchema,
   Lesson,
@@ -27,6 +29,7 @@ function courseRowToDomain(row: Row): Course {
     description: row.description ?? undefined,
     status: row.status,
     dailyGoalMinutes: row.daily_goal_minutes,
+    ownerUserId: row.owner_user_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
@@ -88,8 +91,38 @@ export class SupabaseLearningContentRepository implements LearningContentReposit
   constructor(
     private supabase: SupabaseClient,
     private workspaceId: string,
-    private notifier: ChangeNotifier
+    private notifier: ChangeNotifier,
+    private viewerUserId?: string
   ) {}
+
+  private viewerPromise: Promise<LearningViewer | null> | null = null;
+
+  /** Papel do usuário no workspace (consulta única, em cache). */
+  getViewer(): Promise<LearningViewer | null> {
+    if (!this.viewerUserId) return Promise.resolve(null);
+    const userId = this.viewerUserId;
+    this.viewerPromise ??= Promise.resolve(
+      this.supabase
+        .from('workspace_members')
+        .select('role')
+        .eq('workspace_id', this.workspaceId)
+        .eq('user_id', userId)
+        .maybeSingle()
+    ).then(({ data, error }) => {
+      if (error) throw new Error(`Não foi possível identificar seu acesso: ${error.message}`);
+      return { userId, isOwner: data?.role === 'owner' };
+    });
+    return this.viewerPromise;
+  }
+
+  private async visible(courses: Course[]): Promise<Course[]> {
+    const viewer = await this.getViewer();
+    return viewer ? courses.filter((c) => isCourseVisibleTo(c, viewer)) : courses;
+  }
+
+  async listVisibleCourseIds(): Promise<string[]> {
+    return (await this.listCourses()).map((c) => c.id);
+  }
 
   async findCourseBySlug(slug: string): Promise<Course | null> {
     const { data, error } = await this.supabase
@@ -99,7 +132,7 @@ export class SupabaseLearningContentRepository implements LearningContentReposit
       .eq('slug', slug)
       .maybeSingle();
     if (error) throw new Error(`Não foi possível carregar o curso: ${error.message}`);
-    return data ? courseRowToDomain(data) : null;
+    return data ? ((await this.visible([courseRowToDomain(data)]))[0] ?? null) : null;
   }
 
   async findCourseById(id: string): Promise<Course | null> {
@@ -109,7 +142,7 @@ export class SupabaseLearningContentRepository implements LearningContentReposit
       .eq('id', id)
       .maybeSingle();
     if (error) throw new Error(`Não foi possível carregar o curso: ${error.message}`);
-    return data ? courseRowToDomain(data) : null;
+    return data ? ((await this.visible([courseRowToDomain(data)]))[0] ?? null) : null;
   }
 
   async listCourses(): Promise<Course[]> {
@@ -119,7 +152,7 @@ export class SupabaseLearningContentRepository implements LearningContentReposit
       .eq('workspace_id', this.workspaceId)
       .order('created_at', { ascending: true });
     if (error) throw new Error(`Não foi possível carregar os cursos: ${error.message}`);
-    return (data ?? []).map(courseRowToDomain);
+    return this.visible((data ?? []).map(courseRowToDomain));
   }
 
   async saveCourse(course: Course): Promise<void> {
@@ -132,6 +165,8 @@ export class SupabaseLearningContentRepository implements LearningContentReposit
         description: course.description ?? null,
         status: course.status,
         daily_goal_minutes: course.dailyGoalMinutes,
+        // Só envia o dono quando existe: funciona também antes da migration de dono.
+        ...(course.ownerUserId ? { owner_user_id: course.ownerUserId } : {}),
         created_at: course.createdAt,
       },
       { onConflict: 'id' }

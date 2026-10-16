@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isoDateTimeSchema } from '@/lib/zod-datetime';
+import { elapsedSeconds, type StopwatchState } from '@/lib/timer';
 import { LessonContentSchema } from './lesson-content.schema';
 
 /**
@@ -34,10 +35,28 @@ export const CourseSchema = z.object({
   description: z.string().optional(),
   status: CourseStatusSchema,
   dailyGoalMinutes: dailyGoalMinutesSchema,
+  /**
+   * Quem estuda este curso (workspace compartilhado por Lucas e Matheus).
+   * Ausente = curso anterior ao compartilhamento: pertence a quem ADMINISTRA
+   * o workspace (resolvido na leitura, sem reescrever nenhum dado).
+   * Sessões, progresso e prática são sempre por curso, então herdam o dono.
+   */
+  ownerUserId: z.string().uuid().optional(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });
 export type Course = z.infer<typeof CourseSchema>;
+
+export interface LearningViewer {
+  userId: string;
+  /** true = papel "owner" no workspace (quem administra a casa). */
+  isOwner: boolean;
+}
+
+/** Cursos com dono são de quem os criou; cursos antigos (sem dono) são do administrador. */
+export function isCourseVisibleTo(course: Pick<Course, 'ownerUserId'>, viewer: LearningViewer): boolean {
+  return course.ownerUserId ? course.ownerUserId === viewer.userId : viewer.isOwner;
+}
 
 // --- LearningModule ------------------------------------------------------------
 
@@ -108,10 +127,39 @@ export const StudySessionSchema = z.object({
   status: StudySessionStatusSchema,
   source: StudySessionSourceSchema,
   dailyGoalMinutesSnapshot: dailyGoalMinutesSchema,
+  /** Presente apenas enquanto a sessão `in_progress` está PAUSADA. */
+  pausedAt: isoDateTimeSchema.optional(),
+  /** Soma das pausas já encerradas (segundos). Ausente = 0 (sessões antigas). */
+  pausedTotalSeconds: z.number().int().min(0).optional(),
+  /** Tempo realmente estudado (sem pausas), em segundos, gravado ao concluir.
+   * Ausente em sessões antigas — nelas vale `durationMinutes * 60`. */
+  activeSeconds: z.number().int().min(0).optional(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });
 export type StudySession = z.infer<typeof StudySessionSchema>;
+
+/** Sessão em andamento e atualmente pausada. */
+export function isStudySessionPaused(session: Pick<StudySession, 'status' | 'pausedAt'>): boolean {
+  return session.status === 'in_progress' && !!session.pausedAt;
+}
+
+/** Estado de cronômetro (timestamps) de uma sessão — base para `elapsedSeconds`. */
+export function studySessionStopwatch(session: StudySession): StopwatchState {
+  return {
+    startedAt: session.startedAt,
+    pausedAt: session.pausedAt ?? null,
+    pausedTotalSeconds: session.pausedTotalSeconds ?? 0,
+    endedAt: session.status === 'in_progress' ? null : (session.endedAt ?? null),
+  };
+}
+
+/** Segundos estudados por uma sessão: ao vivo se em andamento, gravados se concluída. */
+export function studySessionSeconds(session: StudySession, nowMs: number): number {
+  if (session.status === 'in_progress') return elapsedSeconds(studySessionStopwatch(session), nowMs);
+  if (session.status !== 'completed') return 0;
+  return session.activeSeconds ?? (session.durationMinutes ?? 0) * 60;
+}
 
 export const CompleteStudySessionSchema = z.object({
   durationMinutes: z
@@ -163,6 +211,8 @@ export type UpdateCoursePreferencesDTO = z.input<typeof UpdateCoursePreferencesS
 
 export interface TodayStudySummary {
   minutesStudied: number;
+  /** Segundos estudados em sessões concluídas hoje (precisão do cronômetro). */
+  secondsStudied?: number;
   goalMinutes: number;
   goalMet: boolean;
 }
@@ -188,6 +238,18 @@ export function computeStudiedMinutes(sessions: StudySession[], today: string, l
   return sessions
     .filter((s) => s.status === 'completed' && localDayOf(s.startedAt) === today)
     .reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0);
+}
+
+/**
+ * Segundos estudados no dia local `today` (sessões concluídas). Usa o tempo
+ * real sem pausas (`activeSeconds`) quando existe; sessões antigas caem em
+ * `durationMinutes * 60`. A sessão em andamento NÃO entra aqui: a UI soma o
+ * cronômetro ao vivo por cima, para o progresso nunca ficar defasado.
+ */
+export function computeStudiedSeconds(sessions: StudySession[], today: string, localDayOf: (iso: string) => string): number {
+  return sessions
+    .filter((s) => s.status === 'completed' && localDayOf(s.startedAt) === today)
+    .reduce((sum, s) => sum + (s.activeSeconds ?? (s.durationMinutes ?? 0) * 60), 0);
 }
 
 /** Meta diária concluída assim que o total estudado hoje atinge a meta. */

@@ -20,6 +20,24 @@ export async function getSessionContext(): Promise<SessionContext | null> {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
+  // Mesma regra de public.ensure_personal_workspace(): o workspace padrão do
+  // perfil (se o usuário ainda for membro dele); senão o membership mais antigo.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('default_workspace_id')
+    .eq('id', user.id)
+    .maybeSingle();
+  const preferred = profile?.default_workspace_id as string | null | undefined;
+  if (preferred) {
+    const { data: preferredMembership } = await supabase
+      .from('workspace_members')
+      .select('workspace_id')
+      .eq('user_id', user.id)
+      .eq('workspace_id', preferred)
+      .maybeSingle();
+    if (preferredMembership) return { supabase, user, workspaceId: preferredMembership.workspace_id };
+  }
+
   const { data: membership } = await supabase
     .from('workspace_members')
     .select('workspace_id')

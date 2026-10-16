@@ -18,13 +18,13 @@ const STATE_LABEL: Record<CardFixedState, { text: string; tone: 'positive' | 'wa
   awaiting_invoice: { text: 'Aguardando a fatura (somado como estimativa)', tone: 'warning' },
 };
 
-function CommitmentForm({ initial, currentMonth, onDone, onCancel }: {
-  initial?: Commitment; currentMonth: string; onDone: () => void; onCancel: () => void;
+export function CommitmentForm({ initial, currentMonth, onDone, onCancel, defaultRecurrence = 'monthly' }: {
+  initial?: Commitment; currentMonth: string; onDone: () => void; onCancel: () => void; defaultRecurrence?: 'none' | 'monthly';
 }) {
   const { financeCash } = useCommands();
   const [description, setDescription] = useState(initial?.description ?? '');
   const [amount, setAmount] = useState(initial ? centsToInput(initial.amountCents) : '');
-  const [recurrence, setRecurrence] = useState<'none' | 'monthly'>(initial?.recurrence ?? 'monthly');
+  const [recurrence, setRecurrence] = useState<'none' | 'monthly'>(initial?.recurrence ?? defaultRecurrence);
   const [dueDate, setDueDate] = useState(initial?.dueDate ?? '');
   const [day, setDay] = useState(String(initial?.dayOfMonth ?? ''));
   const [startMonth, setStartMonth] = useState(initial?.startMonth ?? currentMonth);
@@ -51,7 +51,7 @@ function CommitmentForm({ initial, currentMonth, onDone, onCancel }: {
           billing, card: billing === 'card' ? card : null, category: category || null,
         };
         const ok = await run(async () => {
-          if (initial) await financeCash.updateCommitment(initial.id, input);
+          if (initial) await financeCash.updateCommitment(initial.id, input, initial.updatedAt);
           else await financeCash.createCommitment(input);
         });
         if (ok) onDone();
@@ -114,7 +114,7 @@ function CommitmentForm({ initial, currentMonth, onDone, onCancel }: {
   );
 }
 
-export function CommitmentsSection({ commitments, month }: { commitments: Commitment[]; month: MonthProjection }) {
+export function CommitmentsSection({ commitments, month, showAdd = true }: { commitments: Commitment[]; month: MonthProjection; showAdd?: boolean }) {
   const { financeCash } = useCommands();
   const [form, setForm] = useState<null | { initial?: Commitment }>(null);
   const [paying, setPaying] = useState<MonthLine | null>(null);
@@ -171,7 +171,7 @@ export function CommitmentsSection({ commitments, month }: { commitments: Commit
     <Card aria-label="Compromissos do mês">
       <div className="flex items-start justify-between gap-3">
         <Eyebrow>Compromissos do mês</Eyebrow>
-        <button type="button" className={buttonGhost} onClick={() => setForm({})}><Plus size={14} /> Adicionar</button>
+        {showAdd && <button type="button" className={buttonGhost} onClick={() => setForm({})}><Plus size={14} /> Adicionar</button>}
       </div>
       <div className="mt-1 flex items-baseline gap-2">
         <Money cents={month.directCents + month.cardFixedEstimatedCents} size="lg" />

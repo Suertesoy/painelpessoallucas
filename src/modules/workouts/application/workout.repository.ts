@@ -1,0 +1,52 @@
+import type {
+  BodyWeightLog,
+  ExerciseLoad,
+  SetLog,
+  WorkoutAthlete,
+  WorkoutDay,
+  WorkoutExercise,
+  WorkoutSession,
+} from '../domain/workout.schema';
+
+/**
+ * Persistência de Treinos. O workspace é resolvido na construção do
+ * repositório. Um único contrato cobre atletas, rotina, cargas, sessões,
+ * séries e peso corporal: as entidades só fazem sentido juntas e mudam
+ * juntas durante um treino.
+ */
+export interface WorkoutRepository {
+  // Atletas e rotina
+  listAthletes(): Promise<WorkoutAthlete[]>;
+  saveAthletes(athletes: WorkoutAthlete[]): Promise<void>;
+  listDays(): Promise<WorkoutDay[]>;
+  saveDays(days: WorkoutDay[]): Promise<void>;
+  /** Inclui exercícios removidos (histórico os referencia). */
+  listExercises(): Promise<WorkoutExercise[]>;
+  findExercise(id: string): Promise<WorkoutExercise | null>;
+  saveExercises(exercises: WorkoutExercise[]): Promise<void>;
+
+  // Cargas atuais por atleta
+  listLoads(): Promise<ExerciseLoad[]>;
+  saveLoads(loads: ExerciseLoad[]): Promise<void>;
+
+  // Sessões
+  findSession(id: string): Promise<WorkoutSession | null>;
+  findActiveSession(athleteId: string): Promise<WorkoutSession | null>;
+  /** Mais recentes primeiro. */
+  listSessions(athleteId: string, limit: number): Promise<WorkoutSession[]>;
+  saveSession(session: WorkoutSession): Promise<void>;
+
+  // Séries
+  listSetLogsBySession(sessionId: string): Promise<SetLog[]>;
+  /** Mais recentes primeiro, limitadas — base de última carga e gráficos. */
+  listSetLogsByAthlete(athleteId: string, limit: number): Promise<SetLog[]>;
+  saveSetLog(log: SetLog): Promise<void>;
+  deleteSetLog(id: string): Promise<void>;
+
+  // Peso corporal
+  listBodyWeights(athleteId: string): Promise<BodyWeightLog[]>;
+  saveBodyWeight(log: BodyWeightLog): Promise<void>;
+  deleteBodyWeight(id: string): Promise<void>;
+
+  subscribe(listener: () => void): () => void;
+}

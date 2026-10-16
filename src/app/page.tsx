@@ -1,15 +1,29 @@
 import Link from 'next/link';
-import { GraduationCap, ShoppingCart, StickyNote, Wallet, type LucideIcon } from 'lucide-react';
+import { Dumbbell, ShoppingCart, StickyNote, Wallet, type LucideIcon } from 'lucide-react';
+import { HomeTopBar } from '@/components/home-top-bar';
 
 /**
- * Nossa casa — porta de entrada. Sem indicadores, gráficos ou notificações:
- * só os três lugares que Lucas e Matheus usam todo dia.
+ * Nossa casa — o centro do app. Cada cartão é um ambiente que se visita:
+ * entra-se, usa-se, volta-se para cá. Composição assimétrica de propósito
+ * (tamanhos diferentes, leve profundidade), sem indicadores nem números.
  */
 
-const AREAS: { href: string; title: string; hint: string; icon: LucideIcon; tint: string }[] = [
-  { href: '/compras', title: 'Compras', hint: 'O que falta em casa', icon: ShoppingCart, tint: '160 55% 48%' },
-  { href: '/financas', title: 'Finanças', hint: 'Quanto temos e para onde vai', icon: Wallet, tint: '210 70% 60%' },
-  { href: '/notas', title: 'Notas', hint: 'Lembretes e textos livres', icon: StickyNote, tint: '35 85% 58%' },
+interface Room {
+  href: string;
+  title: string;
+  hint: string;
+  tint: string; // "H S% L%"
+  layout: string; // classes de grade
+  icon?: LucideIcon;
+  glyph?: string;
+}
+
+const ROOMS: Room[] = [
+  { href: '/compras', title: 'Compras', hint: 'O que falta em casa', tint: '160 55% 48%', layout: 'col-span-2 min-h-36', icon: ShoppingCart },
+  { href: '/financas', title: 'Finanças', hint: 'Quanto temos e para onde vai', tint: '210 70% 60%', layout: 'row-span-2 min-h-64', icon: Wallet },
+  { href: '/notas', title: 'Notas', hint: 'Lembretes e textos', tint: '35 85% 58%', layout: 'min-h-32', icon: StickyNote },
+  { href: '/aprendizado', title: 'Estudos', hint: 'Japonês, no seu ritmo', tint: '265 70% 74%', layout: 'min-h-32', glyph: 'あ' },
+  { href: '/treinos', title: 'Treinos', hint: 'A–E, cargas e descanso', tint: '18 85% 62%', layout: 'col-span-2 min-h-32', icon: Dumbbell },
 ];
 
 export default function Home() {
@@ -18,41 +32,39 @@ export default function Home() {
       className="min-h-full"
       style={{ backgroundImage: 'radial-gradient(60rem 24rem at 50% -8rem, color-mix(in srgb, var(--accent) 14%, transparent), transparent)' }}
     >
-      <div className="mx-auto max-w-2xl px-4 pb-28 pt-10 md:px-8 md:pt-16">
-        <header>
+      <div className="mx-auto max-w-xl px-4 pb-16 pt-[max(1rem,env(safe-area-inset-top))] md:px-8 md:pt-10">
+        <HomeTopBar />
+
+        <header className="mt-6">
           <h1 className="text-4xl font-bold tracking-tight md:text-5xl">Nossa casa</h1>
-          <p className="mt-3 text-lg text-[var(--text-muted)]">Uma central simples para organizar o dia a dia.</p>
+          <p className="mt-2 text-lg text-[var(--text-muted)]">Para onde vamos agora?</p>
         </header>
 
-        <nav aria-label="Áreas da casa" className="mt-10 grid gap-4">
-          {AREAS.map(({ href, title, hint, icon: Icon, tint }) => (
+        <nav aria-label="Áreas da casa" className="mt-8 grid grid-cols-2 gap-3 md:gap-4">
+          {ROOMS.map(({ href, title, hint, tint, layout, icon: Icon, glyph }, index) => (
             <Link
               key={href}
               href={href}
-              className="group flex min-h-28 items-center gap-5 rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)] transition hover:border-[var(--line-strong)] active:scale-[0.99] md:p-6"
+              style={{
+                animationDelay: `${index * 60}ms`,
+                background: `linear-gradient(155deg, hsl(${tint} / 0.16), var(--surface) 62%)`,
+              }}
+              className={`house-rise group relative flex flex-col justify-between overflow-hidden rounded-[1.75rem] border border-[var(--line)] p-5 shadow-[0_14px_30px_-16px_rgba(0,0,0,0.75)] transition duration-200 hover:-translate-y-0.5 hover:border-[var(--line-strong)] active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none ${layout}`}
             >
               <span
                 aria-hidden="true"
-                className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl"
-                style={{ background: `hsl(${tint} / 0.16)`, color: `hsl(${tint})` }}
+                className="flex h-12 w-12 items-center justify-center rounded-2xl text-2xl font-semibold"
+                style={{ background: `hsl(${tint} / 0.2)`, color: `hsl(${tint})` }}
               >
-                <Icon size={30} strokeWidth={1.75} />
+                {Icon ? <Icon size={26} strokeWidth={1.75} /> : glyph}
               </span>
-              <span className="min-w-0">
+              <span className="mt-6 block">
                 <span className="block text-2xl font-semibold">{title}</span>
-                <span className="mt-1 block text-base text-[var(--text-muted)]">{hint}</span>
+                <span className="mt-1 block text-sm text-[var(--text-muted)]">{hint}</span>
               </span>
             </Link>
           ))}
         </nav>
-
-        <Link
-          href="/aprendizado"
-          className="mt-6 flex min-h-14 items-center gap-3 rounded-2xl px-4 text-base text-[var(--text-muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
-        >
-          <GraduationCap size={22} strokeWidth={1.75} aria-hidden="true" />
-          Aprender japonês
-        </Link>
       </div>
     </div>
   );

@@ -7,6 +7,8 @@ export interface Balance {
   reserveCents: number;
   availableUpdatedAt: string | null;
   reserveUpdatedAt: string | null;
+  /** Versão da linha (updated_at): muda em qualquer alteração do saldo. Base do ajuste atômico. */
+  updatedAt?: string | null;
 }
 
 export interface BalanceTransfer {
@@ -25,6 +27,8 @@ export interface Receivable {
   status: ReceivableStatus;
   notes: string | null;
   receivedAt: string | null;
+  /** Versão lida (updated_at): usada para detectar edição simultânea de outra pessoa. */
+  updatedAt?: string;
 }
 
 export interface Commitment {
@@ -40,6 +44,8 @@ export interface Commitment {
   card: CardId | null;
   category: string | null;
   active: boolean;
+  /** Versão lida (updated_at) para detectar edição simultânea. */
+  updatedAt?: string;
 }
 
 export interface Occurrence {

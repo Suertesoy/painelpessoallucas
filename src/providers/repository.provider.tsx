@@ -71,6 +71,15 @@ import { FinanceAnalyticsQueries } from '@/modules/finance/application/finance-a
 import { SupabaseFinanceCashRepository } from '@/modules/finance/cash/infrastructure/supabase-finance-cash.repository';
 import { FinanceCashCommands } from '@/modules/finance/cash/application/finance-cash.commands';
 import { FinanceCashQueries } from '@/modules/finance/cash/application/finance-cash.queries';
+import { SupabasePracticeItemRepository } from '@/modules/learning/infrastructure/supabase-practice.repository';
+import { PracticeItemRepository } from '@/modules/learning/application/practice.repository';
+import { PracticeCommands } from '@/modules/learning/application/practice.commands';
+import { PracticeQueries } from '@/modules/learning/application/practice.queries';
+import { SupabaseWorkoutRepository } from '@/modules/workouts/infrastructure/supabase-workout.repository';
+import { WorkoutRepository } from '@/modules/workouts/application/workout.repository';
+import { WorkoutCommands } from '@/modules/workouts/application/workout.commands';
+import { WorkoutQueries } from '@/modules/workouts/application/workout.queries';
+import { SharingService } from '@/modules/sharing/application/sharing.service';
 import { useAuth } from './auth.provider';
 
 interface RepositoryContextType {
@@ -98,6 +107,12 @@ interface RepositoryContextType {
   lessonProgressRepository: LessonProgressRepository;
   learningCommands: LearningCommands;
   learningQueries: LearningQueries;
+  practiceRepository: PracticeItemRepository;
+  practiceCommands: PracticeCommands;
+  practiceQueries: PracticeQueries;
+  workoutRepository: WorkoutRepository;
+  workoutCommands: WorkoutCommands;
+  workoutQueries: WorkoutQueries;
   reminderRepository: ReminderRepository;
   reminderCommands: ReminderCommands;
   reminderQueries: ReminderQueries;
@@ -113,6 +128,7 @@ interface RepositoryContextType {
   financeCashRepository: SupabaseFinanceCashRepository;
   financeCashCommands: FinanceCashCommands;
   financeCashQueries: FinanceCashQueries;
+  sharing: SharingService;
   changeNotifier: ChangeNotifier;
 }
 
@@ -126,7 +142,7 @@ function isPublic(pathname: string): boolean {
 }
 
 export function RepositoryProvider({ children }: { children: ReactNode }) {
-  const { status, workspaceId, error, retry } = useAuth();
+  const { status, workspaceId, error, retry, user } = useAuth();
   const pathname = usePathname();
 
   const value = useMemo<RepositoryContextType | null>(() => {
@@ -147,9 +163,13 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
     const projectQueries = new ProjectQueries(projectRepo);
     const docRepo = new SupabaseSourceDocumentRepository(supabase, workspaceId, notifier);
     const planRepo = new SupabaseExecutionPlanRepository(supabase, workspaceId, notifier);
-    const learningContentRepo = new SupabaseLearningContentRepository(supabase, workspaceId, notifier);
-    const studySessionRepo = new SupabaseStudySessionRepository(supabase, workspaceId, notifier);
+    const learningContentRepo = new SupabaseLearningContentRepository(supabase, workspaceId, notifier, user?.id);
+    const studySessionRepo = new SupabaseStudySessionRepository(supabase, workspaceId, notifier, () =>
+      learningContentRepo.listVisibleCourseIds()
+    );
     const lessonProgressRepo = new SupabaseLessonProgressRepository(supabase, workspaceId, notifier);
+    const practiceRepo = new SupabasePracticeItemRepository(supabase, workspaceId, notifier);
+    const workoutRepo = new SupabaseWorkoutRepository(supabase, workspaceId, notifier);
     const reminderRepo = new SupabaseReminderRepository(supabase, workspaceId);
     const shoppingListRepo = new SupabaseShoppingListRepository(supabase, workspaceId, notifier);
     const financeRepo = new SupabaseFinanceRepository(supabase, workspaceId, notifier);
@@ -185,6 +205,12 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       lessonProgressRepository: lessonProgressRepo,
       learningCommands: new LearningCommands(learningContentRepo, studySessionRepo, eventRepo, lessonProgressRepo),
       learningQueries: new LearningQueries(learningContentRepo, studySessionRepo, lessonProgressRepo),
+      practiceRepository: practiceRepo,
+      practiceCommands: new PracticeCommands(practiceRepo, eventRepo),
+      practiceQueries: new PracticeQueries(learningContentRepo, lessonProgressRepo, practiceRepo),
+      workoutRepository: workoutRepo,
+      workoutCommands: new WorkoutCommands(workoutRepo, eventRepo),
+      workoutQueries: new WorkoutQueries(workoutRepo),
       reminderRepository: reminderRepo,
       reminderCommands: new ReminderCommands(reminderRepo, eventRepo),
       reminderQueries: new ReminderQueries(reminderRepo),
@@ -200,9 +226,10 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       financeCashRepository: financeCashRepo,
       financeCashCommands: new FinanceCashCommands(financeCashRepo, eventRepo, workspaceId),
       financeCashQueries: new FinanceCashQueries(financeCashRepo),
+      sharing: new SharingService(supabase, workspaceId),
       changeNotifier: notifier,
     };
-  }, [status, workspaceId]);
+  }, [status, workspaceId, user?.id]);
 
   useEffect(() => {
     if (!value) return;
@@ -273,6 +300,8 @@ export function useCommands() {
     dailyPlan: context.dailyPlanCommands,
     plan: context.planCommands,
     learning: context.learningCommands,
+    practice: context.practiceCommands,
+    workout: context.workoutCommands,
     reminder: context.reminderCommands,
     shopping: context.shoppingCommands,
     finance: {
@@ -281,6 +310,7 @@ export function useCommands() {
       monthly: context.financeMonthlyCommands,
     },
     financeCash: context.financeCashCommands,
+    sharing: context.sharing,
   };
 }
 
@@ -295,6 +325,8 @@ export function useQueries() {
     plan: context.planQueries,
     calendarEvent: context.calendarEventQueries,
     learning: context.learningQueries,
+    practice: context.practiceQueries,
+    workout: context.workoutQueries,
     reminder: context.reminderQueries,
     shopping: context.shoppingQueries,
     finance: {
@@ -302,6 +334,7 @@ export function useQueries() {
       analytics: context.financeAnalyticsQueries,
     },
     financeCash: context.financeCashQueries,
+    sharing: context.sharing,
   };
 }
 

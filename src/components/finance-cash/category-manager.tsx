@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import { useCommands } from '@/providers/repository.provider';
-import type { Category } from '@/modules/finance/cash/domain/categories';
+import { sortCategories, suggestReplacementCategory, type Category } from '@/modules/finance/cash/domain/categories';
 import { Dialog, ErrorText, buttonGhost, buttonPrimary, buttonSecondary, useAction } from './ui';
 
 const fieldClass =
@@ -16,8 +16,10 @@ const fieldClass =
  * para ela, sem substituta ficam "Sem categoria". Valores e datas não mudam.
  * Recolhido por padrão: é manutenção, não uso diário.
  */
-export function CategoryManager({ categories, persisted }: { categories: Category[]; persisted: boolean }) {
+export function CategoryManager({ categories: unsorted, persisted, open = false }: { categories: Category[]; persisted: boolean; open?: boolean }) {
   const { financeCash } = useCommands();
+  // Ordem alfabética em português, sempre — nunca a ordem de criação.
+  const categories = sortCategories(unsorted);
   const { pending, error, run, clearError } = useAction();
   const [newName, setNewName] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
@@ -29,12 +31,13 @@ export function CategoryManager({ categories, persisted }: { categories: Categor
     let uses = 0;
     const ok = await run(async () => { uses = await financeCash.countCategoryUse(category.id); });
     if (!ok) return;
-    setReplacement('');
+    // Sugestão (ex.: "Delivery" → "Restaurantes e delivery"); o usuário pode trocar ou escolher nenhuma.
+    setReplacement(uses > 0 ? (suggestReplacementCategory(category, categories)?.id ?? '') : '');
     setDeleting({ category, uses });
   }
 
   return (
-    <details className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
+    <details open={open} id="categorias" className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
       <summary className="min-h-11 cursor-pointer p-4 text-base font-semibold">
         Categorias <span className="text-sm font-normal text-[var(--text-muted)]">({categories.length})</span>
       </summary>

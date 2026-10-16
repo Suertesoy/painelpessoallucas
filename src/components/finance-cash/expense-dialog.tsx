@@ -39,7 +39,7 @@ export function RegisterExpenseButton({ categories, persistedCategories, expense
   );
 }
 
-function ExpenseForm({ categories, persistedCategories, expenses, rules, onDone }: {
+export function ExpenseForm({ categories, persistedCategories, expenses, rules, onDone }: {
   categories: Category[]; persistedCategories: boolean; expenses: Expense[]; rules: CategoryRule[]; onDone: () => void;
 }) {
   const { financeCash } = useCommands();

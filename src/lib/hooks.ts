@@ -44,6 +44,8 @@ export function useReactiveQuery<T>(
     shoppingListRepository,
     financeRepository,
     financeCashRepository,
+    practiceRepository,
+    workoutRepository,
   } = useRepositories();
   const [data, setData] = useState<T | undefined>(initialData);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,8 +103,13 @@ export function useReactiveQuery<T>(
     const unsub9 = financeRepository?.subscribe(runFetch) ?? (() => {});
     const unsubCash = financeCashRepository?.subscribe(runFetch) ?? (() => {});
 
+    const unsubPractice = practiceRepository?.subscribe(runFetch) ?? (() => {});
+    const unsubWorkout = workoutRepository?.subscribe(runFetch) ?? (() => {});
+
     return () => {
       mounted = false;
+      unsubPractice();
+      unsubWorkout();
       unsub1();
       unsub2();
       unsub3();

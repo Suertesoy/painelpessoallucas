@@ -18,6 +18,9 @@ function rowToDomain(row: Row): StudySession {
     status: row.status,
     source: row.source,
     dailyGoalMinutesSnapshot: row.daily_goal_minutes_snapshot,
+    pausedAt: row.paused_at ?? undefined,
+    pausedTotalSeconds: row.paused_total_seconds ?? undefined,
+    activeSeconds: row.active_seconds ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
@@ -27,8 +30,14 @@ export class SupabaseStudySessionRepository implements StudySessionRepository {
   constructor(
     private supabase: SupabaseClient,
     private workspaceId: string,
-    private notifier: ChangeNotifier
+    private notifier: ChangeNotifier,
+    /** Cursos visíveis ao usuário: sessões de outra pessoa da casa nunca aparecem. */
+    private visibleCourseIds?: () => Promise<string[]>
   ) {}
+
+  private async scope(): Promise<string[] | null> {
+    return this.visibleCourseIds ? this.visibleCourseIds() : null;
+  }
 
   async save(session: StudySession): Promise<void> {
     const { error } = await this.supabase.from('study_sessions').upsert(
@@ -42,6 +51,9 @@ export class SupabaseStudySessionRepository implements StudySessionRepository {
         status: session.status,
         source: session.source,
         daily_goal_minutes_snapshot: session.dailyGoalMinutesSnapshot,
+        paused_at: session.pausedAt ?? null,
+        paused_total_seconds: session.pausedTotalSeconds ?? 0,
+        active_seconds: session.activeSeconds ?? null,
         created_at: session.createdAt,
       },
       { onConflict: 'id' }
@@ -61,35 +73,43 @@ export class SupabaseStudySessionRepository implements StudySessionRepository {
   }
 
   async findActive(): Promise<StudySession | null> {
-    const { data, error } = await this.supabase
+    const scope = await this.scope();
+    if (scope && scope.length === 0) return null;
+    let query = this.supabase
       .from('study_sessions')
       .select('*')
       .eq('workspace_id', this.workspaceId)
-      .eq('status', 'in_progress')
-      .maybeSingle();
+      .eq('status', 'in_progress');
+    if (scope) query = query.in('course_id', scope);
+    const { data, error } = await query.limit(1).maybeSingle();
     if (error) throw new Error(`Não foi possível verificar a sessão em andamento: ${error.message}`);
     return data ? rowToDomain(data) : null;
   }
 
   async findByDateRange(startISO: string, endISO: string): Promise<StudySession[]> {
-    const { data, error } = await this.supabase
+    const scope = await this.scope();
+    if (scope && scope.length === 0) return [];
+    let query = this.supabase
       .from('study_sessions')
       .select('*')
       .eq('workspace_id', this.workspaceId)
       .gte('started_at', startISO)
-      .lt('started_at', endISO)
-      .order('started_at', { ascending: true });
+      .lt('started_at', endISO);
+    if (scope) query = query.in('course_id', scope);
+    const { data, error } = await query.order('started_at', { ascending: true });
     if (error) throw new Error(`Não foi possível carregar as sessões do dia: ${error.message}`);
     return (data ?? []).map(rowToDomain);
   }
 
   async listRecent(limit: number): Promise<StudySession[]> {
-    const { data, error } = await this.supabase
+    const scope = await this.scope();
+    if (scope && scope.length === 0) return [];
+    let query = this.supabase
       .from('study_sessions')
       .select('*')
-      .eq('workspace_id', this.workspaceId)
-      .order('started_at', { ascending: false })
-      .limit(limit);
+      .eq('workspace_id', this.workspaceId);
+    if (scope) query = query.in('course_id', scope);
+    const { data, error } = await query.order('started_at', { ascending: false }).limit(limit);
     if (error) throw new Error(`Não foi possível carregar as sessões recentes: ${error.message}`);
     return (data ?? []).map(rowToDomain);
   }

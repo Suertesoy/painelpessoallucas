@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useId, useState } from 'react';
+import React, { createContext, useContext, useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { centsToBRL } from '@/modules/finance/domain/money';
 import { centsToInput, parseMoneyInput } from '@/lib/money-input';
@@ -24,6 +24,14 @@ export function Eyebrow({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">{children}</p>;
 }
 
+/**
+ * Privacidade visual: quando ativa, os valores viram "••••". Não altera dado
+ * algum e não é segurança — só evita mostrar números na tela. Fora do
+ * provedor (outras páginas) os valores aparecem normalmente.
+ */
+export const HideValuesContext = createContext(false);
+export const useHideValues = () => useContext(HideValuesContext);
+
 export function Money({
   cents, tone = 'default', size = 'md', className = '',
 }: { cents: number; tone?: 'default' | 'positive' | 'negative' | 'warning' | 'muted'; size?: 'sm' | 'md' | 'lg' | 'xl'; className?: string }) {
@@ -35,6 +43,14 @@ export function Money({
     muted: 'text-[var(--text-muted)]',
   }[tone];
   const sizeClass = { sm: 'text-sm', md: 'text-base font-semibold', lg: 'text-2xl font-semibold', xl: 'text-4xl font-bold tracking-tight' }[size];
+  const hidden = useHideValues();
+  if (hidden) {
+    return (
+      <span className={`tabular ${color} ${sizeClass} ${className}`} aria-label="valor oculto">
+        R$ ••••
+      </span>
+    );
+  }
   return <span className={`tabular ${color} ${sizeClass} ${className}`}>{centsToBRL(cents)}</span>;
 }
 

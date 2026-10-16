@@ -11,6 +11,7 @@ import type { CategoryRule } from '../domain/category-rules';
 import type { Category } from '../domain/categories';
 import * as CategoryLearning from './category-learning';
 import * as CategoryCrud from './category-crud';
+import { ConcurrentEditError } from './concurrent-edit';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
@@ -23,18 +24,19 @@ const toBalance = (r: Row | null): Balance => ({
   reserveCents: r ? num(r.reserve_cents) : 0,
   availableUpdatedAt: r?.available_updated_at ?? null,
   reserveUpdatedAt: r?.reserve_updated_at ?? null,
+  updatedAt: r?.updated_at ?? null,
 });
 const toTransfer = (r: Row): BalanceTransfer => ({
   id: r.id, direction: r.direction, amountCents: num(r.amount_cents), note: r.note ?? null, createdAt: r.created_at,
 });
 const toReceivable = (r: Row): Receivable => ({
   id: r.id, description: r.description, amountCents: num(r.amount_cents), expectedDate: r.expected_date,
-  status: r.status, notes: r.notes ?? null, receivedAt: r.received_at ?? null,
+  status: r.status, notes: r.notes ?? null, receivedAt: r.received_at ?? null, updatedAt: r.updated_at ?? undefined,
 });
 const toCommitment = (r: Row): Commitment => ({
   id: r.id, description: r.description, amountCents: num(r.amount_cents), recurrence: r.recurrence,
   dueDate: r.due_date ?? null, dayOfMonth: r.day_of_month ?? null, startMonth: r.start_month, endMonth: r.end_month ?? null,
-  billing: r.billing, card: r.card ?? null, category: r.category ?? null, active: r.active,
+  billing: r.billing, card: r.card ?? null, category: r.category ?? null, active: r.active, updatedAt: r.updated_at ?? undefined,
 });
 const toOccurrence = (r: Row): Occurrence => ({
   id: r.id, commitmentId: r.commitment_id, month: r.month, amountCents: numOrNull(r.amount_cents), status: r.status,
@@ -105,7 +107,27 @@ export class SupabaseFinanceCashRepository {
     return toBalance(data);
   }
 
-  async setBalance(availableCents: number | null, reserveCents: number | null): Promise<Balance> {
+  async setBalance(availableCents: number | null, reserveCents: number | null, expected?: { updatedAt?: string | null; availableUpdatedAt?: string | null; reserveUpdatedAt?: string | null }): Promise<Balance> {
+    // Caminho atômico: trava a linha e compara a versão dentro do banco (sem janela entre ler e gravar).
+    if (expected && expected.updatedAt !== undefined) {
+      const { data, error } = await this.supabase.rpc('finance_set_balance_checked', {
+        p_workspace_id: this.workspaceId, p_available_cents: availableCents, p_reserve_cents: reserveCents, p_expected_version: expected.updatedAt,
+      });
+      if (!error) {
+        this.notifier.notify();
+        return toBalance(data);
+      }
+      if (error.code === '40001') throw new ConcurrentEditError('O saldo foi atualizado por outra pessoa enquanto você editava. Confira o valor atual antes de salvar.');
+      // Função ainda não instalada (migration pendente): segue pelo caminho anterior, com checagem no cliente.
+      if (!['PGRST202', '42883'].includes(error.code ?? '')) this.fail('Não foi possível atualizar o saldo', error);
+    }
+    // O saldo é uma "foto" absoluta: antes de sobrescrever, confere se outra pessoa não atualizou nesse meio tempo.
+    if (expected) {
+      const current = await this.getBalance();
+      const staleAvailable = availableCents !== null && expected.availableUpdatedAt !== undefined && current.availableUpdatedAt !== expected.availableUpdatedAt;
+      const staleReserve = reserveCents !== null && expected.reserveUpdatedAt !== undefined && current.reserveUpdatedAt !== expected.reserveUpdatedAt;
+      if (staleAvailable || staleReserve) throw new ConcurrentEditError('O saldo foi atualizado por outra pessoa enquanto você editava. Confira o valor atual antes de salvar.');
+    }
     const { data, error } = await this.supabase.rpc('finance_set_balance', {
       p_workspace_id: this.workspaceId, p_available_cents: availableCents, p_reserve_cents: reserveCents,
     });
@@ -148,15 +170,19 @@ export class SupabaseFinanceCashRepository {
     return toReceivable(data);
   }
 
-  async updateReceivable(id: string, input: Partial<Omit<ReceivableInputT, 'status'>> & { status?: 'confirmed' | 'uncertain' | 'cancelled' }): Promise<void> {
+  async updateReceivable(id: string, input: Partial<Omit<ReceivableInputT, 'status'>> & { status?: 'confirmed' | 'uncertain' | 'cancelled' }, expectedUpdatedAt?: string): Promise<void> {
     const patch: Row = {};
     if (input.description !== undefined) patch.description = input.description;
     if (input.amountCents !== undefined) patch.amount_cents = input.amountCents;
     if (input.expectedDate !== undefined) patch.expected_date = input.expectedDate;
     if (input.status !== undefined) patch.status = input.status;
     if (input.notes !== undefined) patch.notes = input.notes || null;
-    const { error } = await this.supabase.from('finance_receivables').update(patch).eq('id', id).eq('workspace_id', this.workspaceId);
+    let query = this.supabase.from('finance_receivables').update(patch).eq('id', id).eq('workspace_id', this.workspaceId);
+    // Edição segura entre dois aparelhos: só grava se ninguém alterou depois que a tela foi aberta.
+    if (expectedUpdatedAt) query = query.eq('updated_at', expectedUpdatedAt);
+    const { data, error } = await query.select('id');
     if (error) this.fail('Não foi possível atualizar o recebimento', error);
+    if (expectedUpdatedAt && (data ?? []).length === 0) throw new ConcurrentEditError();
     this.notifier.notify();
   }
 
@@ -192,10 +218,13 @@ export class SupabaseFinanceCashRepository {
     return toCommitment(data);
   }
 
-  async updateCommitment(id: string, input: CommitmentInputT): Promise<void> {
-    const { error } = await this.supabase.from('finance_commitments').update(this.commitmentRow(input))
+  async updateCommitment(id: string, input: CommitmentInputT, expectedUpdatedAt?: string): Promise<void> {
+    let query = this.supabase.from('finance_commitments').update(this.commitmentRow(input))
       .eq('id', id).eq('workspace_id', this.workspaceId);
+    if (expectedUpdatedAt) query = query.eq('updated_at', expectedUpdatedAt);
+    const { data, error } = await query.select('id');
     if (error) this.fail('Não foi possível atualizar o compromisso', error);
+    if (expectedUpdatedAt && (data ?? []).length === 0) throw new ConcurrentEditError();
     this.notifier.notify();
   }
 

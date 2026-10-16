@@ -15,7 +15,7 @@ import {
 /* Recebimentos pontuais                                               */
 /* ------------------------------------------------------------------ */
 
-function ReceivableForm({ initial, onDone, onCancel }: { initial?: Receivable; onDone: () => void; onCancel: () => void }) {
+export function ReceivableForm({ initial, onDone, onCancel }: { initial?: Receivable; onDone: () => void; onCancel: () => void }) {
   const { financeCash } = useCommands();
   const [description, setDescription] = useState(initial?.description ?? '');
   const [amount, setAmount] = useState(initial ? centsToInput(initial.amountCents) : '');
@@ -33,7 +33,7 @@ function ReceivableForm({ initial, onDone, onCancel }: { initial?: Receivable; o
         if (cents === null) return;
         const input = { description, amountCents: cents, expectedDate: date, status, notes: notes || undefined };
         const ok = await run(async () => {
-          if (initial) await financeCash.updateReceivable(initial.id, input);
+          if (initial) await financeCash.updateReceivable(initial.id, input, initial.updatedAt);
           else await financeCash.createReceivable(input);
         });
         if (ok) onDone();
@@ -62,7 +62,7 @@ function ReceivableForm({ initial, onDone, onCancel }: { initial?: Receivable; o
   );
 }
 
-function OneOffBlock({ receivables, month }: { receivables: Receivable[]; month: MonthProjection }) {
+function OneOffBlock({ receivables, month, showAdd }: { receivables: Receivable[]; month: MonthProjection; showAdd: boolean }) {
   const { financeCash } = useCommands();
   const [form, setForm] = useState<null | { initial?: Receivable }>(null);
   const [receiving, setReceiving] = useState<Receivable | null>(null);
@@ -100,7 +100,7 @@ function OneOffBlock({ receivables, month }: { receivables: Receivable[]; month:
           <h3 className="text-sm font-semibold">Recebimentos pontuais</h3>
           <p className="text-xs text-[var(--text-muted)]">Valores confirmados ou incertos, um a um.</p>
         </div>
-        <button type="button" className={buttonGhost} onClick={() => setForm({})}><Plus size={14} /> Adicionar</button>
+        {showAdd && <button type="button" className={buttonGhost} onClick={() => setForm({})}><Plus size={14} /> Adicionar</button>}
       </div>
       <div className="mt-1 flex items-baseline gap-2">
         <Money cents={month.receiptsCents} size="md" tone="positive" />
@@ -160,7 +160,7 @@ function OneOffBlock({ receivables, month }: { receivables: Receivable[]; month:
 /* Entradas fixas                                                      */
 /* ------------------------------------------------------------------ */
 
-function FixedIncomeForm({ initial, currentMonth, onDone, onCancel }: {
+export function FixedIncomeForm({ initial, currentMonth, onDone, onCancel }: {
   initial?: FixedIncome; currentMonth: MonthKey; onDone: () => void; onCancel: () => void;
 }) {
   const { financeCash } = useCommands();
@@ -227,7 +227,7 @@ type IncomeAction =
   | { kind: 'amount'; row: { incomeId: string; description: string; month: MonthKey; amountCents: number } }
   | { kind: 'reset'; row: IncomeMonthRow };
 
-function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt }: { incomes: FixedIncome[]; occurrences: IncomeOccurrence[]; month: MonthProjection; balanceUpdatedAt: string | null }) {
+function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt, showAdd }: { incomes: FixedIncome[]; occurrences: IncomeOccurrence[]; month: MonthProjection; balanceUpdatedAt: string | null; showAdd: boolean }) {
   const { financeCash } = useCommands();
   const [form, setForm] = useState<null | { initial?: FixedIncome }>(null);
   const [action, setAction] = useState<IncomeAction | null>(null);
@@ -266,7 +266,7 @@ function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt }: { i
           <h3 className="text-sm font-semibold">Entradas fixas</h3>
           <p className="text-xs text-[var(--text-muted)]">Receitas que se repetem todo mês.</p>
         </div>
-        <button type="button" className={buttonGhost} onClick={() => setForm({})}><Plus size={14} /> Adicionar</button>
+        {showAdd && <button type="button" className={buttonGhost} onClick={() => setForm({})}><Plus size={14} /> Adicionar</button>}
       </div>
       <div className="mt-1">
         <Money cents={month.fixedIncomeCents} size="md" tone="positive" />
@@ -438,8 +438,10 @@ function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt }: { i
 /* Seção                                                               */
 /* ------------------------------------------------------------------ */
 
-export function ReceivablesSection({ receivables, month, fixedIncomes, incomeOccurrences, balanceUpdatedAt }: {
+export function ReceivablesSection({ receivables, month, fixedIncomes, incomeOccurrences, balanceUpdatedAt, showAdd = true }: {
   receivables: Receivable[]; month: MonthProjection; fixedIncomes: FixedIncome[]; incomeOccurrences: IncomeOccurrence[]; balanceUpdatedAt: string | null;
+  /** false = o cadastro de novas entradas fica no fluxo único "Registrar movimentação". */
+  showAdd?: boolean;
 }) {
   return (
     <Card aria-label="Entradas do mês">
@@ -449,8 +451,8 @@ export function ReceivablesSection({ receivables, month, fixedIncomes, incomeOcc
         <span className="ml-2 text-xs text-[var(--text-muted)]">a receber (fixas + pontuais confirmadas)</span>
       </div>
       <div className="mt-4 space-y-5 divide-y divide-[var(--line)] [&>div]:pt-4 [&>div:first-child]:pt-0">
-        <FixedIncomeBlock incomes={fixedIncomes} occurrences={incomeOccurrences} month={month} balanceUpdatedAt={balanceUpdatedAt} />
-        <OneOffBlock receivables={receivables} month={month} />
+        <FixedIncomeBlock incomes={fixedIncomes} occurrences={incomeOccurrences} month={month} balanceUpdatedAt={balanceUpdatedAt} showAdd={showAdd} />
+        <OneOffBlock receivables={receivables} month={month} showAdd={showAdd} />
       </div>
       {month.warnings.filter((w) => w.includes('parece repetir')).map((w) => (
         <p key={w} className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{w}</p>

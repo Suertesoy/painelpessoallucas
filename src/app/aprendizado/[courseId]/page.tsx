@@ -9,7 +9,6 @@ import { useReactiveQuery } from '@/lib/hooks';
 import { useQueries } from '@/providers/repository.provider';
 import { todayDateStr } from '@/lib/dates';
 import { DataErrorNotice } from '@/components/data-error-notice';
-import { DailyGoalProgress } from '@/components/learning/daily-goal-progress';
 import { StudySessionCard } from '@/components/learning/study-session-card';
 import { moduleHref, type ModuleStatus } from '@/modules/learning/domain/learning.schema';
 
@@ -84,7 +83,7 @@ export default function CursoDetalhePage({ params }: { params: Promise<{ courseI
           Curso não encontrado.
         </p>
         <Link href="/aprendizado" className="mt-3 inline-block text-sm text-blue-600 hover:underline">
-          ← Voltar ao Aprendizado
+          ← Voltar aos Estudos
         </Link>
       </div>
     );
@@ -96,7 +95,7 @@ export default function CursoDetalhePage({ params }: { params: Promise<{ courseI
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <Link href="/aprendizado" className="text-sm text-blue-600 hover:underline">
-        ← Aprendizado
+        ← Estudos
       </Link>
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
@@ -112,19 +111,12 @@ export default function CursoDetalhePage({ params }: { params: Promise<{ courseI
         </Link>
       </div>
 
-      <section className="mt-6 rounded-xl border border-gray-200 bg-white p-4 md:p-6">
-        <DailyGoalProgress
-          minutesStudied={todaySummary?.minutesStudied ?? 0}
-          goalMinutes={todaySummary?.goalMinutes ?? goalMinutesForSummary}
-          goalMet={todaySummary?.goalMet ?? false}
-        />
-      </section>
-
       <div className="mt-6">
         <StudySessionCard
           course={course}
           goalMinutes={todaySummary?.goalMinutes ?? goalMinutesForSummary}
           activeSession={activeSession ?? null}
+          completedSeconds={todaySummary?.secondsStudied ?? (todaySummary?.minutesStudied ?? 0) * 60}
           onChanged={refetchAll}
         />
       </div>

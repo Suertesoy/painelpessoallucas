@@ -1,198 +1,151 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Play, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { Play, Pause, Square, XCircle } from 'lucide-react';
+import { useNow } from '@/lib/hooks';
 import { useCommands } from '@/providers/repository.provider';
-import type { Course, StudySession } from '@/modules/learning/domain/learning.schema';
-
-const SESSION_STRUCTURE = ['Revisão', 'Conteúdo novo', 'Exercício'];
-
-function minutesSince(startedAt: string, now: number): number {
-  return Math.max(0, Math.round((now - new Date(startedAt).getTime()) / 60000));
-}
+import { elapsedSeconds, formatClock } from '@/lib/timer';
+import {
+  isStudySessionPaused,
+  studySessionStopwatch,
+  type Course,
+  type StudySession,
+} from '@/modules/learning/domain/learning.schema';
+import { DailyGoalProgress } from '@/components/learning/daily-goal-progress';
 
 /**
- * Fluxo de sessão de estudo: iniciar → em andamento → concluir (com duração
- * confirmada) ou cancelar. Reutilizado no dashboard e na página do curso.
+ * Sessão de estudo com cronômetro real: iniciar, pausar, retomar e encerrar.
+ * O tempo vem dos timestamps gravados (início, pausa, pausas acumuladas) —
+ * fechar o app, recarregar ou navegar para a Home não altera a contagem, e
+ * o período pausado nunca entra no tempo estudado.
  */
 export function StudySessionCard({
   course,
   goalMinutes,
   activeSession,
+  completedSeconds = 0,
   onChanged,
 }: {
   course: Course;
-  /** Meta diária VIGENTE (preferência geral), não `course.dailyGoalMinutes`
-   * — este último é o valor de criação do curso e não muda quando o usuário
-   * ajusta a meta em Configurações. */
+  /** Meta diária VIGENTE (preferência geral). */
   goalMinutes: number;
   activeSession: StudySession | null;
+  /** Segundos já estudados hoje em sessões concluídas. */
+  completedSeconds?: number;
   onChanged: () => void;
 }) {
   const { learning: learningCmds } = useCommands();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const [durationInput, setDurationInput] = useState('');
-  const [confirming, setConfirming] = useState(false);
+  const now = useNow(1000);
 
   const isThisCourseActive = activeSession?.courseId === course.id;
+  const paused = !!activeSession && isStudySessionPaused(activeSession);
+  const sessionSeconds = activeSession ? elapsedSeconds(studySessionStopwatch(activeSession), now.getTime()) : 0;
+  const todaySeconds = completedSeconds + sessionSeconds;
+  const todayMinutes = Math.floor(todaySeconds / 60);
 
-  useEffect(() => {
-    if (!isThisCourseActive) return;
-    const interval = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(interval);
-  }, [isThisCourseActive]);
-
-  const handleStart = async () => {
+  const run = async (action: () => Promise<unknown>, fallback: string) => {
     setBusy(true);
     setError(null);
     try {
-      await learningCmds.startStudySession(course.workspaceId, course.id);
+      await action();
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Não foi possível iniciar a sessão.');
+      setError(e instanceof Error ? e.message : fallback);
     } finally {
       setBusy(false);
     }
   };
 
-  const openConfirm = () => {
-    if (!activeSession) return;
-    setDurationInput(String(minutesSince(activeSession.startedAt, now)));
-    setConfirming(true);
-    setError(null);
-  };
-
-  const handleComplete = async () => {
-    if (!activeSession) return;
-    const minutes = Number(durationInput);
-    setBusy(true);
-    setError(null);
-    try {
-      await learningCmds.completeStudySession(activeSession.id, { durationMinutes: minutes });
-      setConfirming(false);
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Não foi possível concluir a sessão.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleCancel = async () => {
-    if (!activeSession) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await learningCmds.cancelStudySession(activeSession.id);
-      setConfirming(false);
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Não foi possível cancelar a sessão.');
-    } finally {
-      setBusy(false);
-    }
-  };
+  const btn =
+    'inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl px-5 text-base font-semibold disabled:opacity-60';
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 md:p-6">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-gray-900">{course.title}</h3>
-        <span className="text-xs text-gray-500">
-          Sessão de hoje · {goalMinutes} min
-        </span>
+    <div className="rounded-3xl border border-gray-200 bg-white p-5 md:p-6">
+      <DailyGoalProgress
+        minutesStudied={todayMinutes}
+        goalMinutes={goalMinutes}
+        goalMet={todayMinutes >= goalMinutes}
+      />
+
+      <div className="mt-6 text-center" aria-live="off">
+        <p className="text-sm text-gray-500">
+          {isThisCourseActive ? (paused ? 'Sessão pausada' : 'Estudando agora') : course.title}
+        </p>
+        <p
+          className="tabular mt-1 text-6xl font-bold tracking-tight text-gray-900"
+          role="timer"
+          aria-label={`Tempo desta sessão: ${formatClock(sessionSeconds)}`}
+        >
+          {formatClock(isThisCourseActive ? sessionSeconds : 0)}
+        </p>
       </div>
 
-      <ul className="mt-3 space-y-1 text-sm text-gray-600">
-        {SESSION_STRUCTURE.map((step) => (
-          <li key={step} className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-gray-300" aria-hidden="true" />
-            {step}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-xs text-gray-400">
-        Estrutura da sessão — conteúdo interativo chega nas próximas fases.
-      </p>
-
       {error && (
-        <p role="alert" className="mt-3 text-xs text-red-600">
+        <p role="alert" className="mt-3 text-center text-sm text-red-600">
           {error}
         </p>
       )}
 
-      {isThisCourseActive && activeSession ? (
-        confirming ? (
-          <div className="mt-4 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
-            <label className="block text-xs font-medium text-blue-900" htmlFor={`duration-${course.id}`}>
-              Duração estudada (minutos)
-            </label>
-            <input
-              id={`duration-${course.id}`}
-              type="number"
-              min={1}
-              max={600}
-              value={durationInput}
-              onChange={(e) => setDurationInput(e.target.value)}
-              className="w-24 rounded border border-gray-300 px-2 py-1 text-sm"
-            />
-            <div className="flex gap-2 pt-1">
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+        {isThisCourseActive && activeSession ? (
+          <>
+            {paused ? (
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void handleComplete()}
-                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                onClick={() => void run(() => learningCmds.resumeStudySession(activeSession.id), 'Não foi possível retomar.')}
+                className={`${btn} bg-blue-600 text-white hover:bg-blue-700`}
               >
-                Confirmar conclusão
+                <Play size={18} /> Retomar
               </button>
+            ) : (
               <button
                 type="button"
-                onClick={() => setConfirming(false)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                disabled={busy}
+                onClick={() => void run(() => learningCmds.pauseStudySession(activeSession.id), 'Não foi possível pausar.')}
+                className={`${btn} border border-gray-300 bg-white text-gray-800 hover:bg-gray-50`}
               >
-                Voltar
+                <Pause size={18} /> Pausar
               </button>
-            </div>
-          </div>
+            )}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void run(() => learningCmds.finishStudySession(activeSession.id), 'Não foi possível encerrar.')}
+              className={`${btn} border border-gray-300 bg-white text-gray-800 hover:bg-gray-50`}
+            >
+              <Square size={18} /> Encerrar
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void run(() => learningCmds.cancelStudySession(activeSession.id), 'Não foi possível descartar.')}
+              className="inline-flex min-h-12 items-center gap-1.5 px-3 text-sm text-gray-500 hover:text-gray-800"
+            >
+              <XCircle size={16} /> Descartar
+            </button>
+          </>
+        ) : activeSession ? (
+          <p className="text-center text-sm text-gray-500">
+            Há uma sessão em andamento em outro curso. Encerre ou descarte antes de iniciar esta.
+          </p>
         ) : (
-          <div className="mt-4">
-            <p className="flex items-center gap-1.5 text-xs font-medium text-blue-700">
-              <Clock size={14} /> Sessão em andamento · {minutesSince(activeSession.startedAt, now)} min
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={openConfirm}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-              >
-                <CheckCircle2 size={14} /> Concluir sessão
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void handleCancel()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-              >
-                <XCircle size={14} /> Cancelar
-              </button>
-            </div>
-          </div>
-        )
-      ) : activeSession ? (
-        <p className="mt-4 text-xs text-gray-500">
-          Há uma sessão em andamento em outro curso. Conclua ou cancele antes de iniciar esta.
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void run(() => learningCmds.startStudySession(course.workspaceId, course.id), 'Não foi possível iniciar a sessão.')}
+            className={`${btn} bg-blue-600 text-white hover:bg-blue-700`}
+          >
+            <Play size={18} /> Iniciar sessão
+          </button>
+        )}
+      </div>
+      {isThisCourseActive && (
+        <p className="mt-3 text-center text-xs text-gray-400">
+          O tempo continua contando mesmo se você sair desta tela. Pausas não entram no total.
         </p>
-      ) : (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void handleStart()}
-          className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-        >
-          <Play size={14} /> Iniciar sessão
-        </button>
       )}
     </div>
   );

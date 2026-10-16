@@ -91,7 +91,10 @@ export async function countCategoryUse(supabase: SupabaseClient, workspaceId: st
   const { count: expenses, error: expensesError } = await supabase.from('finance_expenses').select('id', { count: 'exact', head: true })
     .eq('workspace_id', workspaceId).eq('category', id);
   if (expensesError && !isMissing(expensesError)) fail('Não foi possível contar as despesas da categoria', expensesError);
-  return (count ?? 0) + (expenses ?? 0);
+  const { count: commitments, error: commitmentsError } = await supabase.from('finance_commitments').select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId).eq('category', id);
+  if (commitmentsError && !isMissing(commitmentsError)) fail('Não foi possível contar os compromissos da categoria', commitmentsError);
+  return (count ?? 0) + (expenses ?? 0) + (commitments ?? 0);
 }
 
 /**
@@ -114,6 +117,10 @@ export async function deleteCategory(supabase: SupabaseClient, workspaceId: stri
   const { error: expensesError } = await supabase.from('finance_expenses').update({ category: replacementId })
     .eq('workspace_id', workspaceId).eq('category', id);
   if (expensesError && !isMissing(expensesError)) fail('Não foi possível atualizar as despesas da categoria', expensesError);
+  // Compromissos (recorrentes ou avulsos) também guardam a categoria por id.
+  const { error: commitmentsError } = await supabase.from('finance_commitments').update({ category: replacementId })
+    .eq('workspace_id', workspaceId).eq('category', id);
+  if (commitmentsError && !isMissing(commitmentsError)) fail('Não foi possível atualizar os compromissos da categoria', commitmentsError);
   if (replacementId) {
     const { error } = await supabase.from('finance_category_rules').update({ category: replacementId })
       .eq('workspace_id', workspaceId).eq('category', id);

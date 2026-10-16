@@ -184,3 +184,38 @@ export function suggestClassification(
   }
   return null;
 }
+
+const ptCollator = new Intl.Collator('pt-BR', { sensitivity: 'base', numeric: true });
+
+/** Ordem alfabética em português (acentos e maiúsculas não interferem). Não altera a lista original. */
+export function sortCategories<T extends { label: string }>(categories: readonly T[]): T[] {
+  return [...categories].sort((a, b) => ptCollator.compare(a.label, b.label));
+}
+
+const STOP_WORDS = new Set(['e', 'de', 'da', 'do', 'das', 'dos', 'a', 'o', 'em', 'para', 'com']);
+
+function tokensOf(label: string): string[] {
+  return normalizeText(label)
+    .split(/\s+/)
+    .filter((t) => t.length > 1 && !STOP_WORDS.has(t));
+}
+
+/**
+ * Sugestão de categoria substituta ao excluir: outra categoria cujo nome
+ * contém TODAS as palavras da excluída (ex.: "Delivery" → "Restaurantes e
+ * delivery"), ou vice-versa. Só sugere quando há exatamente um candidato claro;
+ * é uma sugestão — o usuário escolhe outra ou nenhuma.
+ */
+export function suggestReplacementCategory(target: Category, others: readonly Category[]): Category | null {
+  const t = tokensOf(target.label);
+  if (t.length === 0) return null;
+  const matches = others.filter((o) => {
+    if (o.id === target.id) return false;
+    const ot = tokensOf(o.label);
+    if (ot.length === 0) return false;
+    const targetInOther = t.every((w) => ot.includes(w));
+    const otherInTarget = ot.every((w) => t.includes(w));
+    return targetInOther || otherInTarget;
+  });
+  return matches.length === 1 ? matches[0] : null;
+}

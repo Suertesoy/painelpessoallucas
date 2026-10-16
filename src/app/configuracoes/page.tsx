@@ -4,6 +4,7 @@ import { useAuth } from '@/providers/auth.provider';
 import { ShoppingWhatsappSettingsCard } from '@/components/shopping-whatsapp-settings-card';
 import { RoutineSettingsCard } from '@/components/routine-settings-card';
 import { AutomationHealthCard } from '@/components/automation-health-card';
+import { SharingCard } from '@/components/sharing/sharing-card';
 import { InstallAppCard } from '@/components/pwa/install-app-card';
 import { PushNotificationsCard } from '@/components/push/push-notifications-card';
 
@@ -24,6 +25,10 @@ export default function ConfiguracoesPage() {
         <p className="mt-2 text-base text-gray-600">
           Conectado como <span className="font-medium">{user?.email}</span>
         </p>
+      </section>
+
+      <section aria-label="Quem usa a casa">
+        <SharingCard />
       </section>
 
       <section aria-label="Compras">

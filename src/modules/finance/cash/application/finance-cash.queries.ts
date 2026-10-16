@@ -6,7 +6,7 @@ import { estimateCardSpending, type CardEstimate } from '../domain/card-estimate
 import { projectFutureInstallments, type ProjectedInstallment } from '../domain/installments';
 import { addMonths, monthOf } from '../domain/month';
 import type { CategoryRule } from '../domain/category-rules';
-import type { Category } from '../domain/categories';
+import { sortCategories, type Category } from '../domain/categories';
 import { effectiveInvoiceAmount, type Expense, type Balance, type CardInvoice, type Commitment, type FixedIncome, type IncomeOccurrence, type InvoiceItem, type Occurrence, type Receivable } from '../domain/types';
 
 export const PROJECTION_MONTHS = 4;
@@ -93,7 +93,7 @@ export class FinanceCashQueries {
       addMonths(current, PROJECTION_MONTHS - 1)
     );
 
-    return { expenses, categories: categoriesResult.categories, categoriesPersisted: categoriesResult.persisted, categoryRules, today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate };
+    return { expenses, categories: sortCategories(categoriesResult.categories), categoriesPersisted: categoriesResult.persisted, categoryRules, today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate };
   }
 
   listTransfers() {

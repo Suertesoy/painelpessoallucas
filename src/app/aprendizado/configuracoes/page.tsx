@@ -190,9 +190,9 @@ export default function AprendizadoConfiguracoesPage() {
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto">
       <Link href="/aprendizado" className="text-sm text-blue-600 hover:underline">
-        ← Aprendizado
+        ← Estudos
       </Link>
-      <h1 className="mt-2 text-2xl font-bold text-gray-900">Configurações de Aprendizado</h1>
+      <h1 className="mt-2 text-2xl font-bold text-gray-900">Configurações de Estudos</h1>
 
       {feedback && (
         <p role="status" className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">

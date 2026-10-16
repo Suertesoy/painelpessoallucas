@@ -21,6 +21,8 @@ export class FakeLearningContentRepository implements LearningContentRepository 
   lessons = new Map<string, Lesson>();
   preferences = new Map<string, LearningPreferences>();
   coursePreferences = new Map<string, CoursePreferences>();
+  /** Opcional: simula o usuário que está usando (workspace compartilhado). */
+  getViewer?: () => Promise<{ userId: string; isOwner: boolean } | null>;
 
   async findCourseBySlug(slug: string): Promise<Course | null> {
     return [...this.courses.values()].find((c) => c.slug === slug) ?? null;

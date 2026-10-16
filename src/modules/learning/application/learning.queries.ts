@@ -12,6 +12,7 @@ import {
   StudySession,
   LearningDashboard,
   computeStudiedMinutes,
+  computeStudiedSeconds,
   isDailyGoalMet,
 } from '../domain/learning.schema';
 import { LessonProgress } from '../domain/lesson-progress.schema';
@@ -86,11 +87,12 @@ export class LearningQueries {
   async getTodayStudySummary(
     today: string,
     goalMinutes: number
-  ): Promise<{ minutesStudied: number; goalMinutes: number; goalMet: boolean }> {
+  ): Promise<{ minutesStudied: number; secondsStudied: number; goalMinutes: number; goalMet: boolean }> {
     const { startISO, endISO } = localDayRangeISO(today);
     const sessions = await this.sessionRepo.findByDateRange(startISO, endISO);
     const minutesStudied = computeStudiedMinutes(sessions, today, isoToDateInput);
-    return { minutesStudied, goalMinutes, goalMet: isDailyGoalMet(minutesStudied, goalMinutes) };
+    const secondsStudied = computeStudiedSeconds(sessions, today, isoToDateInput);
+    return { minutesStudied, secondsStudied, goalMinutes, goalMet: isDailyGoalMet(minutesStudied, goalMinutes) };
   }
 
   /** Composição para o dashboard de `/aprendizado`. */
@@ -120,6 +122,7 @@ export class LearningQueries {
     const { startISO, endISO } = localDayRangeISO(today);
     const todaySessions = await this.sessionRepo.findByDateRange(startISO, endISO);
     const minutesStudied = computeStudiedMinutes(todaySessions, today, isoToDateInput);
+    const secondsStudied = computeStudiedSeconds(todaySessions, today, isoToDateInput);
 
     return {
       courses,
@@ -127,6 +130,7 @@ export class LearningQueries {
       preferences,
       today: {
         minutesStudied,
+        secondsStudied,
         goalMinutes: preferences.defaultDailyGoalMinutes,
         goalMet: isDailyGoalMet(minutesStudied, preferences.defaultDailyGoalMinutes),
       },

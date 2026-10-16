@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { ReactNode } from 'react';
-import { SidebarNav } from '@/components/sidebar-nav';
+import { HomeBar } from '@/components/home-bar';
 import { QuickCaptureModal } from '@/components/quick-capture-modal';
 import { GlobalSearchModal } from '@/components/global-search-modal';
 import { ItemDetailModal } from '@/components/item-detail-modal';
@@ -15,9 +15,22 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+/** Ambiente (cômodo) da rota atual: define atmosfera e rótulo da barra. */
+export function areaOf(pathname: string): { id: string; label?: string } {
+  const is = (prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
+  if (is('/aprendizado')) return { id: 'estudos', label: 'Estudos' };
+  if (is('/treinos')) return { id: 'treinos', label: 'Treinos' };
+  if (is('/compras')) return { id: 'compras', label: 'Compras' };
+  if (is('/financas')) return { id: 'financas', label: 'Finanças' };
+  if (is('/notas') || is('/ideias')) return { id: 'notas', label: 'Notas' };
+  if (is('/configuracoes')) return { id: 'configuracoes', label: 'Configurações' };
+  return { id: 'outros' };
+}
+
 /**
- * Casca da aplicação (sidebar + modais globais). Rotas públicas (login,
- * callback OAuth) renderizam sem a casca.
+ * Casca da aplicação. Não há navegação global entre módulos: a Home é o
+ * centro e cada ambiente mostra apenas um caminho de volta. Rotas públicas
+ * (login, callback OAuth) renderizam sem a casca.
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -26,11 +39,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
+  const isHome = pathname === '/';
+  const area = areaOf(pathname);
+
   return (
     <>
-      <div className="flex h-dvh flex-col md:flex-row">
-        <SidebarNav />
-        <main className="flex-1 overflow-auto pt-14 md:pt-0">
+      <div className="flex h-dvh flex-col" data-area={isHome ? undefined : area.id}>
+        {!isHome && <HomeBar areaLabel={area.label} />}
+        <main className="flex-1 overflow-auto">
           <RealtimeStatusBanner />
           <MigrationBanner />
           {children}

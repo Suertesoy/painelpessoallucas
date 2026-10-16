@@ -113,3 +113,9 @@ permanece como evolução futura.
 
 ## Idempotência, Filas e Novas Tentativas
 Serviços assíncronos que consumirem esses eventos (via Vercel Workflows, filas, ou webhooks) devem garantir que o processamento seja idempotente. Caso haja falhas, a fila deve possuir mecanismos de repetição (retries) com base no registro da Outbox.
+
+## Eventos de Estudos (prática) e Treinos
+- `learning.session.paused` · `learning.session.resumed` (`learning.session.completed` agora inclui `activeSeconds`)
+- `learning.practice.answered` (kind, subject, correct, box, dueOn)
+- `workout.routine.imported` · `workout.exercise.created|updated|removed` · `workout.load.updated`
+- `workout.session.started|completed|cancelled` · `workout.set.logged` · `workout.body_weight.logged`

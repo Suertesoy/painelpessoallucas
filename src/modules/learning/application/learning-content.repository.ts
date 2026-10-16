@@ -1,4 +1,5 @@
 import type {
+  LearningViewer,
   Course,
   LearningModule,
   Lesson,
@@ -34,6 +35,11 @@ export interface LearningContentRepository {
 
   findCoursePreferences(courseId: string): Promise<CoursePreferences | null>;
   saveCoursePreferences(preferences: CoursePreferences): Promise<void>;
+
+  /** Quem está usando (para separar cursos de pessoas diferentes no mesmo workspace). */
+  getViewer?(): Promise<LearningViewer | null>;
+  /** Ids dos cursos visíveis ao usuário atual. */
+  listVisibleCourseIds?(): Promise<string[]>;
 
   subscribe(listener: () => void): () => void;
 }

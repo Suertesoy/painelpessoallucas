@@ -42,7 +42,7 @@ export function AvailableBalanceCard({ balance }: { balance: Balance }) {
           onSubmit={async (e) => {
             e.preventDefault();
             if (parsed === null) return;
-            if (await run(() => financeCash.setBalance({ availableCents: parsed }).then(() => undefined))) setEditing(false);
+            if (await run(() => financeCash.setBalance({ availableCents: parsed }, { updatedAt: balance.updatedAt, availableUpdatedAt: balance.availableUpdatedAt }).then(() => undefined))) setEditing(false);
           }}
         >
           <MoneyField label="Quanto há disponível agora" value={value} onChange={setValue} allowNegative />
@@ -107,7 +107,7 @@ export function ReserveCard({ balance }: { balance: Balance }) {
             e.preventDefault();
             if (parsed === null || mode === null) return;
             const ok = await run(async () => {
-              if (mode === 'edit') await financeCash.setBalance({ reserveCents: parsed });
+              if (mode === 'edit') await financeCash.setBalance({ reserveCents: parsed }, { updatedAt: balance.updatedAt, reserveUpdatedAt: balance.reserveUpdatedAt });
               else {
                 await financeCash.transfer({
                   direction: mode === 'withdraw' ? 'reserve_to_available' : 'available_to_reserve',
