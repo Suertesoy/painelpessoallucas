@@ -3,6 +3,7 @@ import {
   projectCash, linkedKey, type MonthProjection, type CommitmentInput, type InvoiceInput, type OccurrenceInput, type ReceivableInput,
 } from '../domain/projection';
 import { estimateCardSpending, type CardEstimate } from '../domain/card-estimate';
+import { buildSustainability, staleUnpaidInvoices, type MonthSustainability } from '../domain/sustainability';
 import { projectFutureInstallments, type ProjectedInstallment } from '../domain/installments';
 import { addMonths, monthOf } from '../domain/month';
 import type { CategoryRule } from '../domain/category-rules';
@@ -31,6 +32,10 @@ export interface FinanceCashSnapshot {
   projectedInstallments: ProjectedInstallment[];
   /** Estimativa opcional de gastos no cartão — separada dos totais confirmados. */
   cardEstimate: CardEstimate;
+  /** Sustentabilidade mês a mês (independente; sem déficit carregado de um mês para o outro). */
+  sustainability: MonthSustainability[];
+  /** Faturas de meses anteriores ainda marcadas como não pagas (aberta/fechada). */
+  staleInvoices: InvoiceInput[];
 }
 
 export class FinanceCashQueries {
@@ -61,7 +66,7 @@ export class FinanceCashQueries {
       id: i.id, card: i.card, month: i.month, status: i.status, amountCents: effectiveInvoiceAmount(i), dueDate: i.dueDate,
       missingItemsCount: missingByInvoice.get(i.id) ?? 0,
     }));
-    const projection = projectCash({
+    const projectionInput = {
       today,
       months: PROJECTION_MONTHS,
       availableCents: balance.availableCents,
@@ -76,10 +81,26 @@ export class FinanceCashQueries {
       })),
       invoices: invoiceInputs,
       linkedCommitmentMonths: linked,
-    });
+    };
+    // Caixa real: só o que está registrado e pendente (déficits reais seguem visíveis).
+    const projection = projectCash(projectionInput);
 
     const current = monthOf(today);
     const cardEstimate = estimateCardSpending(invoiceInputs, projection, current);
+    // Sustentabilidade: cada mês isolado; a média dos cartões é só hipótese.
+    const sustainability = buildSustainability({
+      today,
+      months: PROJECTION_MONTHS,
+      receivables: projectionInput.receivables,
+      fixedIncomes: projectionInput.fixedIncomes,
+      incomeOccurrences: projectionInput.incomeOccurrences,
+      commitments: projectionInput.commitments,
+      occurrences: projectionInput.occurrences,
+      invoices: invoiceInputs,
+      projection,
+      estimate: cardEstimate,
+    });
+    const staleInvoices = staleUnpaidInvoices(invoiceInputs, current);
     const projectedInstallments = projectFutureInstallments(
       items.flatMap((it) => {
         const inv = invoiceById.get(it.invoiceId);
@@ -93,7 +114,7 @@ export class FinanceCashQueries {
       addMonths(current, PROJECTION_MONTHS - 1)
     );
 
-    return { expenses, categories: sortCategories(categoriesResult.categories), categoriesPersisted: categoriesResult.persisted, categoryRules, today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate };
+    return { expenses, categories: sortCategories(categoriesResult.categories), categoriesPersisted: categoriesResult.persisted, categoryRules, today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate, sustainability, staleInvoices };
   }
 
   listTransfers() {

@@ -6,6 +6,7 @@ import {
   type CommitmentInputT, type InvoiceManualInputT, type ReceivableInputT, type SetBalanceInputT, type TransferInputT,
 } from '../domain/cash.schema';
 import type { MonthKey } from '../domain/month';
+import { dateInputToISO, todayDateStr } from '@/lib/dates';
 import { merchantKey } from '../domain/categories';
 import {
   findCategoryByLabel, isValidCategoryId, slugifyCategory, type CategoryRule,
@@ -122,6 +123,42 @@ export class FinanceCashCommands {
   async reopenInvoice(id: string) {
     await this.repo.reopenInvoice(id);
     await this.emit('finance.invoice_reopened', id);
+  }
+
+  /**
+   * Situação da fatura em um só ponto (Aberta / Fechada / Paga), inclusive para
+   * CORRIGIR um status errado. Nunca apaga lançamentos nem histórico.
+   *  - Paga + deductFromBalance=false: confirmação HISTÓRICA — o pagamento já saiu do
+   *    saldo antes; só registra a data e tira a fatura das pendências (não mexe no saldo).
+   *  - Paga + deductFromBalance=true: operação que MOVE o saldo atual (uma única vez:
+   *    a função SQL é idempotente e não desconta de fatura já paga).
+   *  - Aberta/Fechada: desfaz a baixa (limpa a data). O saldo NÃO é devolvido: o app
+   *    não sabe se aquele pagamento chegou a sair dele.
+   */
+  async changeInvoiceStatus(
+    id: string,
+    target: 'open' | 'closed' | 'paid',
+    opts: { paidOn?: string; deductFromBalance?: boolean } = {}
+  ) {
+    if (target !== 'paid') {
+      await this.repo.changeInvoiceStatus(id, target, null);
+      await this.emit('finance.invoice_status_changed', id, { status: target });
+      return;
+    }
+    const paidOn = opts.paidOn ?? todayDateStr();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn) || Number.isNaN(Date.parse(`${paidOn}T00:00:00`))) {
+      throw new Error('Informe uma data de pagamento válida.');
+    }
+    if (paidOn > todayDateStr()) throw new Error('A data de pagamento não pode ser no futuro.');
+    const paidAtISO = dateInputToISO(paidOn) as string;
+    const deduct = opts.deductFromBalance === true;
+    if (deduct) {
+      await this.repo.markInvoicePaid(id, true);
+      await this.repo.setInvoicePaidAt(id, paidAtISO);
+    } else {
+      await this.repo.changeInvoiceStatus(id, 'paid', paidAtISO);
+    }
+    await this.emit('finance.invoice_status_changed', id, { status: 'paid', deductedFromBalance: deduct });
   }
 
   async markInvoicePaid(id: string, deductFromBalance: boolean) {

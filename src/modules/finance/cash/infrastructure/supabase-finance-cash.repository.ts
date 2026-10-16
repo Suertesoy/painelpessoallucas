@@ -290,6 +290,27 @@ export class SupabaseFinanceCashRepository {
     this.notifier.notify();
   }
 
+  /**
+   * Muda a situação da fatura SEM tocar no saldo, nos lançamentos nem no histórico.
+   * 'open'/'closed' limpam a data de pagamento (correção de uma baixa errada);
+   * 'paid' grava a data informada (confirmação histórica de pagamento).
+   */
+  async changeInvoiceStatus(id: string, status: 'open' | 'closed' | 'paid', paidAtISO: string | null): Promise<void> {
+    const patch = status === 'paid' ? { status, paid_at: paidAtISO } : { status, paid_at: null };
+    const { error } = await this.supabase.from('finance_card_invoices').update(patch)
+      .eq('id', id).eq('workspace_id', this.workspaceId);
+    if (error) this.fail('Não foi possível alterar a situação da fatura', error);
+    this.notifier.notify();
+  }
+
+  /** Corrige só a data de pagamento de uma fatura já paga. */
+  async setInvoicePaidAt(id: string, paidAtISO: string): Promise<void> {
+    const { error } = await this.supabase.from('finance_card_invoices').update({ paid_at: paidAtISO })
+      .eq('id', id).eq('workspace_id', this.workspaceId).eq('status', 'paid');
+    if (error) this.fail('Não foi possível ajustar a data de pagamento', error);
+    this.notifier.notify();
+  }
+
   async markInvoicePaid(id: string, deductFromBalance: boolean): Promise<void> {
     const { error } = await this.supabase.rpc('finance_mark_invoice_paid', { p_invoice_id: id, p_deduct_from_balance: deductFromBalance });
     if (error) this.fail('Não foi possível marcar a fatura como paga', error);

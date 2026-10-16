@@ -50,6 +50,7 @@ function ImportFlow() {
   // 'paid' = fatura histórica já quitada: entra no histórico e nas médias, sem mexer no saldo.
   const [newStatus, setNewStatus] = useState<'open' | 'closed' | 'paid'>('open');
   const [dueDate, setDueDate] = useState('');
+  const [paidOn, setPaidOn] = useState(() => todayDateStr());
   const [result, setResult] = useState<ConfirmResult | null>(null);
 
   function upload(url: string, extra?: ConfirmPayload) {
@@ -107,7 +108,7 @@ function ImportFlow() {
       const confirmed = body.result as ConfirmResult;
       if (newStatus === 'paid') {
         // Histórico quitado: não desconta do saldo disponível nem entra na projeção.
-        await financeCash.markInvoicePaid(confirmed.invoiceId, false);
+        await financeCash.changeInvoiceStatus(confirmed.invoiceId, 'paid', { paidOn, deductFromBalance: false });
       }
       setResult(confirmed);
       financeCashRepository.notifyChanged();
@@ -192,7 +193,7 @@ function ImportFlow() {
               <p className="mt-2 text-xs text-[var(--text-muted)]">Última importação desta fatura: {formatDateTimeBR(preview.invoice.lastImportedAt)}.</p>
             )}
             {preview.noChanges && <p className="mt-3 rounded-lg bg-[var(--surface-inset)] p-3 text-sm">Nada novo: este arquivo já está refletido na fatura. Confirmar não altera os valores.</p>}
-            {preview.invoice.status === 'paid' && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">Esta fatura está marcada como paga. Reabra-a em Finanças antes de importar.</p>}
+            {preview.invoice.status === 'paid' && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">Esta fatura está marcada como paga. Para reimportar, mude a situação em Finanças › Faturas › Situação (nada é apagado). A importação nunca altera uma fatura paga.</p>}
           </Card>
 
           {preview.parseErrors.length > 0 && (
@@ -298,8 +299,11 @@ function ImportFlow() {
                 )}
               </Field>
               {newStatus === 'paid' && (
+                <Field label="Data do pagamento">{(id) => <input id={id} type="date" className={inputClass} value={paidOn} max={todayDateStr()} onChange={(e) => setPaidOn(e.target.value)} />}</Field>
+              )}
+              {newStatus === 'paid' && (
                 <p className="text-sm text-[var(--text-muted)] md:col-span-2">
-                  Entra no histórico de gastos, nas categorias e na média do cartão. Não gera dívida, não desconta do saldo disponível e não entra na projeção.
+                  Entra no histórico de gastos, nas categorias e na média do cartão. Não gera dívida, não desconta do saldo disponível e não entra nas pendências. Você pode corrigir depois em Faturas › Situação.
                 </p>
               )}
               <Field label="Vencimento (opcional)">{(id) => <input id={id} type="date" className={inputClass} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />}</Field>

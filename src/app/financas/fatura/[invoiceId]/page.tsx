@@ -1,12 +1,13 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { DataErrorNotice } from '@/components/data-error-notice';
-import { todayDateStr } from '@/lib/dates';
+import { isoToDateInput, todayDateStr } from '@/lib/dates';
+import { InvoiceStatusChip, InvoiceStatusDialog } from '@/components/finance-cash/invoice-status';
 import { ClassificationError, ClassifierControls, useClassification } from '@/components/finance-cash/item-classifier';
 import { CARD_FULL_LABELS, monthLabel } from '@/modules/finance/cash/domain/month';
 import { invoiceAmountCents, invoicePaymentsCents } from '@/modules/finance/cash/domain/nubank-invoice-csv';
@@ -17,6 +18,7 @@ import {
 /** Detalhe de uma fatura: lançamentos, vínculos com gastos fixos e histórico de importações. */
 export default function FaturaDetalhePage({ params }: { params: Promise<{ invoiceId: string }> }) {
   const { invoiceId } = use(params);
+  const [statusOpen, setStatusOpen] = useState(false);
   const { financeCash } = useQueries();
   const { financeCash: commands } = useCommands();
   const { data, isLoading, error, isOffline, refetch } = useReactiveQuery(async () => {
@@ -48,6 +50,14 @@ export default function FaturaDetalhePage({ params }: { params: Promise<{ invoic
           <header>
             <h1 className="text-2xl font-bold">{CARD_FULL_LABELS[invoice.card]}</h1>
             <p className="mt-1 text-sm capitalize text-[var(--text-muted)]">Vencimento em {monthLabel(invoice.month)}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <InvoiceStatusChip status={invoice.status} />
+              {invoice.status === 'paid' && invoice.paidAt && (
+                <span className="text-xs text-[var(--text-muted)]">paga em {formatDateBR(isoToDateInput(invoice.paidAt))}</span>
+              )}
+              <button type="button" className={buttonGhost} onClick={() => setStatusOpen(true)}>Alterar situação</button>
+            </div>
+            {statusOpen && <InvoiceStatusDialog invoice={invoice} open onClose={() => setStatusOpen(false)} />}
           </header>
 
           <Card>

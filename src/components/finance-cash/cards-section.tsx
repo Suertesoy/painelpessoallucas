@@ -5,26 +5,21 @@ import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import { useCommands } from '@/providers/repository.provider';
 import { effectiveInvoiceAmount, invoiceAmountsDiverge, type CardInvoice } from '@/modules/finance/cash/domain/types';
+import { InvoiceStatusChip, InvoiceStatusDialog } from './invoice-status';
 import { CARD_IDS, CARD_FULL_LABELS, addMonths, monthLabel, type CardId, type MonthKey } from '@/modules/finance/cash/domain/month';
 import {
   Card, Chip, Dialog, ErrorText, Eyebrow, Field, Money, MoneyField, buttonGhost, buttonPrimary, buttonSecondary,
   centsToInput, formatDateBR, formatDateTimeBR, inputClass, parseMoneyInput, useAction,
 } from './ui';
-
-const STATUS_LABEL = { open: 'Aberta', closed: 'Fechada', paid: 'Paga' } as const;
-const STATUS_TONE = { open: 'info', closed: 'warning', paid: 'positive' } as const;
+import { isoToDateInput } from '@/lib/dates';
 
 function InvoiceEditor({ card, month, invoice, onDone }: { card: CardId; month: MonthKey; invoice: CardInvoice | null; onDone: () => void }) {
   const { financeCash } = useCommands();
   const [amount, setAmount] = useState(invoice?.manualAmountCents != null ? centsToInput(invoice.manualAmountCents) : '');
   const [dueDate, setDueDate] = useState(invoice?.dueDate ?? '');
-  const [status, setStatus] = useState<'open' | 'closed'>(invoice && invoice.status === 'closed' ? 'closed' : 'open');
-  const [deduct, setDeduct] = useState(true);
-  const [confirmPay, setConfirmPay] = useState(false);
   const { pending, error, run } = useAction();
   const cents = amount.trim() === '' ? null : parseMoneyInput(amount);
   const invalid = amount.trim() !== '' && (cents === null || cents < 0);
-  const paid = invoice?.status === 'paid';
 
   return (
     <div className="space-y-4">
@@ -37,61 +32,24 @@ function InvoiceEditor({ card, month, invoice, onDone }: { card: CardId; month: 
       )}
       <MoneyField label="Valor da fatura (manual)" value={amount} onChange={setAmount} hint="Use enquanto não importar o CSV. Pode ser atualizado quantas vezes quiser." />
       <Field label="Data de vencimento">{(id) => <input id={id} type="date" className={inputClass} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />}</Field>
-      {!paid && (
-        <Field label="Situação">
-          {(id) => (
-            <select id={id} className={inputClass} value={status} onChange={(e) => setStatus(e.target.value as 'open' | 'closed')}>
-              <option value="open">Aberta (ainda recebendo compras)</option>
-              <option value="closed">Fechada (valor definido)</option>
-            </select>
-          )}
-        </Field>
-      )}
+      {invoice && <p className="text-xs text-[var(--text-muted)]">A situação (aberta, fechada ou paga) é alterada no botão “Situação” da fatura.</p>}
       <ErrorText message={error} />
-      <div className="flex flex-wrap justify-between gap-2">
-        {invoice && !paid && (
-          <button type="button" className={buttonSecondary} onClick={() => setConfirmPay(true)}>Marcar como paga</button>
-        )}
-        {invoice && paid && (
-          <button type="button" className={buttonSecondary} disabled={pending} onClick={async () => { if (await run(() => financeCash.reopenInvoice(invoice.id))) onDone(); }}>
-            Reabrir fatura
-          </button>
-        )}
-        <div className="ml-auto flex gap-2">
-          <button type="button" className={buttonSecondary} onClick={onDone}>Cancelar</button>
-          <button type="button" className={buttonPrimary} disabled={pending || invalid} onClick={async () => {
-            const ok = await run(async () => {
-              await financeCash.saveInvoiceManual({ card, month, amountCents: cents, dueDate: dueDate || null, ...(paid ? {} : { status }) });
-            });
-            if (ok) onDone();
-          }}>{pending ? 'Salvando…' : 'Salvar'}</button>
-        </div>
+      <div className="flex justify-end gap-2">
+        <button type="button" className={buttonSecondary} onClick={onDone}>Cancelar</button>
+        <button type="button" className={buttonPrimary} disabled={pending || invalid} onClick={async () => {
+          const ok = await run(async () => {
+            await financeCash.saveInvoiceManual({ card, month, amountCents: cents, dueDate: dueDate || null });
+          });
+          if (ok) onDone();
+        }}>{pending ? 'Salvando…' : 'Salvar'}</button>
       </div>
-
-      <Dialog open={confirmPay} title="Marcar fatura como paga" onClose={() => setConfirmPay(false)}>
-        <div className="space-y-4">
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-1" checked={deduct} onChange={(e) => setDeduct(e.target.checked)} />
-            <span>
-              Descontar do saldo disponível
-              <span className="block text-xs text-[var(--text-muted)]">Desmarque se você já atualizou o saldo depois de pagar.</span>
-            </span>
-          </label>
-          <ErrorText message={error} />
-          <div className="flex justify-end gap-2">
-            <button type="button" className={buttonSecondary} onClick={() => setConfirmPay(false)}>Voltar</button>
-            <button type="button" className={buttonPrimary} disabled={pending} onClick={async () => {
-              if (invoice && await run(() => financeCash.markInvoicePaid(invoice.id, deduct))) { setConfirmPay(false); onDone(); }
-            }}>Confirmar pagamento</button>
-          </div>
-        </div>
-      </Dialog>
     </div>
   );
 }
 
 function CardInvoiceBlock({ card, month, invoice, missingCount }: { card: CardId; month: MonthKey; invoice: CardInvoice | null; missingCount: number }) {
   const [editing, setEditing] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   const amount = invoice ? effectiveInvoiceAmount(invoice) : null;
   const importHref = `/financas/fatura/importar?card=${card}&month=${month}`;
 
@@ -99,7 +57,7 @@ function CardInvoiceBlock({ card, month, invoice, missingCount }: { card: CardId
     <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] p-3.5">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">{CARD_FULL_LABELS[card]}</p>
-        {invoice && <Chip tone={STATUS_TONE[invoice.status]}>{STATUS_LABEL[invoice.status]}</Chip>}
+        {invoice && <InvoiceStatusChip status={invoice.status} />}
       </div>
       {!invoice ? (
         <p className="mt-2 text-sm text-[var(--text-muted)]">Nenhuma fatura cadastrada para este mês.</p>
@@ -112,6 +70,7 @@ function CardInvoiceBlock({ card, month, invoice, missingCount }: { card: CardId
           </div>
           <p className="mt-1 text-xs text-[var(--text-muted)]">
             {invoice.dueDate ? `Vence ${formatDateBR(invoice.dueDate)} · ` : ''}
+            {invoice.status === 'paid' && invoice.paidAt ? `paga em ${formatDateBR(isoToDateInput(invoice.paidAt))} · ` : ''}
             {invoice.lastImportedAt ? `CSV importado em ${formatDateTimeBR(invoice.lastImportedAt)}` : 'CSV ainda não importado'}
           </p>
         </>
@@ -128,11 +87,13 @@ function CardInvoiceBlock({ card, month, invoice, missingCount }: { card: CardId
       )}
       <div className="mt-3 flex flex-wrap gap-2">
         <Link href={importHref} className={buttonSecondary}><Upload size={14} /> Importar CSV</Link>
+        {invoice && <button type="button" className={buttonSecondary} onClick={() => setStatusOpen(true)} aria-label={`Situação da fatura ${CARD_FULL_LABELS[card]}`}>Situação</button>}
         <button type="button" className={buttonSecondary} onClick={() => setEditing(true)}>{invoice ? 'Editar' : 'Informar valor'}</button>
         {invoice && invoice.importedAmountCents !== null && (
           <Link href={`/financas/fatura/${invoice.id}`} className={buttonGhost}>Ver lançamentos</Link>
         )}
       </div>
+      {invoice && statusOpen && <InvoiceStatusDialog invoice={invoice} open onClose={() => setStatusOpen(false)} />}
       <Dialog open={editing} title={`Fatura ${CARD_FULL_LABELS[card]}`} onClose={() => setEditing(false)}>
         <InvoiceEditor card={card} month={month} invoice={invoice} onDone={() => setEditing(false)} />
       </Dialog>
@@ -153,6 +114,7 @@ export function CardsSection({ invoices, currentMonth, missingByInvoice }: { inv
   const byMonth = new Map<MonthKey, CardInvoice[]>();
   for (const inv of invoices) byMonth.set(inv.month, [...(byMonth.get(inv.month) ?? []), inv]);
   const months = [...byMonth.keys()].sort();
+  const stale = invoices.filter((i) => i.status !== 'paid' && i.month < currentMonth).sort((a, b) => a.month.localeCompare(b.month));
 
   return (
     <Card aria-label="Faturas dos cartões">
@@ -168,6 +130,20 @@ export function CardsSection({ invoices, currentMonth, missingByInvoice }: { inv
         <button type="button" className={buttonSecondary} onClick={() => setSelected(addMonths(selected, 1))} aria-label="Próximo mês"><ChevronRight size={16} /></button>
       </div>
       <p className="mt-1 text-center text-xs text-[var(--text-muted)]">Mês de vencimento da fatura</p>
+
+      {stale.length > 0 && (
+        <div role="status" className="mt-3 rounded-xl border border-[var(--money-warning)] p-3 text-sm">
+          <p className="font-medium">{stale.length === 1 ? 'Há uma fatura antiga marcada como não paga. Confira o status.' : `Há ${stale.length} faturas antigas marcadas como não pagas. Confira o status.`}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {stale.map((i) => (
+              <button key={i.id} type="button" className={buttonSecondary} onClick={() => setSelected(i.month)}>
+                {CARD_FULL_LABELS[i.card]} · <span className="capitalize">{monthLabel(i.month)}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-[var(--text-muted)]">Se já foi paga, abra “Situação” e confirme o pagamento histórico — o saldo não é alterado.</p>
+        </div>
+      )}
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         {CARD_IDS.map((card) => {
@@ -199,7 +175,7 @@ export function CardsSection({ invoices, currentMonth, missingByInvoice }: { inv
                         <span className="text-[var(--text-muted)]">{CARD_FULL_LABELS[card]}</span>
                         {inv ? (
                           <span className="flex items-center gap-1.5">
-                            <Chip tone={STATUS_TONE[inv.status]}>{STATUS_LABEL[inv.status]}</Chip>
+                            <InvoiceStatusChip status={inv.status} />
                             {amount !== null ? <Money cents={amount} size="sm" tone={inv.status === 'paid' ? 'muted' : 'default'} /> : <span className="text-[var(--text-muted)]">sem valor</span>}
                             {(missingByInvoice[inv.id] ?? 0) > 0 && <Chip tone="warning">revisar</Chip>}
                           </span>

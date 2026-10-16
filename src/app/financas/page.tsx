@@ -121,8 +121,15 @@ export default function FinancasPage() {
             />
 
             {/* 5. O que sobra: resumo e projeção do mês */}
-            <CurrentMonthCard month={current} balanceInformed={data.balance.availableUpdatedAt !== null} estimate={data.cardEstimate} />
-            <UpcomingMonths months={data.projection} estimate={data.cardEstimate} />
+            <CurrentMonthCard
+              month={current}
+              sustainability={data.sustainability[0]}
+              balance={data.balance}
+              balanceInformed={data.balance.availableUpdatedAt !== null}
+              estimate={data.cardEstimate}
+              staleCount={data.staleInvoices.length}
+            />
+            <UpcomingMonths months={data.projection} sustainability={data.sustainability} estimate={data.cardEstimate} />
 
             {/* 6. Faturas */}
             <CardsSection invoices={data.invoices} currentMonth={current.month} missingByInvoice={missingByInvoice} />

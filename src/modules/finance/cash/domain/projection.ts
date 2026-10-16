@@ -155,7 +155,7 @@ export function linkedKey(commitmentId: string, card: CardId, month: MonthKey): 
   return `${commitmentId}|${card}|${month}`;
 }
 
-interface Occurrence {
+export interface Occurrence {
   commitment: CommitmentInput;
   month: MonthKey;
   date: string;
@@ -163,7 +163,7 @@ interface Occurrence {
   status: OccurrenceStatus;
 }
 
-function expandIncome(
+export function expandIncome(
   income: FixedIncomeInput,
   lastMonth: MonthKey,
   overrides: Map<string, IncomeOccurrenceInput>
@@ -212,7 +212,7 @@ export function incomeOccurrencesInMonth(
     }));
 }
 
-function expandOccurrences(
+export function expandOccurrences(
   commitment: CommitmentInput,
   lastMonth: MonthKey,
   overrides: Map<string, OccurrenceInput>
