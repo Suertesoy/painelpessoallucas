@@ -413,8 +413,14 @@ describe('POST /api/push/test', () => {
     );
     expect(res.status).toBe(200);
     expect(webpush.sendNotification).toHaveBeenCalledTimes(1);
-    const [sentSub] = vi.mocked(webpush.sendNotification).mock.calls[0];
+    const [sentSub, payload] = vi.mocked(webpush.sendNotification).mock.calls[0];
     expect((sentSub as { endpoint: string }).endpoint).toBe('https://push.example/sub-1');
+    expect(JSON.parse(payload as string)).toEqual({
+      title: 'Lutheus 🏡',
+      body: 'Teste de notificação. Você conseguiu ouvir este aviso?',
+      url: '/configuracoes',
+      tag: 'push-test',
+    });
   });
 
   it('protege contra disparos repetidos (rate limit)', async () => {
@@ -426,12 +432,12 @@ describe('POST /api/push/test', () => {
     const { POST } = await import('@/app/api/push/test/route');
 
     const body = JSON.stringify({ id: '11111111-1111-4111-8111-111111111111' });
-    await POST(new Request('http://x', { method: 'POST', body }));
-    await POST(new Request('http://x', { method: 'POST', body }));
-    await POST(new Request('http://x', { method: 'POST', body }));
-    const fourth = await POST(new Request('http://x', { method: 'POST', body }));
+    for (let i = 0; i < 10; i++) {
+      await POST(new Request('http://x', { method: 'POST', body }));
+    }
+    const eleventh = await POST(new Request('http://x', { method: 'POST', body }));
 
-    expect(fourth.status).toBe(429);
+    expect(eleventh.status).toBe(429);
   });
 
   it('não permite testar a assinatura de outro usuário', async () => {

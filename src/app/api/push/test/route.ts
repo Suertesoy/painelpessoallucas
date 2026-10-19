@@ -8,17 +8,20 @@ import { checkRateLimit } from '@/platform/ai/rate-limit';
 import { sendWebPush, WebPushDeliveryError, isVapidConfigured } from '@/platform/push/vapid';
 import { disableSubscription } from '@/platform/push/push-dispatch';
 
-const BodySchema = z.object({ id: z.string().uuid() });
+const BodySchema = z.object({
+  id: z.string().uuid(),
+  delaySeconds: z.number().int().min(0).max(30).optional(),
+});
 
-const RATE_LIMIT_MAX = 3;
+const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 5 * 60_000;
 
 /**
- * POST /api/push/test { id } — envia uma notificação de teste SOMENTE ao
- * dispositivo atual (nunca a outros dispositivos do workspace). Não passa
+ * POST /api/push/test { id, delaySeconds? } — envia uma notificação de teste SOMENTE ao
+ * dispositivo do usuário autenticado (nunca a outros dispositivos do workspace). Não passa
  * pela outbox (`push_deliveries`) — é um envio direto e síncrono, sem
- * persistir em `notifications`. Limitado a 3 envios a cada 5 minutos por
- * usuário para evitar disparos repetidos acidentais.
+ * persistir em `notifications`. Limitado a 10 envios a cada 5 minutos por
+ * usuário para permitir a bateria de testes de entrega sem disparos excessivos.
  */
 export async function POST(request: Request) {
   const session = await getSessionContext();
@@ -58,10 +61,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Assinatura não encontrada ou desativada.' }, { status: 404 });
   }
 
+  if (parsed.data.delaySeconds && parsed.data.delaySeconds > 0) {
+    await new Promise((resolve) => setTimeout(resolve, parsed.data.delaySeconds! * 1000));
+  }
+
   try {
     await sendWebPush(
       { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth_key } },
-      { title: 'Lutheus', body: 'Notificação de teste — tudo funcionando neste dispositivo.', url: '/configuracoes', tag: 'push-test' }
+      {
+        title: 'Lutheus 🏡',
+        body: 'Teste de notificação. Você conseguiu ouvir este aviso?',
+        url: '/configuracoes',
+        tag: 'push-test',
+      }
     );
     return NextResponse.json({ ok: true });
   } catch (e) {

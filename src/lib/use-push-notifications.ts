@@ -195,20 +195,26 @@ export function usePushNotifications() {
     [controller, subscriptionId, loadDevices]
   );
 
-  const sendTest = useCallback(async () => {
-    if (!subscriptionId) return;
-    setError(null);
-    try {
-      const res = await fetch('/api/push/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: subscriptionId }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Falha ao enviar teste.');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Não foi possível enviar a notificação de teste.');
-    }
-  }, [subscriptionId]);
+  const sendTest = useCallback(
+    async (targetId?: string, delaySeconds?: number) => {
+      const id = targetId ?? subscriptionId;
+      if (!id) return;
+      setError(null);
+      try {
+        const res = await fetch('/api/push/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, ...(delaySeconds && delaySeconds > 0 ? { delaySeconds } : {}) }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Falha ao enviar teste.');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Não foi possível enviar a notificação de teste.';
+        setError(msg);
+        throw e;
+      }
+    },
+    [subscriptionId]
+  );
 
   return {
     ...snapshot,

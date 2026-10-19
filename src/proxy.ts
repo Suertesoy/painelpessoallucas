@@ -2,15 +2,27 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 /**
- * Proxy (Next 16; sucessor do middleware): renova a sessão Supabase baseada
- * em cookies a cada request e protege as rotas da aplicação.
- *
- * Rotas públicas: /login, /auth/* (callback OAuth) e /api/cron/* (protegida
- * por CRON_SECRET no próprio handler, não por sessão de usuário).
+ * Rotas públicas:
+ * - /login, /auth/*: autenticação de usuários.
+ * - /api/cron/*: rotas de automação protegidas por CRON_SECRET no handler.
+ * - /api/health: monitoramento de integridade da aplicação.
+ * - /sw.js, /manifest.webmanifest, /manifest.json, /offline.html: recursos
+ *   estáticos da PWA para instalação no iPhone e modo offline. Não devem ser
+ *   redirecionados para login para não quebrar a instalação no iOS nem o
+ *   ciclo de atualização em segundo plano do Service Worker.
  */
-const PUBLIC_PATHS = ['/login', '/auth', '/api/cron', '/api/health'];
+export const PUBLIC_PATHS = [
+  '/login',
+  '/auth',
+  '/api/cron',
+  '/api/health',
+  '/sw.js',
+  '/manifest.webmanifest',
+  '/manifest.json',
+  '/offline.html',
+];
 
-function isPublicPath(pathname: string): boolean {
+export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`)
   );
