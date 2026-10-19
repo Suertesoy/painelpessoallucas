@@ -1,4 +1,4 @@
-import { CARD_IDS, CARD_FULL_LABELS, addMonths, compareMonths, monthOf, type CardId, type MonthKey } from './month';
+import { CARD_IDS, CARD_FULL_LABELS, compareMonths, monthOf, type CardId, type MonthKey } from './month';
 import type { CardEstimate, CardEstimateCell, CardMonthKind } from './card-estimate';
 import {
   expandIncome, expandOccurrences, occurrenceKey,
@@ -28,8 +28,8 @@ import {
  * Três leituras:
  *  1. conhecido — só o que está cadastrado (faturas lançadas + gastos fixos no cartão);
  *  2. média — o conhecido + a hipótese "mantendo a média dos cartões";
- *  3. limite — quanto os cartões poderiam somar para o mês fechar em zero sem
- *     tocar na reserva.
+ *  3. limite — quanto os cartões, juntos, poderiam somar para o mês fechar em zero
+ *     sem tocar na reserva (um valor da casa: nunca é dividido por pessoa).
  */
 
 export interface SustainabilityLine {
@@ -60,13 +60,13 @@ export interface CardLimit {
   knownCardsCents: number;
   /** combinedCents − knownCardsCents (negativo = o conhecido já passou do limite). */
   remainingCents: number;
-  /** Divisão sugerida por cartão (proporcional à média); null se não houver médias para dividir. */
-  byCard: { card: CardId; cents: number }[] | null;
 }
 
 export interface MonthSustainability {
   month: MonthKey;
   isCurrent: boolean;
+  /** Hipóteses (média dos cartões, meta sem a reserva) só valem do mês atual em diante. */
+  hypothesisAllowed: boolean;
   incomeLines: SustainabilityLine[];
   incomeCents: number;
   /** Recebimentos marcados como incertos: fora da conta. */
@@ -116,112 +116,124 @@ export function staleUnpaidInvoices(invoices: readonly InvoiceInput[], currentMo
     .sort((a, b) => compareMonths(a.month, b.month));
 }
 
-/** Divide `total` proporcionalmente aos pesos, em centavos exatos (o resto vai ao último). */
-function splitProportional(total: number, weights: { card: CardId; weight: number }[]): { card: CardId; cents: number }[] {
-  const sum = weights.reduce((s, w) => s + w.weight, 0);
-  if (sum <= 0) return weights.map((w) => ({ card: w.card, cents: 0 }));
-  let used = 0;
-  return weights.map((w, idx) => {
-    const cents = idx === weights.length - 1 ? total - used : Math.floor((total * w.weight) / sum);
-    used += cents;
-    return { card: w.card, cents };
+export interface SustainabilityMonthInput {
+  today: string;
+  month: MonthKey;
+  isCurrent: boolean;
+  /** Hipóteses (média dos cartões) só existem do mês atual em diante; mês encerrado mostra só os registros. */
+  allowEstimate: boolean;
+  receivables: readonly ReceivableInput[];
+  fixedIncomes: readonly FixedIncomeInput[];
+  incomeOccurrences: readonly IncomeOccurrenceInput[];
+  commitments: readonly CommitmentInput[];
+  occurrences: readonly OccurrenceInput[];
+  invoices: readonly InvoiceInput[];
+  /** Detalhe da estimativa dos cartões NESTE mês (uma célula por cartão). */
+  cells: readonly CardEstimateCell[];
+  /** Avisos do mês vindos do motor de caixa (ex.: possível entrada repetida). */
+  warnings: readonly string[];
+}
+
+/** Sustentabilidade de UM mês qualquer (passado, atual ou futuro), isolada de todos os outros. */
+export function sustainabilityOfMonth(input: SustainabilityMonthInput): MonthSustainability {
+  const month = input.month;
+  const incomeOverrides = new Map(input.incomeOccurrences.map((o) => [occurrenceKey(o.incomeId, o.month), o]));
+  const occOverrides = new Map(input.occurrences.map((o) => [occurrenceKey(o.commitmentId, o.month), o]));
+  const fixedOccurrences = input.fixedIncomes.flatMap((i) => expandIncome(i, month, incomeOverrides));
+  const commitmentOccurrences = input.commitments.flatMap((c) => expandOccurrences(c, month, occOverrides));
+
+  // Entradas CADASTRADAS do mês: entradas fixas (previstas ou já recebidas) e
+  // recebimentos pontuais confirmados/recebidos. Incertos e cancelados ficam fora.
+  const incomeLines: SustainabilityLine[] = [];
+  for (const o of fixedOccurrences) {
+    if (o.month !== month || o.status === 'cancelled') continue;
+    incomeLines.push({ label: o.income.description, amountCents: o.amountCents, done: o.status === 'received' });
+  }
+  let uncertainIncomeCents = 0;
+  for (const r of input.receivables) {
+    if (monthOf(r.expectedDate) !== month) continue;
+    if (r.status === 'uncertain') uncertainIncomeCents += r.amountCents;
+    if (r.status === 'confirmed' || r.status === 'received') {
+      incomeLines.push({ label: r.description, amountCents: r.amountCents, done: r.status === 'received' });
+    }
+  }
+  const incomeCents = incomeLines.reduce((s, l) => s + l.amountCents, 0);
+
+  // Compromissos diretos (saem da conta) que vencem no mês, pagos ou não.
+  const directLines: SustainabilityLine[] = [];
+  for (const occ of commitmentOccurrences) {
+    if (occ.month !== month || occ.commitment.billing !== 'direct') continue;
+    if (occ.status === 'skipped' || occ.status === 'included_in_invoice') continue;
+    directLines.push({ label: occ.commitment.description, amountCents: occ.amountCents, done: occ.status === 'paid' });
+  }
+  const directCents = directLines.reduce((s, l) => s + l.amountCents, 0);
+
+  // Cartões: fatura real quando existe; senão a hipótese da média (cells), só quando permitida.
+  const cards: SustainabilityCardRow[] = CARD_IDS.map((card) => {
+    const cell: CardEstimateCell | undefined = input.cells.find((c) => c.card === card && c.month === month);
+    const invoice = input.invoices.find((i) => i.card === card && i.month === month) ?? null;
+    const kind: CardMonthKind = input.allowEstimate
+      ? (cell?.kind ?? 'unavailable')
+      : invoice ? (invoice.status === 'open' ? 'partial' : 'real') : 'unavailable';
+    return {
+      card,
+      kind,
+      invoiceStatus: invoice?.status ?? null,
+      invoiceCents: invoice?.amountCents ?? 0,
+      cardFixedCents: cell?.cardFixedCents ?? 0,
+      averageCents: input.allowEstimate ? (cell?.averageCents ?? null) : null,
+      gapCents: input.allowEstimate ? (cell?.gapCents ?? 0) : 0,
+      invoiceWithoutAmount: invoice !== null && invoice.amountCents === null,
+    };
   });
+  const invoicesCents = cards.reduce((s, c) => s + c.invoiceCents, 0);
+  const cardFixedCents = cards.reduce((s, c) => s + c.cardFixedCents, 0);
+  const knownCardsCents = invoicesCents + cardFixedCents;
+  const estimatedGapCents = cards.reduce((s, c) => s + c.gapCents, 0);
+  const unavailableCards = input.allowEstimate ? cards.filter((c) => c.kind === 'unavailable').map((c) => c.card) : [];
+
+  const knownResultCents = incomeCents - directCents - knownCardsCents;
+  const averageResultCents = input.allowEstimate && unavailableCards.length === 0 ? knownResultCents - estimatedGapCents : null;
+
+  // Limite combinado dos cartões: um valor da casa, nunca dividido entre Lucas e Matheus.
+  const combinedCents = Math.max(0, incomeCents - directCents);
+  const limit: CardLimit = {
+    combinedCents,
+    incomeBelowDirect: incomeCents < directCents,
+    knownCardsCents,
+    remainingCents: combinedCents - knownCardsCents,
+  };
+
+  const duplicateWarnings: string[] = [];
+  for (const l of directLines) {
+    if (CARD_LIKE.test(l.label)) {
+      duplicateWarnings.push(`"${l.label}" é um compromisso direto, mas o nome lembra a fatura do cartão. Se for a própria fatura, ela já está em Faturas e estaria contada duas vezes.`);
+    }
+  }
+  for (const w of input.warnings) {
+    if (w.includes('parece repetir a entrada fixa')) duplicateWarnings.push(w);
+  }
+
+  return {
+    month, isCurrent: input.isCurrent, hypothesisAllowed: input.allowEstimate,
+    incomeLines, incomeCents, uncertainIncomeCents,
+    directLines, directCents,
+    cards, invoicesCents, cardFixedCents,
+    knownResultCents, estimatedGapCents, averageResultCents, unavailableCards, limit,
+    noIncomeRegistered: incomeLines.length === 0,
+    duplicateWarnings,
+  };
 }
 
 export function buildSustainability(input: SustainabilityInput): MonthSustainability[] {
-  const currentMonth = monthOf(input.today);
-  const lastMonth = addMonths(currentMonth, input.months - 1);
-  const incomeOverrides = new Map(input.incomeOccurrences.map((o) => [occurrenceKey(o.incomeId, o.month), o]));
-  const occOverrides = new Map(input.occurrences.map((o) => [occurrenceKey(o.commitmentId, o.month), o]));
-  const fixedOccurrences = input.fixedIncomes.flatMap((i) => expandIncome(i, lastMonth, incomeOverrides));
-  const commitmentOccurrences = input.commitments.flatMap((c) => expandOccurrences(c, lastMonth, occOverrides));
-
-  return input.projection.map((proj, k) => {
-    const month = proj.month;
-
-    // Entradas CADASTRADAS do mês: entradas fixas (previstas ou já recebidas) e
-    // recebimentos pontuais confirmados/recebidos. Incertos e cancelados ficam fora.
-    const incomeLines: SustainabilityLine[] = [];
-    for (const o of fixedOccurrences) {
-      if (o.month !== month || o.status === 'cancelled') continue;
-      incomeLines.push({ label: o.income.description, amountCents: o.amountCents, done: o.status === 'received' });
-    }
-    let uncertainIncomeCents = 0;
-    for (const r of input.receivables) {
-      if (monthOf(r.expectedDate) !== month) continue;
-      if (r.status === 'uncertain') uncertainIncomeCents += r.amountCents;
-      if (r.status === 'confirmed' || r.status === 'received') {
-        incomeLines.push({ label: r.description, amountCents: r.amountCents, done: r.status === 'received' });
-      }
-    }
-    const incomeCents = incomeLines.reduce((s, l) => s + l.amountCents, 0);
-
-    // Compromissos diretos (saem da conta) que vencem no mês, pagos ou não.
-    const directLines: SustainabilityLine[] = [];
-    for (const occ of commitmentOccurrences) {
-      if (occ.month !== month || occ.commitment.billing !== 'direct') continue;
-      if (occ.status === 'skipped' || occ.status === 'included_in_invoice') continue;
-      directLines.push({ label: occ.commitment.description, amountCents: occ.amountCents, done: occ.status === 'paid' });
-    }
-    const directCents = directLines.reduce((s, l) => s + l.amountCents, 0);
-
-    // Cartões: fatura real quando existe; senão a hipótese da média (cells).
-    const cards: SustainabilityCardRow[] = CARD_IDS.map((card) => {
-      const cell: CardEstimateCell | undefined = input.estimate.cells.find((c) => c.card === card && c.month === month);
-      const invoice = input.invoices.find((i) => i.card === card && i.month === month) ?? null;
-      return {
-        card,
-        kind: cell?.kind ?? 'unavailable',
-        invoiceStatus: invoice?.status ?? null,
-        invoiceCents: invoice?.amountCents ?? 0,
-        cardFixedCents: cell?.cardFixedCents ?? 0,
-        averageCents: cell?.averageCents ?? null,
-        gapCents: cell?.gapCents ?? 0,
-        invoiceWithoutAmount: invoice !== null && invoice.amountCents === null,
-      };
-    });
-    const invoicesCents = cards.reduce((s, c) => s + c.invoiceCents, 0);
-    const cardFixedCents = cards.reduce((s, c) => s + c.cardFixedCents, 0);
-    const knownCardsCents = invoicesCents + cardFixedCents;
-    const estimatedGapCents = cards.reduce((s, c) => s + c.gapCents, 0);
-    const unavailableCards = cards.filter((c) => c.kind === 'unavailable').map((c) => c.card);
-
-    const knownResultCents = incomeCents - directCents - knownCardsCents;
-    const averageResultCents = unavailableCards.length === 0 ? knownResultCents - estimatedGapCents : null;
-
-    const combinedCents = Math.max(0, incomeCents - directCents);
-    const withAverage = cards.filter((c) => c.averageCents !== null);
-    const limit: CardLimit = {
-      combinedCents,
-      incomeBelowDirect: incomeCents < directCents,
-      knownCardsCents,
-      remainingCents: combinedCents - knownCardsCents,
-      byCard:
-        withAverage.length === CARD_IDS.length && combinedCents > 0
-          ? splitProportional(combinedCents, withAverage.map((c) => ({ card: c.card, weight: c.averageCents ?? 0 })))
-          : null,
-    };
-
-    const duplicateWarnings: string[] = [];
-    for (const l of directLines) {
-      if (CARD_LIKE.test(l.label)) {
-        duplicateWarnings.push(`"${l.label}" é um compromisso direto, mas o nome lembra a fatura do cartão. Se for a própria fatura, ela já está em Faturas e estaria contada duas vezes.`);
-      }
-    }
-    for (const w of proj.warnings) {
-      if (w.includes('parece repetir a entrada fixa')) duplicateWarnings.push(w);
-    }
-
-    return {
-      month, isCurrent: k === 0,
-      incomeLines, incomeCents, uncertainIncomeCents,
-      directLines, directCents,
-      cards, invoicesCents, cardFixedCents,
-      knownResultCents, estimatedGapCents, averageResultCents, unavailableCards, limit,
-      noIncomeRegistered: incomeLines.length === 0,
-      duplicateWarnings,
-    };
-  });
+  return input.projection.map((proj, k) =>
+    sustainabilityOfMonth({
+      today: input.today, month: proj.month, isCurrent: k === 0, allowEstimate: true,
+      receivables: input.receivables, fixedIncomes: input.fixedIncomes, incomeOccurrences: input.incomeOccurrences,
+      commitments: input.commitments, occurrences: input.occurrences, invoices: input.invoices,
+      cells: input.estimate.cells.filter((c) => c.month === proj.month), warnings: proj.warnings,
+    })
+  );
 }
 
 /** Texto curto de por que a leitura "mantendo a média" não existe para o mês. */

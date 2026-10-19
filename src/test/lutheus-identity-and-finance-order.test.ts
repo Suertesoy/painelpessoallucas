@@ -78,19 +78,29 @@ describe('hierarquia de Finanças', () => {
     expect(page).not.toMatch(/Para onde vai/i);
   });
 
-  it('ordem: Reserva → saldo → Registrar → Compromissos → Entradas → Resumo → Faturas → Análises', () => {
+  it('ordem: Mês e setas → Resumo → Saldo/Reserva de hoje → Registrar → Meta → Compromissos → Entradas → Faturas e parcelas → Sustentabilidade → Análises', () => {
     const order = [
-      at('<ReserveCard'),
+      at('<MonthNavigator'),
+      at('<MonthSummaryCard'),
       at('<AvailableBalanceCard'),
+      at('<ReserveCard'),
       at('<RegisterMovementButton'),
+      at('<CardGoalCard'),
       at('<CommitmentsSection'),
       at('<ReceivablesSection'),
-      at('<CurrentMonthCard'),
-      at('<UpcomingMonths'),
       at('<CardsSection'),
+      at('<SustainabilityCard'),
       at('aria-label="Análises de gastos"'),
     ];
     expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('abre no mês atual e todas as seções leem a mesma visão do mês escolhido', () => {
+    expect(page).toMatch(/useState<MonthKey>\(currentMonth\)/);
+    expect(page).toContain('buildMonthView(data, month)');
+    for (const section of ['<CardGoalCard view={view}', '<CommitmentsSection commitments={data.commitments} view={view}', 'view={view}\n              fixedIncomes', '<CardsSection invoices={data.invoices} view={view}', '<SustainabilityCard view={view}']) {
+      expect(page, section).toContain(section);
+    }
   });
 
   it('o cadastro de novas movimentações fica só no ponto central', () => {

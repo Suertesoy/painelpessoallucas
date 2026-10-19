@@ -69,3 +69,10 @@ export function monthShortLabel(month: MonthKey): string {
   const [y, m] = month.split('-').map(Number);
   return `${MONTH_NAMES[m - 1].slice(0, 3)}/${String(y).slice(2)}`;
 }
+
+/** Quantos meses de `from` até `to` (negativo se `to` for anterior). */
+export function monthsBetween(from: MonthKey, to: MonthKey): number {
+  const [fy, fm] = from.split('-').map(Number);
+  const [ty, tm] = to.split('-').map(Number);
+  return (ty * 12 + tm) - (fy * 12 + fm);
+}

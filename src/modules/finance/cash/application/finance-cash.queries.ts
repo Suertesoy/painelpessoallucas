@@ -10,6 +10,8 @@ import type { CategoryRule } from '../domain/category-rules';
 import { sortCategories, type Category } from '../domain/categories';
 import { effectiveInvoiceAmount, type Expense, type Balance, type CardInvoice, type Commitment, type FixedIncome, type IncomeOccurrence, type InvoiceItem, type Occurrence, type Receivable } from '../domain/types';
 
+import type { CardGoal } from '../domain/card-goals';
+
 export const PROJECTION_MONTHS = 4;
 
 export interface FinanceCashSnapshot {
@@ -36,17 +38,21 @@ export interface FinanceCashSnapshot {
   sustainability: MonthSustainability[];
   /** Faturas de meses anteriores ainda marcadas como não pagas (aberta/fechada). */
   staleInvoices: InvoiceInput[];
+  /** Meta mensal conjunta dos cartões (metas padrão e exceções por mês). */
+  goals: CardGoal[];
+  /** false = a tabela de metas ainda não existe no banco (a tela mostra o aviso e segue funcionando). */
+  goalsAvailable: boolean;
 }
 
 export class FinanceCashQueries {
   constructor(private repo: SupabaseFinanceCashRepository) {}
 
   async getSnapshot(today: string): Promise<FinanceCashSnapshot> {
-    const [balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, categoriesResult, categoryRules, expenses] = await Promise.all([
+    const [balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, categoriesResult, categoryRules, expenses, goalsResult] = await Promise.all([
       this.repo.getBalance(), this.repo.listReceivables(), this.repo.listCommitments(),
       this.repo.listOccurrences(), this.repo.listInvoices(), this.repo.listItems(),
       this.repo.listFixedIncomes(), this.repo.listIncomeOccurrences(),
-      this.repo.listCategories(), this.repo.listCategoryRules(), this.repo.listExpenses(),
+      this.repo.listCategories(), this.repo.listCategoryRules(), this.repo.listExpenses(), this.repo.listCardGoals(),
     ]);
 
     const invoiceById = new Map(invoices.map((i) => [i.id, i]));
@@ -114,7 +120,7 @@ export class FinanceCashQueries {
       addMonths(current, PROJECTION_MONTHS - 1)
     );
 
-    return { expenses, categories: sortCategories(categoriesResult.categories), categoriesPersisted: categoriesResult.persisted, categoryRules, today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate, sustainability, staleInvoices };
+    return { expenses, categories: sortCategories(categoriesResult.categories), categoriesPersisted: categoriesResult.persisted, categoryRules, today, balance, receivables, commitments, occurrences, invoices, items, fixedIncomes, incomeOccurrences, projection, projectedInstallments, cardEstimate, sustainability, staleInvoices, goals: goalsResult.goals, goalsAvailable: goalsResult.available };
   }
 
   listTransfers() {

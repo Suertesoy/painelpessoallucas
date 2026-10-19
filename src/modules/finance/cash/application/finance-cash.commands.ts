@@ -2,8 +2,8 @@ import type { EventRepository } from '@/platform/events/event.repository';
 import type { SupabaseFinanceCashRepository } from '../infrastructure/supabase-finance-cash.repository';
 import {
   ClassifyInput, ExpenseInput, FixedIncomeInput, type ClassifyInputT, type ExpenseInputT, type FixedIncomeInputT,
-  CommitmentInput, InvoiceManualInput, ReceivableInput, SetBalanceInput, TransferInput,
-  type CommitmentInputT, type InvoiceManualInputT, type ReceivableInputT, type SetBalanceInputT, type TransferInputT,
+  CardGoalInput, CommitmentInput, InvoiceManualInput, ReceivableInput, SetBalanceInput, TransferInput,
+  type CardGoalInputT, type CommitmentInputT, type InvoiceManualInputT, type ReceivableInputT, type SetBalanceInputT, type TransferInputT,
 } from '../domain/cash.schema';
 import type { MonthKey } from '../domain/month';
 import { dateInputToISO, todayDateStr } from '@/lib/dates';
@@ -159,6 +159,23 @@ export class FinanceCashCommands {
       await this.repo.changeInvoiceStatus(id, 'paid', paidAtISO);
     }
     await this.emit('finance.invoice_status_changed', id, { status: 'paid', deductedFromBalance: deduct });
+  }
+
+  /**
+   * Meta mensal CONJUNTA dos cartões (valor manual da casa). 'default' vale a partir do mês
+   * informado; 'month' é exceção só daquele mês. Não toca em faturas, saldos nem lançamentos.
+   */
+  async setCardGoal(input: CardGoalInputT) {
+    const v = CardGoalInput.parse(input);
+    await this.repo.upsertCardGoal(v.scope, v.month, v.amountCents);
+    await this.emit('finance.card_goal_set', `${v.scope}:${v.month}`, { scope: v.scope, month: v.month });
+  }
+
+  /** Remove a exceção do mês (volta à meta padrão) ou a meta padrão que começou naquele mês. */
+  async clearCardGoal(scope: 'default' | 'month', month: MonthKey) {
+    CardGoalInput.pick({ scope: true, month: true }).parse({ scope, month });
+    await this.repo.deleteCardGoal(scope, month);
+    await this.emit('finance.card_goal_cleared', `${scope}:${month}`, { scope, month });
   }
 
   async markInvoicePaid(id: string, deductFromBalance: boolean) {

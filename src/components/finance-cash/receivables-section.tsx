@@ -4,8 +4,10 @@ import { useState } from 'react';
 import { Check, Plus } from 'lucide-react';
 import { useCommands } from '@/providers/repository.provider';
 import type { FixedIncome, IncomeOccurrence, Receivable } from '@/modules/finance/cash/domain/types';
-import { incomeOccurrencesInMonth, type IncomeMonthRow, type MonthLine, type MonthProjection } from '@/modules/finance/cash/domain/projection';
-import { monthLabel, monthOf, type MonthKey } from '@/modules/finance/cash/domain/month';
+import type { IncomeMonthRow } from '@/modules/finance/cash/domain/projection';
+import type { MonthEntry, MonthView } from '@/modules/finance/cash/domain/month-view';
+import { monthLabel, type MonthKey } from '@/modules/finance/cash/domain/month';
+import { SplitBar } from './month-parts';
 import {
   Card, Chip, Dialog, EndMonthField, ErrorText, Eyebrow, Field, Money, MoneyField, buttonGhost, buttonPrimary, buttonSecondary,
   formatDateBR, inputClass, parseMoneyInput, centsToInput, useAction,
@@ -62,36 +64,48 @@ export function ReceivableForm({ initial, onDone, onCancel }: { initial?: Receiv
   );
 }
 
-function OneOffBlock({ receivables, month, showAdd }: { receivables: Receivable[]; month: MonthProjection; showAdd: boolean }) {
+function OneOffBlock({ receivables, view, showAdd }: { receivables: Receivable[]; view: MonthView; showAdd: boolean }) {
   const { financeCash } = useCommands();
   const [form, setForm] = useState<null | { initial?: Receivable }>(null);
   const [receiving, setReceiving] = useState<Receivable | null>(null);
   const [addToBalance, setAddToBalance] = useState(true);
   const { pending, error, run, clearError } = useAction();
 
-  const open = receivables.filter((r) => r.status === 'confirmed' || r.status === 'uncertain');
-  const byId = new Map(open.map((r) => [r.id, r]));
-  const lines = [...month.receipts, ...month.uncertainReceipts].map((l) => byId.get(l.id)).filter((r): r is Receivable => Boolean(r));
-  const later = open.filter((r) => !lines.some((l) => l.id === r.id));
+  const byId = new Map(receivables.map((r) => [r.id, r]));
+  const entries = [...view.incomeOneOff].sort((a, b) => Number(a.state === 'done') - Number(b.state === 'done') || (a.date ?? '').localeCompare(b.date ?? ''));
+  const own = entries.filter((e) => !e.carriedOver);
+  const confirmedCents = own.filter((e) => !e.uncertain).reduce((t, e) => t + e.amountCents, 0);
+  const uncertainCents = own.filter((e) => e.uncertain).reduce((t, e) => t + e.amountCents, 0);
 
-  const row = (r: Receivable) => (
-    <li key={r.id} className="flex items-center justify-between gap-3 py-2.5">
-      <div className="min-w-0">
-        <p className="truncate text-sm">{r.description}</p>
-        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]">
-          {formatDateBR(r.expectedDate)}
-          {r.status === 'uncertain' && <Chip tone="warning">Incerto</Chip>}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Money cents={r.amountCents} tone={r.status === 'uncertain' ? 'muted' : 'positive'} />
-        <button type="button" className={buttonGhost} onClick={() => { clearError(); setAddToBalance(true); setReceiving(r); }} aria-label={`Marcar ${r.description} como recebido`}>
-          <Check size={14} /> Recebi
-        </button>
-        <button type="button" className={buttonGhost} onClick={() => setForm({ initial: r })}>Editar</button>
-      </div>
-    </li>
-  );
+  const row = (e: MonthEntry) => {
+    const r = byId.get(e.id);
+    const done = e.state === 'done';
+    return (
+      <li key={e.id} className="flex items-center justify-between gap-3 py-2.5">
+        <div className="min-w-0">
+          <p className={`truncate text-sm ${done ? 'text-[var(--text-muted)]' : ''}`}>{e.label}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]">
+            {e.date ? formatDateBR(e.date) : ''}
+            {done && <Chip tone="positive">Recebido</Chip>}
+            {e.uncertain && <Chip tone="warning">Incerto</Chip>}
+            {e.overdue && <Chip tone="negative">Atrasado</Chip>}
+            {e.carriedOver && <span>de {monthLabel(e.month)} · fora do resultado deste mês</span>}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Money cents={e.amountCents} tone={done || e.uncertain ? 'muted' : 'positive'} />
+          {!done && r && (
+            <>
+              <button type="button" className={buttonGhost} onClick={() => { clearError(); setAddToBalance(true); setReceiving(r); }} aria-label={`Marcar ${e.label} como recebido`}>
+                <Check size={14} /> Recebi
+              </button>
+              <button type="button" className={buttonGhost} onClick={() => setForm({ initial: r })}>Editar</button>
+            </>
+          )}
+        </div>
+      </li>
+    );
+  };
 
   return (
     <div>
@@ -103,24 +117,18 @@ function OneOffBlock({ receivables, month, showAdd }: { receivables: Receivable[
         {showAdd && <button type="button" className={buttonGhost} onClick={() => setForm({})}><Plus size={14} /> Adicionar</button>}
       </div>
       <div className="mt-1 flex items-baseline gap-2">
-        <Money cents={month.receiptsCents} size="md" tone="positive" />
-        {month.uncertainReceiptsCents > 0 && (
-          <span className="text-xs text-[var(--text-muted)]">+ <Money cents={month.uncertainReceiptsCents} size="sm" tone="muted" /> incertos (fora da conta)</span>
+        <Money cents={confirmedCents} size="md" tone="positive" />
+        {uncertainCents > 0 && (
+          <span className="text-xs text-[var(--text-muted)]">+ <Money cents={uncertainCents} size="sm" tone="muted" /> incertos (fora da conta)</span>
         )}
       </div>
-      {(lines.length > 0 || later.length > 0) ? (
-        <details className="mt-2">
+      {entries.length > 0 ? (
+        <details className="mt-2" open={entries.length <= 4}>
           <summary className="cursor-pointer text-xs font-medium text-[var(--accent)]">Ver recebimentos pontuais</summary>
-          <ul className="mt-2 divide-y divide-[var(--line)]">{lines.map(row)}</ul>
-          {later.length > 0 && (
-            <>
-              <p className="mt-3 text-xs text-[var(--text-muted)]">Em meses seguintes</p>
-              <ul className="divide-y divide-[var(--line)]">{later.map(row)}</ul>
-            </>
-          )}
+          <ul className="mt-2 divide-y divide-[var(--line)]">{entries.map(row)}</ul>
         </details>
       ) : (
-        <p className="mt-2 text-xs text-[var(--text-muted)]">Nenhum recebimento pontual cadastrado.</p>
+        <p className="mt-2 text-xs text-[var(--text-muted)]">Nenhum recebimento pontual neste mês.</p>
       )}
 
       <Dialog open={form !== null} title={form?.initial ? 'Editar recebimento' : 'Novo recebimento'} onClose={() => setForm(null)}>
@@ -223,11 +231,11 @@ export function FixedIncomeForm({ initial, currentMonth, onDone, onCancel }: {
 }
 
 type IncomeAction =
-  | { kind: 'receive'; row: IncomeMonthRow | (MonthLine & { month: MonthKey }) }
+  | { kind: 'receive'; row: IncomeMonthRow | (MonthEntry & { month: MonthKey }) }
   | { kind: 'amount'; row: { incomeId: string; description: string; month: MonthKey; amountCents: number } }
   | { kind: 'reset'; row: IncomeMonthRow };
 
-function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt, showAdd }: { incomes: FixedIncome[]; occurrences: IncomeOccurrence[]; month: MonthProjection; balanceUpdatedAt: string | null; showAdd: boolean }) {
+function FixedIncomeBlock({ incomes, occurrences, view, balanceUpdatedAt, showAdd }: { incomes: FixedIncome[]; occurrences: IncomeOccurrence[]; view: MonthView; balanceUpdatedAt: string | null; showAdd: boolean }) {
   const { financeCash } = useCommands();
   const [form, setForm] = useState<null | { initial?: FixedIncome }>(null);
   const [action, setAction] = useState<IncomeAction | null>(null);
@@ -238,13 +246,17 @@ function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt, showA
 
   const active = incomes.filter((i) => i.active);
   const occurrenceByKey = new Map(occurrences.map((o) => [`${o.incomeId}|${o.month}`, o]));
-  // Pendentes (inclui atrasadas) vêm da projeção; recebidas/canceladas do mês, da própria recorrência.
-  const pendingLines = month.fixedIncomeLines;
-  const resolved = incomeOccurrencesInMonth(
-    month.month,
-    active.map((i) => ({ ...i })),
-    occurrences.map((o) => ({ incomeId: o.incomeId, month: o.month, amountCents: o.amountCents, status: o.status }))
-  ).filter((r) => r.status !== 'pending');
+  // Pendentes (inclui atrasadas de meses anteriores) e já resolvidas (recebidas/canceladas) do mês escolhido.
+  const pendingLines = view.incomeFixed.filter((e) => e.state === 'pending');
+  const resolved: IncomeMonthRow[] = view.incomeFixed
+    .filter((e) => e.state !== 'pending')
+    .map((e) => ({
+      incomeId: e.id, description: e.label, month: e.month, date: e.date ?? '', amountCents: e.amountCents,
+      status: e.state === 'done' ? 'received' : 'cancelled', hasAmountOverride: false,
+    }));
+  const expectedOwn = view.incomeFixed.filter((e) => !e.carriedOver && e.state !== 'cancelled');
+  const expectedCents = expectedOwn.reduce((t, e) => t + e.amountCents, 0);
+  const receivedCents = expectedOwn.filter((e) => e.state === 'done').reduce((t, e) => t + e.amountCents, 0);
 
   const canRemove = (r: IncomeMonthRow) => {
     const occ = occurrenceByKey.get(`${r.incomeId}|${r.month}`);
@@ -269,8 +281,8 @@ function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt, showA
         {showAdd && <button type="button" className={buttonGhost} onClick={() => setForm({})}><Plus size={14} /> Adicionar</button>}
       </div>
       <div className="mt-1">
-        <Money cents={month.fixedIncomeCents} size="md" tone="positive" />
-        <span className="ml-2 text-xs text-[var(--text-muted)]">previsto, ainda não recebido</span>
+        <Money cents={expectedCents} size="md" tone="positive" />
+        <span className="ml-2 text-xs text-[var(--text-muted)]">no mês · <Money cents={receivedCents} size="sm" tone="muted" /> já recebido</span>
       </div>
 
       {pendingLines.length === 0 && resolved.length === 0 ? (
@@ -280,7 +292,7 @@ function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt, showA
       ) : (
         <ul className="mt-2 divide-y divide-[var(--line)]">
           {pendingLines.map((l) => {
-            const m = l.date ? monthOf(l.date) : month.month;
+            const m = l.month;
             return (
               <li key={`${l.id}-${m}`} className="flex items-center justify-between gap-3 py-2.5">
                 <div className="min-w-0">
@@ -289,6 +301,7 @@ function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt, showA
                     {l.date ? formatDateBR(l.date) : ''}
                     <Chip tone="info">Previsto</Chip>
                     {l.overdue && <Chip tone="negative">Atrasado</Chip>}
+                    {l.carriedOver && <span>de {monthLabel(l.month)} · fora do resultado deste mês</span>}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -345,7 +358,7 @@ function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt, showA
       )}
 
       <Dialog open={form !== null} title={form?.initial ? 'Editar entrada fixa' : 'Nova entrada fixa'} onClose={() => setForm(null)}>
-        {form && <FixedIncomeForm initial={form.initial} currentMonth={month.month} onDone={() => setForm(null)} onCancel={() => setForm(null)} />}
+        {form && <FixedIncomeForm initial={form.initial} currentMonth={view.month} onDone={() => setForm(null)} onCancel={() => setForm(null)} />}
       </Dialog>
 
       <Dialog
@@ -356,7 +369,7 @@ function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt, showA
         {action?.kind === 'receive' && (() => {
           const row = action.row;
           const incomeId = 'incomeId' in row ? row.incomeId : row.id;
-          const rowMonth = 'incomeId' in row ? row.month : row.month;
+          const rowMonth = row.month;
           const label = 'description' in row ? row.description : row.label;
           return (
             <div className="space-y-4">
@@ -438,23 +451,30 @@ function FixedIncomeBlock({ incomes, occurrences, month, balanceUpdatedAt, showA
 /* Seção                                                               */
 /* ------------------------------------------------------------------ */
 
-export function ReceivablesSection({ receivables, month, fixedIncomes, incomeOccurrences, balanceUpdatedAt, showAdd = true }: {
-  receivables: Receivable[]; month: MonthProjection; fixedIncomes: FixedIncome[]; incomeOccurrences: IncomeOccurrence[]; balanceUpdatedAt: string | null;
+export function ReceivablesSection({ receivables, view, fixedIncomes, incomeOccurrences, balanceUpdatedAt, showAdd = true }: {
+  receivables: Receivable[]; view: MonthView; fixedIncomes: FixedIncome[]; incomeOccurrences: IncomeOccurrence[]; balanceUpdatedAt: string | null;
   /** false = o cadastro de novas entradas fica no fluxo único "Registrar movimentação". */
   showAdd?: boolean;
 }) {
+  const s = view.sustainability;
+  const receivedCents = s.incomeLines.filter((l) => l.done).reduce((t, l) => t + l.amountCents, 0);
   return (
     <Card aria-label="Entradas do mês">
       <Eyebrow>Entradas do mês</Eyebrow>
       <div className="mt-1">
-        <Money cents={month.inflowCents} size="lg" tone="positive" />
-        <span className="ml-2 text-xs text-[var(--text-muted)]">a receber (fixas + pontuais confirmadas)</span>
+        <Money cents={s.incomeCents} size="lg" tone="positive" />
+        <span className="ml-2 text-xs text-[var(--text-muted)]">cadastradas no mês (fixas + pontuais confirmadas)</span>
       </div>
+      {s.incomeCents > 0 && (
+        <div className="mt-2">
+          <SplitBar label="Entradas recebidas" tone="positive" totalCents={s.incomeCents} doneCents={receivedCents} doneLabel="recebido" pendingLabel="a receber" />
+        </div>
+      )}
       <div className="mt-4 space-y-5 divide-y divide-[var(--line)] [&>div]:pt-4 [&>div:first-child]:pt-0">
-        <FixedIncomeBlock incomes={fixedIncomes} occurrences={incomeOccurrences} month={month} balanceUpdatedAt={balanceUpdatedAt} showAdd={showAdd} />
-        <OneOffBlock receivables={receivables} month={month} showAdd={showAdd} />
+        <FixedIncomeBlock incomes={fixedIncomes} occurrences={incomeOccurrences} view={view} balanceUpdatedAt={balanceUpdatedAt} showAdd={showAdd} />
+        <OneOffBlock receivables={receivables} view={view} showAdd={showAdd} />
       </div>
-      {month.warnings.filter((w) => w.includes('parece repetir')).map((w) => (
+      {s.duplicateWarnings.filter((w) => w.includes('parece repetir')).map((w) => (
         <p key={w} className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{w}</p>
       ))}
     </Card>

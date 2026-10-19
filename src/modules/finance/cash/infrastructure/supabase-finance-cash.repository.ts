@@ -8,6 +8,7 @@ import type {
 } from '../domain/types';
 import type { CommitmentInputT, ExpenseInputT, FixedIncomeInputT, InvoiceManualInputT, ReceivableInputT } from '../domain/cash.schema';
 import type { CategoryRule } from '../domain/category-rules';
+import type { CardGoal } from '../domain/card-goals';
 import type { Category } from '../domain/categories';
 import * as CategoryLearning from './category-learning';
 import * as CategoryCrud from './category-crud';
@@ -444,6 +445,40 @@ export class SupabaseFinanceCashRepository {
     const applied = await CategoryLearning.applyCategoryRules(this.supabase, this.workspaceId);
     if (applied > 0) this.notifier.notify();
     return applied;
+  }
+
+  // ------------------------------------------------------- meta conjunta dos cartões
+  /** available=false quando a tabela ainda não existe no banco: a tela segue funcionando, sem meta. */
+  async listCardGoals(): Promise<{ goals: CardGoal[]; available: boolean }> {
+    const { data, error } = await this.supabase.from('finance_card_goals').select('id, scope, month, amount_cents, updated_at')
+      .eq('workspace_id', this.workspaceId).order('month');
+    if (error) {
+      if (error.code === '42P01' || error.code === 'PGRST205' || /does not exist|schema cache/i.test(error.message)) return { goals: [], available: false };
+      this.fail('Não foi possível carregar a meta mensal', error);
+    }
+    return {
+      available: true,
+      goals: (data ?? []).map((r: Record<string, unknown>) => ({
+        id: r.id as string, scope: r.scope as CardGoal['scope'], month: r.month as MonthKey,
+        amountCents: Number(r.amount_cents), updatedAt: (r.updated_at as string | null) ?? null,
+      })),
+    };
+  }
+
+  async upsertCardGoal(scope: CardGoal['scope'], month: MonthKey, amountCents: number): Promise<void> {
+    const { error } = await this.supabase.from('finance_card_goals').upsert(
+      { workspace_id: this.workspaceId, scope, month, amount_cents: amountCents },
+      { onConflict: 'workspace_id,scope,month' }
+    );
+    if (error) this.fail('Não foi possível salvar a meta mensal', error);
+    this.notifier.notify();
+  }
+
+  async deleteCardGoal(scope: CardGoal['scope'], month: MonthKey): Promise<void> {
+    const { error } = await this.supabase.from('finance_card_goals').delete()
+      .eq('workspace_id', this.workspaceId).eq('scope', scope).eq('month', month);
+    if (error) this.fail('Não foi possível remover a meta mensal', error);
+    this.notifier.notify();
   }
 
   // ------------------------------------------------------- entradas fixas

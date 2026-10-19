@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, ChevronRight, Upload } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { useCommands } from '@/providers/repository.provider';
 import { effectiveInvoiceAmount, invoiceAmountsDiverge, type CardInvoice } from '@/modules/finance/cash/domain/types';
 import { InvoiceStatusChip, InvoiceStatusDialog } from './invoice-status';
-import { CARD_IDS, CARD_FULL_LABELS, addMonths, monthLabel, type CardId, type MonthKey } from '@/modules/finance/cash/domain/month';
+import { CARD_IDS, CARD_FULL_LABELS, monthLabel, type CardId, type MonthKey } from '@/modules/finance/cash/domain/month';
+import type { InstallmentLine, MonthView } from '@/modules/finance/cash/domain/month-view';
+import { titleMonth } from './month-parts';
 import {
   Card, Chip, Dialog, ErrorText, Eyebrow, Field, Money, MoneyField, buttonGhost, buttonPrimary, buttonSecondary,
   centsToInput, formatDateBR, formatDateTimeBR, inputClass, parseMoneyInput, useAction,
@@ -107,8 +109,65 @@ function CardInvoiceBlock({ card, month, invoice, missingCount }: { card: CardId
  * meses com fatura — nada é cortado nem escondido. Nenhuma fatura vazia é
  * criada só para preencher meses.
  */
-export function CardsSection({ invoices, currentMonth, missingByInvoice }: { invoices: CardInvoice[]; currentMonth: MonthKey; missingByInvoice: Record<string, number> }) {
-  const [selected, setSelected] = useState<MonthKey>(currentMonth);
+/** Parcelas do mês: já lançadas (dentro das faturas) × prováveis ainda não lançadas (inferidas, informativas). */
+function InstallmentsBlock({ view }: { view: MonthView }) {
+  const launched = view.installmentsLaunched;
+  const inferred = view.installmentsInferred;
+  const launchedCents = launched.reduce((t, i) => t + i.amountCents, 0);
+  const inferredCents = inferred.reduce((t, i) => t + i.amountCents, 0);
+  const line = (i: InstallmentLine, idx: number) => (
+    <li key={`${i.card}-${i.description}-${i.installmentNo}-${idx}`} className="flex items-center justify-between gap-3 py-2">
+      <span className="min-w-0">
+        <span className="block truncate text-sm">{i.description}</span>
+        <span className="text-xs text-[var(--text-muted)]">{CARD_FULL_LABELS[i.card]} · parcela {i.installmentNo} de {i.installmentTotal}</span>
+      </span>
+      <Money cents={i.amountCents} size="sm" tone="default" />
+    </li>
+  );
+  if (launched.length === 0 && inferred.length === 0) {
+    return <p className="mt-3 text-xs text-[var(--text-muted)]">Nenhuma parcela identificada neste mês.</p>;
+  }
+  return (
+    <div className="mt-4 border-t border-[var(--line)] pt-3" aria-label="Parcelas do mês">
+      <h3 className="text-sm font-semibold">Parcelas</h3>
+      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+        {launched.length > 0 && <>Já lançadas nas faturas: <Money cents={launchedCents} size="sm" tone="muted" /> (dentro dos valores das faturas, sem somar de novo). </>}
+        {inferred.length > 0 && <>Prováveis ainda não lançadas: <Money cents={inferredCents} size="sm" tone="muted" /> (inferidas; não são obrigação confirmada).</>}
+      </p>
+      <details className="mt-2">
+        <summary className="cursor-pointer text-xs font-medium text-[var(--accent)]">Ver parcelas</summary>
+        {launched.length > 0 && (
+          <>
+            <p className="mt-2 flex items-center gap-2 text-xs font-medium"><Chip tone="positive">Lançadas na fatura</Chip></p>
+            <ul className="divide-y divide-[var(--line)]">{launched.map(line)}</ul>
+          </>
+        )}
+        {inferred.length > 0 && (
+          <>
+            <p className="mt-3 flex items-center gap-2 text-xs font-medium"><Chip tone="neutral">Inferidas · não confirmadas</Chip></p>
+            <p className="text-xs text-[var(--text-muted)]">Parcelas seguintes de compras já vistas em faturas anteriores. Somem daqui quando a fatura real do mês trouxer a parcela.</p>
+            <ul className="divide-y divide-[var(--line)]">{inferred.map(line)}</ul>
+          </>
+        )}
+      </details>
+      {view.phase !== 'past' && view.sustainability.estimatedGapCents > 0 && (
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          Além disso, a hipótese da média dos cartões soma <Money cents={view.sustainability.estimatedGapCents} size="sm" tone="muted" /> em gastos ainda não lançados — são coisas diferentes e as parcelas inferidas não são somadas a ela.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Faturas do MÊS ESCOLHIDO no cabeçalho (mês de vencimento) + as parcelas do mês.
+ * A lista "todas as faturas" leva a qualquer mês cadastrado. Nenhuma fatura vazia
+ * é criada só para preencher meses.
+ */
+export function CardsSection({ invoices, view, currentMonth, missingByInvoice, onSelectMonth }: {
+  invoices: CardInvoice[]; view: MonthView; currentMonth: MonthKey; missingByInvoice: Record<string, number>; onSelectMonth: (m: MonthKey) => void;
+}) {
+  const selected = view.month;
   const find = (card: CardId, month: MonthKey) => invoices.find((i) => i.card === card && i.month === month) ?? null;
 
   const byMonth = new Map<MonthKey, CardInvoice[]>();
@@ -118,25 +177,16 @@ export function CardsSection({ invoices, currentMonth, missingByInvoice }: { inv
 
   return (
     <Card aria-label="Faturas dos cartões">
-      <Eyebrow>Faturas</Eyebrow>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <button type="button" className={buttonSecondary} onClick={() => setSelected(addMonths(selected, -1))} aria-label="Mês anterior"><ChevronLeft size={16} /></button>
-        <div className="text-center">
-          <p className="text-sm font-semibold capitalize">{monthLabel(selected)}</p>
-          {selected !== currentMonth && (
-            <button type="button" className={buttonGhost} onClick={() => setSelected(currentMonth)}>Voltar ao mês atual</button>
-          )}
-        </div>
-        <button type="button" className={buttonSecondary} onClick={() => setSelected(addMonths(selected, 1))} aria-label="Próximo mês"><ChevronRight size={16} /></button>
-      </div>
-      <p className="mt-1 text-center text-xs text-[var(--text-muted)]">Mês de vencimento da fatura</p>
+      <Eyebrow>Faturas e parcelas</Eyebrow>
+      <p className="mt-1 text-sm font-semibold">{titleMonth(selected)}</p>
+      <p className="text-xs text-[var(--text-muted)]">Faturas com vencimento neste mês</p>
 
       {stale.length > 0 && (
         <div role="status" className="mt-3 rounded-xl border border-[var(--money-warning)] p-3 text-sm">
           <p className="font-medium">{stale.length === 1 ? 'Há uma fatura antiga marcada como não paga. Confira o status.' : `Há ${stale.length} faturas antigas marcadas como não pagas. Confira o status.`}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {stale.map((i) => (
-              <button key={i.id} type="button" className={buttonSecondary} onClick={() => setSelected(i.month)}>
+              <button key={i.id} type="button" className={buttonSecondary} onClick={() => onSelectMonth(i.month)}>
                 {CARD_FULL_LABELS[i.card]} · <span className="capitalize">{monthLabel(i.month)}</span>
               </button>
             ))}
@@ -152,6 +202,8 @@ export function CardsSection({ invoices, currentMonth, missingByInvoice }: { inv
         })}
       </div>
 
+      <InstallmentsBlock view={view} />
+
       <details className="mt-4 border-t border-[var(--line)] pt-3">
         <summary className="cursor-pointer text-sm font-medium text-[var(--text-muted)]">
           {months.length === 0
@@ -161,7 +213,7 @@ export function CardsSection({ invoices, currentMonth, missingByInvoice }: { inv
         <ul className="mt-2 divide-y divide-[var(--line)]">
           {months.map((m) => (
             <li key={m} className={m === selected ? 'bg-[var(--surface-raised)]' : ''}>
-              <button type="button" className="w-full px-1 py-2.5 text-left" onClick={() => setSelected(m)} aria-label={`Ver faturas de ${monthLabel(m)}`}>
+              <button type="button" className="w-full px-1 py-2.5 text-left" onClick={() => onSelectMonth(m)} aria-label={`Ver faturas de ${monthLabel(m)}`}>
                 <span className="flex items-center justify-between gap-2">
                   <span className="text-sm font-medium capitalize">{monthLabel(m)}{m === currentMonth ? ' · mês atual' : ''}</span>
                   <span className="text-xs text-[var(--text-muted)]">{m === selected ? 'em exibição' : 'abrir'}</span>

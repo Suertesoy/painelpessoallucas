@@ -1,28 +1,30 @@
 'use client';
 
 import { useState } from 'react';
-import type { MonthProjection } from '@/modules/finance/cash/domain/projection';
 import { HISTORY_INVOICES, type CardEstimate } from '@/modules/finance/cash/domain/card-estimate';
 import { averageUnavailableReason, type MonthSustainability, type SustainabilityCardRow } from '@/modules/finance/cash/domain/sustainability';
-import { CARD_FULL_LABELS, monthLabel, monthShortLabel } from '@/modules/finance/cash/domain/month';
+import type { MonthEntry, MonthView } from '@/modules/finance/cash/domain/month-view';
+import { CARD_FULL_LABELS, monthShortLabel } from '@/modules/finance/cash/domain/month';
 import type { Balance } from '@/modules/finance/cash/domain/types';
-import { Card, Money } from './ui';
+import { Card, Chip, Money } from './ui';
+import { SplitBar, titleMonth } from './month-parts';
 
 /**
- * Sustentabilidade mensal (indicador principal) + caixa real (área separada).
+ * Resumo e sustentabilidade do MÊS ESCOLHIDO.
  *
- * Cada mês é calculado SOZINHO: entradas cadastradas − compromissos − cartões.
- * Nenhum déficit (real ou hipotético) é levado de um mês para o outro. O que já
- * está pendente no caixa, com os valores acumulados, fica em "Caixa real".
+ * Dois conceitos que nunca se misturam:
+ *  - Resultado do mês inteiro: tudo o que pertence ao mês (recebido e previsto,
+ *    pago e pendente). Mês encerrado mostra só o que os registros afirmam.
+ *  - Caixa restante: saldo informado hoje + o que ainda está pendente (só do mês
+ *    atual em diante). O que já foi pago/recebido não é movimentado de novo e a
+ *    reserva protegida nunca entra.
  *
- * Três leituras do mês:
- *  1. Compromissos conhecidos — só o que está cadastrado;
- *  2. Mantendo a média dos cartões — hipótese baseada nas últimas 3 faturas;
- *  3. Meta para não usar a reserva — limite combinado dos cartões.
+ * Três leituras (do mês atual em diante): conhecido, mantendo a média (hipótese)
+ * e meta sem a reserva (limite combinado dos cartões — nunca dividido por pessoa).
  */
 
-type View = 'known' | 'average' | 'limit';
-const VIEW_LABEL: Record<View, string> = { known: 'Conhecido', average: 'Mantendo a média', limit: 'Meta sem a reserva' };
+type SustainView = 'known' | 'average' | 'limit';
+const VIEW_LABEL: Record<SustainView, string> = { known: 'Conhecido', average: 'Mantendo a média', limit: 'Meta sem a reserva' };
 
 function Row({ label, cents, sign, tone = 'default', strong = false, note }: {
   label: string; cents: number; sign?: '+' | '−'; tone?: 'default' | 'positive' | 'negative' | 'muted'; strong?: boolean; note?: string;
@@ -45,23 +47,127 @@ export function estimateLimitation(estimate: CardEstimate): string | null {
   return `Sem média para ${parts.join('; ')}. Só faturas fechadas ou pagas contam; importe ou confirme as dos últimos meses.`;
 }
 
+const COMPLETENESS: Record<MonthView['completeness'], { text: string; tone: 'positive' | 'info' | 'warning' | 'neutral' }> = {
+  closed: { text: 'Mês encerrado · faturas fechadas ou pagas', tone: 'positive' },
+  incomplete: { text: 'Mês anterior · há fatura aberta ou sem lançamento', tone: 'warning' },
+  in_progress: { text: 'Mês em andamento', tone: 'info' },
+  partial: { text: 'Mês futuro · só o que já está cadastrado', tone: 'neutral' },
+};
+
+/* ------------------------------------------------------------------ */
+/* Resumo do mês                                                       */
+/* ------------------------------------------------------------------ */
+
+export function MonthSummaryCard({ view, balance }: { view: MonthView; balance: Balance }) {
+  const balanceInformed = balance.availableUpdatedAt !== null;
+  const s = view.sustainability;
+  const known = s.knownResultCents;
+  const receivedCents = s.incomeLines.filter((l) => l.done).reduce((t, l) => t + l.amountCents, 0);
+  const directPaidCents = s.directLines.filter((l) => l.done).reduce((t, l) => t + l.amountCents, 0);
+  const invoicesPaidCents = s.cards.filter((c) => c.invoiceStatus === 'paid').reduce((t, c) => t + c.invoiceCents, 0);
+  const c = COMPLETENESS[view.completeness];
+  const cash = view.cash;
+
+  return (
+    <Card aria-label="Resumo do mês">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium text-[var(--text-muted)]">Resultado do mês inteiro</h2>
+        <Chip tone={c.tone}>{c.text}</Chip>
+      </div>
+
+      <p className="mt-3 text-sm">
+        {known >= 0 ? 'Com o que está cadastrado, o mês fecha com sobra de' : 'Com o que está cadastrado, os compromissos ultrapassam as entradas em'}
+      </p>
+      <div className="mt-1">
+        <Money cents={Math.abs(known)} size="xl" tone={known >= 0 ? 'positive' : 'warning'} />
+      </div>
+      <p className="mt-1 text-xs text-[var(--text-muted)]">
+        Entradas cadastradas − compromissos − faturas, contando também o que já foi pago ou recebido neste mês.
+        {view.phase === 'future' && ' Um mês futuro nunca está completamente conhecido.'}
+      </p>
+
+      <div className="mt-4 space-y-4" aria-label="Composição do mês">
+        <SplitBar
+          label="Entradas do mês" tone="positive" totalCents={s.incomeCents} doneCents={receivedCents}
+          doneLabel="recebido" pendingLabel="a receber"
+        />
+        <SplitBar
+          label="Compromissos" totalCents={s.directCents} doneCents={directPaidCents}
+          doneLabel="pago" pendingLabel="pendente"
+        />
+        <SplitBar
+          label="Faturas dos cartões" totalCents={s.invoicesCents} doneCents={invoicesPaidCents}
+          doneLabel="paga" pendingLabel="a pagar"
+        />
+        {s.cardFixedCents > 0 && (
+          <p className="text-xs text-[var(--text-muted)]">
+            + <Money cents={s.cardFixedCents} size="sm" tone="muted" /> em gastos fixos no cartão que ainda não aparecem em fatura.
+          </p>
+        )}
+      </div>
+
+      {s.hypothesisAllowed && s.averageResultCents !== null && (
+        <div className="mt-4 rounded-xl border border-dashed border-[var(--line-strong)] bg-[var(--surface-inset)] p-3 text-sm">
+          <p className="flex items-center gap-2"><Chip tone="neutral">Hipótese</Chip> <span className="text-[var(--text-muted)]">Mantendo a média dos cartões</span></p>
+          <p className="mt-1">
+            {s.averageResultCents >= 0 ? 'o mês fecharia com sobra de ' : 'faltariam '}
+            <Money cents={Math.abs(s.averageResultCents)} size="sm" tone={s.averageResultCents >= 0 ? 'positive' : 'warning'} />
+            <span className="text-xs text-[var(--text-muted)]"> · estimativa, não é dívida existente</span>
+          </p>
+        </div>
+      )}
+
+      <div className="mt-5 border-t border-[var(--line)] pt-4" aria-label="Caixa restante">
+        <h3 className="text-sm font-medium text-[var(--text-muted)]">Caixa restante</h3>
+        {cash ? (
+          <div className="mt-1 text-sm">
+            <Row label={cash.kind === 'current' ? 'Saldo disponível informado hoje' : 'Caixa esperado ao começar o mês'} cents={cash.openingCents} tone={cash.openingCents < 0 ? 'negative' : 'default'} />
+            <Row label="Entradas ainda pendentes de recebimento" cents={cash.pendingInflowCents} sign="+" tone="positive" />
+            <Row label="Compromissos e faturas ainda não pagos" cents={cash.pendingOutflowCents} sign="−" />
+            <Row label={cash.kind === 'current' ? 'Saldo esperado depois dessas movimentações' : 'Caixa esperado ao fim do mês'} cents={cash.expectedCents} tone={cash.expectedCents < 0 ? 'negative' : 'default'} strong />
+            <Row label="Reserva protegida (fora desta conta)" cents={balance.reserveCents} tone="muted" />
+            <p className="mt-2 text-xs text-[var(--text-muted)]">
+              Só entra o que ainda não foi pago ou recebido — o que já passou não é movimentado de novo sobre o saldo.
+              A reserva protegida nunca entra.{cash.kind === 'future' && ' Para meses futuros, este caixa acumula só o que está registrado e fica separado da sustentabilidade do mês.'}
+            </p>
+            {!balanceInformed && <p className="mt-2 text-xs text-[var(--money-warning)]">Você ainda não informou o saldo disponível — o caixa parte de zero.</p>}
+            {view.staleInvoices.length > 0 && view.phase === 'current' && (
+              <p className="mt-2 text-xs text-[var(--money-warning)]">
+                {view.staleInvoices.length === 1 ? 'Há uma fatura antiga marcada como não paga. Confira o status em Faturas.' : `Há ${view.staleInvoices.length} faturas antigas marcadas como não pagas. Confira o status em Faturas.`}
+              </p>
+            )}
+            {cash.warnings.map((w) => <p key={w} className="mt-2 text-xs text-[var(--money-warning)]">{w}</p>)}
+          </div>
+        ) : (
+          <p className="mt-1 text-sm text-[var(--text-muted)]">
+            Mês encerrado: mostramos só o que os registros permitem afirmar. Não reconstruímos o saldo bancário daquela época com o saldo informado hoje.
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Sustentabilidade                                                    */
+/* ------------------------------------------------------------------ */
+
 function cardRowText(r: SustainabilityCardRow): string {
   const label = CARD_FULL_LABELS[r.card];
   switch (r.kind) {
     case 'real':
       return `${label}: fatura ${r.invoiceStatus === 'paid' ? 'paga' : 'fechada'} — vale o valor real; a média não entra.`;
     case 'partial':
-      return `${label}: fatura aberta (parcial). Vale o que já está lançado; só a diferença até a média é estimada.`;
+      return `${label}: fatura aberta (parcial). Vale o que já está lançado${r.averageCents !== null ? '; só a diferença até a média é estimada' : ''}.`;
     case 'average':
       return `${label}: ainda sem fatura. Vale a média${r.cardFixedCents > 0 ? ' menos os gastos fixos já conhecidos' : ''}.`;
     default:
-      return `${label}: sem média confiável e sem fatura fechada — nada foi estimado.`;
+      return `${label}: sem fatura fechada e sem média confiável — nada foi estimado.`;
   }
 }
 
 /** "Como chegamos a esse valor": cada parcela, médias usadas e o que ficou de fora para não contar em dobro. */
-export function SustainabilityBreakdown({ s, cash, estimate }: { s: MonthSustainability; cash: MonthProjection; estimate: CardEstimate }) {
-  const excluded = cash.cardFixedLines.filter((l) => l.state !== 'awaiting_invoice');
+export function SustainabilityBreakdown({ s, estimate, reconciled }: { s: MonthSustainability; estimate: CardEstimate; reconciled: MonthEntry[] }) {
   return (
     <div className="space-y-4 text-sm">
       <section aria-label="Entradas cadastradas do mês">
@@ -96,7 +202,7 @@ export function SustainabilityBreakdown({ s, cash, estimate }: { s: MonthSustain
             {r.gapCents > 0 && <Row label="Estimativa até a média (hipótese)" cents={r.gapCents} sign="−" tone="muted" />}
           </div>
         ))}
-        {estimate.byCard.map((c) => (
+        {s.hypothesisAllowed && estimate.byCard.map((c) => (
           <p key={c.card} className="text-xs text-[var(--text-muted)]">
             Média de {CARD_FULL_LABELS[c.card]}: faturas fechadas/pagas de {c.basedOnMonths.map(monthShortLabel).join(', ')}.
           </p>
@@ -109,28 +215,28 @@ export function SustainabilityBreakdown({ s, cash, estimate }: { s: MonthSustain
         {s.averageResultCents !== null && (
           <Row label="Mantendo a média (hipótese)" cents={s.averageResultCents} tone={s.averageResultCents < 0 ? 'negative' : 'default'} />
         )}
-        <Row label="Limite combinado dos cartões" cents={s.limit.combinedCents} tone="muted" />
+        {s.hypothesisAllowed && <Row label="Limite combinado dos cartões" cents={s.limit.combinedCents} tone="muted" />}
         <p className="mt-1 text-xs text-[var(--text-muted)]">Nada é levado para o mês seguinte. A reserva não é usada.</p>
       </section>
 
-      {excluded.length > 0 && (
+      {reconciled.length > 0 && (
         <section aria-label="Não contado em dobro">
           <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Não contado em dobro</h4>
-          {excluded.map((l) => (
+          {reconciled.map((l) => (
             <p key={`${l.id}-${l.card}`} className="text-xs text-[var(--text-muted)]">
-              {l.label} ({CARD_FULL_LABELS[l.card]}) já está dentro da fatura; não foi somado de novo.
+              {l.label} ({l.card ? CARD_FULL_LABELS[l.card] : 'cartão'}) já está dentro da fatura; não foi somado de novo.
             </p>
           ))}
         </section>
       )}
       <p className="text-xs text-[var(--text-muted)]">
-        Faturas pagas e compromissos pagos contam no mês (mês inteiro), mas não aparecem como pendência. Gastos fora do cartão ainda não registrados não estão incluídos.
+        Parcelas já lançadas nas faturas estão dentro dos valores das faturas. Faturas pagas e compromissos pagos contam no mês, mas não aparecem como pendência. Gastos fora do cartão ainda não registrados não estão incluídos.
       </p>
     </div>
   );
 }
 
-function verdict(view: View, s: MonthSustainability): { headline: string; cents: number | null; tone: 'positive' | 'warning' | 'muted'; extra: string[] } {
+function verdict(view: SustainView, s: MonthSustainability): { headline: string; cents: number | null; tone: 'positive' | 'warning' | 'muted'; extra: string[] } {
   if (view === 'known') {
     const r = s.knownResultCents;
     return {
@@ -155,10 +261,11 @@ function verdict(view: View, s: MonthSustainability): { headline: string; cents:
       extra: ['Sem outra renda cadastrada, não há limite possível nos cartões sem usar a reserva. O painel não assume que a reserva cobre.'],
     };
   }
-  const extra: string[] = [];
-  if (l.remainingCents >= 0) extra.push('Já lançado nos cartões cabe no limite.');
-  else extra.push('O que já está lançado nos cartões passa desse limite.');
-  return { headline: 'Para equilibrar o mês sem usar a reserva, o limite combinado dos cartões seria', cents: l.combinedCents, tone: 'positive', extra };
+  return {
+    headline: 'Para equilibrar o mês sem usar a reserva, o limite combinado dos cartões seria',
+    cents: l.combinedCents, tone: 'positive',
+    extra: [l.remainingCents >= 0 ? 'O que já está lançado nos cartões cabe nesse limite.' : 'O que já está lançado nos cartões passa desse limite.'],
+  };
 }
 
 function LimitDetails({ s }: { s: MonthSustainability }) {
@@ -168,17 +275,12 @@ function LimitDetails({ s }: { s: MonthSustainability }) {
     <div className="mt-2 space-y-0.5 text-sm">
       <Row label="Já lançado nos cartões (faturas e fixos)" cents={l.knownCardsCents} />
       <Row label={l.remainingCents >= 0 ? 'Ainda cabe nos cartões' : 'Já passou do limite em'} cents={Math.abs(l.remainingCents)} tone={l.remainingCents >= 0 ? 'positive' : 'negative'} />
-      {l.byCard && (
-        <div className="pt-1">
-          <p className="text-xs text-[var(--text-muted)]">Sugestão por cartão (proporcional à média de cada um):</p>
-          {l.byCard.map((c) => <Row key={c.card} label={CARD_FULL_LABELS[c.card]} cents={c.cents} />)}
-        </div>
-      )}
+      <p className="text-xs text-[var(--text-muted)]">Um limite só, da casa: não é dividido entre Lucas e Matheus.</p>
     </div>
   );
 }
 
-function ViewBody({ view, s }: { view: View; s: MonthSustainability }) {
+function ViewBody({ view, s }: { view: SustainView; s: MonthSustainability }) {
   const v = verdict(view, s);
   return (
     <div>
@@ -190,130 +292,77 @@ function ViewBody({ view, s }: { view: View; s: MonthSustainability }) {
   );
 }
 
-function Notices({ s, cash, staleCount }: { s: MonthSustainability; cash: MonthProjection; staleCount: number }) {
+/** Sustentabilidade do mês escolhido: três leituras (hipóteses só do mês atual em diante). */
+export function SustainabilityCard({ view }: { view: MonthView }) {
+  const s = view.sustainability;
+  const [picked, setPicked] = useState<SustainView | null>(null);
+  const available: SustainView[] = s.hypothesisAllowed ? ['known', 'average', 'limit'] : ['known'];
+  const active: SustainView = picked && available.includes(picked) ? picked : s.averageResultCents !== null ? 'average' : 'known';
+  const limitation = view.estimate.insufficientCards.length > 0 ? estimateLimitation(view.estimate) : null;
+
   return (
-    <>
-      {s.noIncomeRegistered && <p className="mt-3 text-xs text-[var(--money-warning)]">Não há entradas cadastradas para este mês. O resultado mostra só o que sai.</p>}
-      {staleCount > 0 && s.isCurrent && (
-        <p className="mt-3 text-xs text-[var(--money-warning)]">
-          {staleCount === 1 ? 'Há uma fatura antiga marcada como não paga. Confira o status em Faturas.' : `Há ${staleCount} faturas antigas marcadas como não pagas. Confira o status em Faturas.`}
-        </p>
+    <Card aria-label="Sustentabilidade do mês">
+      <h2 className="text-sm font-medium text-[var(--text-muted)]">Sustentabilidade · {titleMonth(s.month)}</h2>
+
+      {s.hypothesisAllowed ? (
+        <div role="tablist" aria-label="Leituras do mês" className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface-inset)] p-1">
+          {available.map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={active === v}
+              onClick={() => setPicked(v)}
+              className={`min-h-11 rounded-lg px-1 text-xs font-medium ${active === v ? 'bg-[var(--surface-raised)] text-[var(--foreground)]' : 'text-[var(--text-muted)]'}`}
+            >
+              {VIEW_LABEL[v]}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-[var(--text-muted)]">Mês encerrado: só o que os registros mostram — sem médias nem metas hipotéticas.</p>
       )}
-      {s.duplicateWarnings.map((w) => <p key={w} className="mt-2 text-xs text-[var(--money-warning)]">{w}</p>)}
-      {cash.warnings.filter((w) => !s.duplicateWarnings.includes(w)).map((w) => <p key={w} className="mt-2 text-xs text-[var(--money-warning)]">{w}</p>)}
-    </>
-  );
-}
 
-/** Mês atual: sustentabilidade em três leituras + entradas × saldo × reserva. */
-export function CurrentMonthCard({ month, sustainability, balance, balanceInformed, estimate, staleCount = 0 }: {
-  month: MonthProjection; sustainability: MonthSustainability; balance: Balance; balanceInformed: boolean; estimate: CardEstimate; staleCount?: number;
-}) {
-  const s = sustainability;
-  const [view, setView] = useState<View>(s.averageResultCents !== null ? 'average' : 'known');
-  const limitation = estimateLimitation(estimate);
-  return (
-    <Card aria-label="Quanto sobra">
-      <h2 className="text-sm font-medium text-[var(--text-muted)] capitalize">{monthLabel(s.month)} · sustentabilidade do mês</h2>
-
-      <div role="tablist" aria-label="Leituras do mês" className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-[var(--surface-inset)] p-1">
-        {(['known', 'average', 'limit'] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            role="tab"
-            aria-selected={view === v}
-            onClick={() => setView(v)}
-            className={`min-h-11 rounded-lg px-1 text-xs font-medium ${view === v ? 'bg-[var(--surface-raised)] text-[var(--foreground)]' : 'text-[var(--text-muted)]'}`}
-          >
-            {VIEW_LABEL[v]}
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-4" role="tabpanel">
-        <ViewBody view={view} s={s} />
+      <div className="mt-4" role={s.hypothesisAllowed ? 'tabpanel' : undefined}>
+        <ViewBody view={active} s={s} />
       </div>
 
       <div className="mt-4 space-y-0.5 border-t border-[var(--line)] pt-3 text-sm" aria-label="Entradas, saldo e reserva">
         <Row label="Entradas do mês (só as cadastradas)" cents={s.incomeCents} tone="positive" />
-        <Row label="Saldo disponível hoje" cents={balance.availableCents} />
-        <Row label="Reserva protegida (nunca entra na conta)" cents={balance.reserveCents} tone="muted" />
+        <p className="text-xs text-[var(--text-muted)]">O saldo disponível e a reserva protegida ficam fora deste cálculo: o mês depende só das entradas cadastradas.</p>
       </div>
       <p className="mt-2 text-xs text-[var(--text-muted)]">
         O resultado depende só das entradas cadastradas. Se a casa tiver outra renda que não está registrada, ela não está aqui, e nenhuma renda é inventada.
-        O saldo disponível e a reserva não somam no resultado do mês.
       </p>
 
-      {limitation && view !== 'known' && <p className="mt-2 text-xs text-[var(--text-muted)]">{limitation}</p>}
-      {!balanceInformed && <p className="mt-2 text-xs text-[var(--money-warning)]">Você ainda não informou o saldo disponível — o caixa real parte de zero.</p>}
-      <Notices s={s} cash={month} staleCount={staleCount} />
+      {limitation && s.hypothesisAllowed && active !== 'known' && <p className="mt-2 text-xs text-[var(--text-muted)]">{limitation}</p>}
+      {s.noIncomeRegistered && <p className="mt-3 text-xs text-[var(--money-warning)]">Não há entradas cadastradas para este mês. O resultado mostra só o que sai.</p>}
+      {s.duplicateWarnings.map((w) => <p key={w} className="mt-2 text-xs text-[var(--money-warning)]">{w}</p>)}
 
       <details className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--surface-inset)]">
         <summary className="min-h-11 cursor-pointer p-3 text-sm font-medium">Como chegamos a esse valor</summary>
         <div className="border-t border-[var(--line)] p-3">
-          <SustainabilityBreakdown s={s} cash={month} estimate={estimate} />
+          <SustainabilityBreakdown s={s} estimate={view.estimate} reconciled={view.commitmentsCard.filter((e) => !e.carriedOver && e.cardState !== undefined && e.cardState !== 'awaiting_invoice')} />
         </div>
       </details>
-    </Card>
-  );
-}
 
-/** Próximos meses (cada um isolado) e, à parte, o caixa real acumulado. */
-export function UpcomingMonths({ months, sustainability, estimate }: { months: MonthProjection[]; sustainability: MonthSustainability[]; estimate: CardEstimate }) {
-  const limitation = estimateLimitation(estimate);
-  const upcoming = sustainability.slice(1);
-  return (
-    <Card aria-label="Próximos meses">
-      <h2 className="text-base font-semibold">Próximos meses</h2>
-      <p className="mt-1 text-xs text-[var(--text-muted)]">
-        Cada mês é calculado sozinho: a falta de um mês não passa para o seguinte. A leitura “mantendo a média” é uma hipótese, não uma dívida.
-      </p>
-      <div className="mt-3 space-y-2">
-        {upcoming.map((s) => {
-          const cash = months.find((m) => m.month === s.month);
-          const usesAverage = s.averageResultCents !== null;
-          const shown = usesAverage ? (s.averageResultCents as number) : s.knownResultCents;
-          return (
-            <details key={s.month} className="rounded-xl border border-[var(--line)] bg-[var(--surface-inset)]">
-              <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 p-3.5">
-                <span className="text-sm font-medium capitalize">{monthLabel(s.month)}</span>
-                <span className="flex items-baseline gap-1.5 text-sm">
-                  <span className="text-[var(--text-muted)]">{usesAverage ? 'mantendo a média' : 'conhecido'} · {shown < 0 ? 'falta' : 'sobra'}</span>
-                  <Money cents={Math.abs(shown)} size="sm" tone={shown < 0 ? 'warning' : 'positive'} />
-                </span>
-              </summary>
-              <div className="space-y-3 border-t border-[var(--line)] p-3.5">
-                {(['known', 'average', 'limit'] as const).map((v) => (
-                  <div key={v}>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">{VIEW_LABEL[v]}</p>
-                    <ViewBody view={v} s={s} />
-                  </div>
-                ))}
-                <Notices s={s} cash={cash ?? months[0]} staleCount={0} />
-                {cash && <SustainabilityBreakdown s={s} cash={cash} estimate={estimate} />}
+      {view.cashTimeline.length > 0 && (
+        <details className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--surface-inset)]">
+          <summary className="min-h-11 cursor-pointer p-3 text-sm font-medium">Caixa real acumulado (só o que já está registrado)</summary>
+          <div className="space-y-1 border-t border-[var(--line)] p-3 text-sm">
+            <p className="text-xs text-[var(--text-muted)]">
+              Parte do saldo disponível de hoje e soma apenas o que está pendente e registrado: entradas esperadas, contas e faturas ainda não pagas. Não inclui médias nem estimativas; uma falta real aparece aqui até ser coberta. A reserva não entra.
+            </p>
+            {view.cashTimeline.map((m) => (
+              <div key={m.month} className="flex items-baseline justify-between gap-3 py-1">
+                <span className="text-[var(--text-muted)]">Ao fim de {titleMonth(m.month)}</span>
+                <Money cents={m.resultCents} size="sm" tone={m.resultCents < 0 ? 'negative' : 'default'} />
               </div>
-            </details>
-          );
-        })}
-      </div>
-
-      {limitation && <p className="mt-3 text-xs text-[var(--text-muted)]">{limitation}</p>}
-
-      <details className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--surface-inset)]">
-        <summary className="min-h-11 cursor-pointer p-3 text-sm font-medium">Caixa real acumulado (só o que já está registrado)</summary>
-        <div className="space-y-1 border-t border-[var(--line)] p-3 text-sm">
-          <p className="text-xs text-[var(--text-muted)]">
-            Parte do saldo disponível de hoje e soma apenas o que está pendente e registrado: entradas esperadas, contas e faturas ainda não pagas. Não inclui médias nem estimativas, e uma falta real aparece aqui até ser coberta. A reserva não entra.
-          </p>
-          {months.map((m) => (
-            <div key={m.month} className="flex items-baseline justify-between gap-3 py-1">
-              <span className="capitalize text-[var(--text-muted)]">Ao fim de {monthLabel(m.month)}</span>
-              <Money cents={m.resultCents} size="sm" tone={m.resultCents < 0 ? 'negative' : 'default'} />
-            </div>
-          ))}
-        </div>
-      </details>
+            ))}
+          </div>
+        </details>
+      )}
     </Card>
   );
 }
+

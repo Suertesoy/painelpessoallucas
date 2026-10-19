@@ -1,5 +1,11 @@
 import { CARD_IDS, compareMonths, type CardId, type MonthKey } from './month';
-import type { InvoiceInput, MonthProjection } from './projection';
+import type { InvoiceInput } from './projection';
+
+/** O que a estimativa precisa de cada mês: só o mês e os gastos fixos no cartão ainda sem fatura. */
+export interface EstimateMonthInput {
+  month: MonthKey;
+  cardFixedLines: readonly { card: CardId; countedCents: number }[];
+}
 
 /**
  * Estimativa de gastos futuros no cartão — função pura, média móvel de 3 meses.
@@ -91,7 +97,7 @@ export function isCompleteHistoryInvoice(invoice: InvoiceInput, currentMonth: Mo
 
 export function estimateCardSpending(
   invoices: readonly InvoiceInput[],
-  projection: readonly MonthProjection[],
+  projection: readonly EstimateMonthInput[],
   currentMonth: MonthKey
 ): CardEstimate {
   const byCard: CardEstimateByCard[] = [];

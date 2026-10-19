@@ -4,8 +4,10 @@ import { useState } from 'react';
 import { Check, Plus } from 'lucide-react';
 import { useCommands } from '@/providers/repository.provider';
 import type { Commitment } from '@/modules/finance/cash/domain/types';
-import type { CardFixedLine, CardFixedState, MonthLine, MonthProjection } from '@/modules/finance/cash/domain/projection';
-import { CARD_IDS, CARD_FULL_LABELS, monthOf, type CardId } from '@/modules/finance/cash/domain/month';
+import type { CardFixedState } from '@/modules/finance/cash/domain/projection';
+import type { MonthEntry, MonthView } from '@/modules/finance/cash/domain/month-view';
+import { CARD_IDS, CARD_FULL_LABELS, monthLabel, monthOf, type CardId } from '@/modules/finance/cash/domain/month';
+import { SplitBar } from './month-parts';
 import {
   Card, Chip, Dialog, EndMonthField, ErrorText, Eyebrow, Field, Money, MoneyField, buttonGhost, buttonPrimary, buttonSecondary,
   formatDateBR, inputClass, parseMoneyInput, centsToInput, useAction,
@@ -114,51 +116,67 @@ export function CommitmentForm({ initial, currentMonth, onDone, onCancel, defaul
   );
 }
 
-export function CommitmentsSection({ commitments, month, showAdd = true }: { commitments: Commitment[]; month: MonthProjection; showAdd?: boolean }) {
+export function CommitmentsSection({ commitments, view, showAdd = true }: { commitments: Commitment[]; view: MonthView; showAdd?: boolean }) {
   const { financeCash } = useCommands();
   const [form, setForm] = useState<null | { initial?: Commitment }>(null);
-  const [paying, setPaying] = useState<MonthLine | null>(null);
+  const [paying, setPaying] = useState<MonthEntry | null>(null);
   const [deduct, setDeduct] = useState(true);
-  const [editingAmount, setEditingAmount] = useState<MonthLine | null>(null);
+  const [editingAmount, setEditingAmount] = useState<MonthEntry | null>(null);
   const [amountText, setAmountText] = useState('');
   const { pending, error, run, clearError } = useAction();
   const byId = new Map(commitments.map((c) => [c.id, c]));
+  const s = view.sustainability;
 
-  const monthOfLine = (l: MonthLine) => (l.date ? monthOf(l.date) : month.month);
+  // Pendentes primeiro (atrasados no topo), depois os já pagos do mês.
+  const sortedDirect = [...view.commitmentsDirect].sort((a, b) =>
+    Number(a.state === 'done') - Number(b.state === 'done') || (a.date ?? '').localeCompare(b.date ?? ''));
+  const paidCents = s.directLines.filter((l) => l.done).reduce((t, l) => t + l.amountCents, 0);
 
-  const directRows = month.directLines.map((l) => (
-    <li key={`${l.id}-${l.date}`} className="flex items-center justify-between gap-3 py-2.5">
-      <div className="min-w-0">
-        <button type="button" className="truncate text-left text-sm hover:underline" onClick={() => byId.get(l.id) && setForm({ initial: byId.get(l.id) })}>{l.label}</button>
-        <p className="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-          {l.date ? `vence ${formatDateBR(l.date)}` : ''}
-          {l.overdue && <Chip tone="negative">Atrasado</Chip>}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <button type="button" className="tabular text-sm font-semibold hover:underline" onClick={() => { clearError(); setAmountText(centsToInput(l.amountCents)); setEditingAmount(l); }} title="Editar o valor só deste mês">
-          <Money cents={l.amountCents} />
-        </button>
-        <button type="button" className={buttonGhost} onClick={() => { clearError(); setDeduct(true); setPaying(l); }} aria-label={`Marcar ${l.label} como pago`}>
-          <Check size={14} /> Paguei
-        </button>
-      </div>
-    </li>
-  ));
-
-  const cardRows = month.cardFixedLines.map((l: CardFixedLine) => {
-    const included = l.state === 'manual_included';
+  const directRows = sortedDirect.map((l) => {
+    const done = l.state === 'done';
     return (
-      <li key={`${l.id}-${l.date}`} className="py-2.5">
+      <li key={`${l.id}-${l.month}`} className="flex items-center justify-between gap-3 py-2.5">
+        <div className="min-w-0">
+          <button type="button" className={`truncate text-left text-sm hover:underline ${done ? 'text-[var(--text-muted)]' : ''}`} onClick={() => byId.get(l.id) && setForm({ initial: byId.get(l.id) })}>{l.label}</button>
+          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]">
+            {l.date ? `vence ${formatDateBR(l.date)}` : ''}
+            {done && <Chip tone="positive">Pago</Chip>}
+            {l.overdue && <Chip tone="negative">Atrasado</Chip>}
+            {l.carriedOver && <span>de {monthLabel(l.month)} · fora do resultado deste mês</span>}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {done ? (
+            <Money cents={l.amountCents} tone="muted" />
+          ) : (
+            <>
+              <button type="button" className="tabular text-sm font-semibold hover:underline" onClick={() => { clearError(); setAmountText(centsToInput(l.amountCents)); setEditingAmount(l); }} title="Editar o valor só deste mês">
+                <Money cents={l.amountCents} />
+              </button>
+              <button type="button" className={buttonGhost} onClick={() => { clearError(); setDeduct(true); setPaying(l); }} aria-label={`Marcar ${l.label} como pago`}>
+                <Check size={14} /> Paguei
+              </button>
+            </>
+          )}
+        </div>
+      </li>
+    );
+  });
+
+  const cardRows = view.commitmentsCard.map((l: MonthEntry) => {
+    const included = l.cardState === 'manual_included';
+    const st = STATE_LABEL[l.cardState ?? 'awaiting_invoice'];
+    return (
+      <li key={`${l.id}-${l.month}`} className="py-2.5">
         <div className="flex items-center justify-between gap-3">
           <p className="min-w-0 truncate text-sm">{l.label}</p>
-          <Money cents={l.amountCents} tone={l.countedCents > 0 ? 'default' : 'muted'} />
+          <Money cents={l.amountCents} tone={(l.countedCents ?? 0) > 0 ? 'default' : 'muted'} />
         </div>
         <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]">
-          {CARD_FULL_LABELS[l.card]}
-          <Chip tone={STATE_LABEL[l.state].tone}>{STATE_LABEL[l.state].text}</Chip>
-          {l.state !== 'reconciled' && (
-            <button type="button" className={buttonGhost} onClick={() => void financeCash.setIncludedInInvoice(l.id, monthOfLine(l), !included)}>
+          {l.card ? CARD_FULL_LABELS[l.card] : ''}
+          <Chip tone={st.tone}>{st.text}</Chip>
+          {l.cardState !== 'reconciled' && (
+            <button type="button" className={buttonGhost} onClick={() => void financeCash.setIncludedInInvoice(l.id, l.month, !included)}>
               {included ? 'Desfazer' : 'Já está na fatura'}
             </button>
           )}
@@ -167,6 +185,8 @@ export function CommitmentsSection({ commitments, month, showAdd = true }: { com
     );
   });
 
+  const empty = view.commitmentsDirect.length === 0 && view.commitmentsCard.length === 0;
+
   return (
     <Card aria-label="Compromissos do mês">
       <div className="flex items-start justify-between gap-3">
@@ -174,14 +194,19 @@ export function CommitmentsSection({ commitments, month, showAdd = true }: { com
         {showAdd && <button type="button" className={buttonGhost} onClick={() => setForm({})}><Plus size={14} /> Adicionar</button>}
       </div>
       <div className="mt-1 flex items-baseline gap-2">
-        <Money cents={month.directCents + month.cardFixedEstimatedCents} size="lg" />
-        <span className="text-xs text-[var(--text-muted)]">fora das faturas</span>
+        <Money cents={s.directCents} size="lg" />
+        <span className="text-xs text-[var(--text-muted)]">pagos direto, no mês inteiro</span>
       </div>
-      {month.directLines.length === 0 && month.cardFixedLines.length === 0 ? (
-        <p className="mt-2 text-xs text-[var(--text-muted)]">Nenhum compromisso pendente neste mês.</p>
+      {s.directCents > 0 && (
+        <div className="mt-2">
+          <SplitBar label="Compromissos pagos" totalCents={s.directCents} doneCents={paidCents} doneLabel="pago" pendingLabel="pendente" />
+        </div>
+      )}
+      {empty ? (
+        <p className="mt-2 text-xs text-[var(--text-muted)]">Nenhum compromisso neste mês.</p>
       ) : (
-        <details className="mt-3" open={month.directLines.length + month.cardFixedLines.length <= 4}>
-          <summary className="cursor-pointer text-xs font-medium text-[var(--accent)]">Ver compromissos</summary>
+        <details className="mt-3" open={view.commitmentsDirect.length + view.commitmentsCard.length <= 6}>
+          <summary className="cursor-pointer text-xs font-medium text-[var(--accent)]">Ver compromissos e situação dos pagamentos</summary>
           {directRows.length > 0 && <ul className="mt-2 divide-y divide-[var(--line)]">{directRows}</ul>}
           {cardRows.length > 0 && (
             <>
@@ -193,7 +218,7 @@ export function CommitmentsSection({ commitments, month, showAdd = true }: { com
       )}
 
       <Dialog open={form !== null} title={form?.initial ? 'Editar compromisso' : 'Novo compromisso'} onClose={() => setForm(null)}>
-        {form && <CommitmentForm initial={form.initial} currentMonth={month.month} onDone={() => setForm(null)} onCancel={() => setForm(null)} />}
+        {form && <CommitmentForm initial={form.initial} currentMonth={view.month} onDone={() => setForm(null)} onCancel={() => setForm(null)} />}
       </Dialog>
 
       <Dialog open={paying !== null} title="Marcar como pago" onClose={() => setPaying(null)}>
@@ -211,7 +236,7 @@ export function CommitmentsSection({ commitments, month, showAdd = true }: { com
             <div className="flex justify-end gap-2">
               <button type="button" className={buttonSecondary} onClick={() => setPaying(null)}>Cancelar</button>
               <button type="button" className={buttonPrimary} disabled={pending} onClick={async () => {
-                if (await run(() => financeCash.markCommitmentPaid(paying.id, monthOfLine(paying), deduct))) setPaying(null);
+                if (await run(() => financeCash.markCommitmentPaid(paying.id, paying.month, deduct))) setPaying(null);
               }}>{pending ? 'Salvando…' : 'Confirmar'}</button>
             </div>
           </div>
@@ -228,7 +253,7 @@ export function CommitmentsSection({ commitments, month, showAdd = true }: { com
               <button type="button" className={buttonSecondary} onClick={() => setEditingAmount(null)}>Cancelar</button>
               <button type="button" className={buttonPrimary} disabled={pending || (parseMoneyInput(amountText) ?? 0) <= 0} onClick={async () => {
                 const cents = parseMoneyInput(amountText);
-                if (cents && await run(() => financeCash.setOccurrenceAmount(editingAmount.id, monthOfLine(editingAmount), cents))) setEditingAmount(null);
+                if (cents && await run(() => financeCash.setOccurrenceAmount(editingAmount.id, editingAmount.month, cents))) setEditingAmount(null);
               }}>Salvar</button>
             </div>
           </div>

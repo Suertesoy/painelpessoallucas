@@ -248,6 +248,23 @@ export function expandOccurrences(
   return result;
 }
 
+/**
+ * Estado de um gasto fixo cobrado no cartão em relação à fatura do mês: já
+ * conciliado com um item do CSV, marcado manualmente como incluído, não
+ * encontrado numa fatura já fechada, ou ainda aguardando a fatura (único estado
+ * que soma como valor previsto).
+ */
+export function classifyCardFixed(
+  occurrenceStatus: OccurrenceStatus,
+  linkedToImportedItem: boolean,
+  invoiceStatus: InvoiceStatus | null
+): CardFixedState {
+  if (linkedToImportedItem) return 'reconciled';
+  if (occurrenceStatus === 'included_in_invoice') return 'manual_included';
+  if (invoiceStatus !== null && invoiceStatus !== 'open') return 'not_found_in_invoice';
+  return 'awaiting_invoice';
+}
+
 export function projectCash(input: ProjectionInput): MonthProjection[] {
   const currentMonth = monthOf(input.today);
   const lastMonth = addMonths(currentMonth, input.months - 1);
@@ -317,12 +334,9 @@ export function projectCash(input: ProjectionInput): MonthProjection[] {
         warnings.push(`"${occ.commitment.description}" está marcado como cartão, mas sem cartão definido.`);
         continue;
       }
-      const invoice = invoiceByCardMonth.get(`${card}|${occ.month}`);
-      let state: CardFixedState;
-      if (input.linkedCommitmentMonths.has(linkedKey(occ.commitment.id, card, occ.month))) state = 'reconciled';
-      else if (occ.status === 'included_in_invoice') state = 'manual_included';
-      else if (invoice && invoice.status !== 'open') state = 'not_found_in_invoice';
-      else state = 'awaiting_invoice';
+      const state = classifyCardFixed(
+        occ.status, input.linkedCommitmentMonths.has(linkedKey(occ.commitment.id, card, occ.month)), invoiceByCardMonth.get(`${card}|${occ.month}`)?.status ?? null
+      );
       cardFixedLines.push({
         ...base,
         card,

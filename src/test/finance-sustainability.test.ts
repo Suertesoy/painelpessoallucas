@@ -210,19 +210,17 @@ describe('projeção mensal independente (sem carregar déficit hipotético)', (
 });
 
 describe('meta para não usar a reserva', () => {
-  it('limite combinado = entradas − compromissos diretos (R$ 6.100 − R$ 3.700 = R$ 2.400) e divisão por cartão soma o limite', () => {
+  it('limite combinado = entradas − compromissos diretos (R$ 6.100 − R$ 3.700 = R$ 2.400), um valor só da casa', () => {
     const { sustainability } = run();
     const l = sustainability[1].limit;
     expect(l.combinedCents).toBe(240000);
     expect(l.incomeBelowDirect).toBe(false);
-    expect(l.byCard?.reduce((s, c) => s + c.cents, 0)).toBe(240000);
-    // proporcional à média: Lucas 4.000 / 7.740,31 ≈ 51,7%
-    expect(l.byCard?.[0].cents).toBe(Math.floor((240000 * 400000) / 774031));
+    // Sem divisão proporcional entre Lucas e Matheus: não existe campo por cartão.
+    expect(Object.keys(l).sort()).toEqual(['combinedCents', 'incomeBelowDirect', 'knownCardsCents', 'remainingCents']);
   });
 
-  it('sem média para dividir, só o limite combinado é mostrado', () => {
+  it('com ou sem média/histórico o limite combinado é o mesmo (não depende do consumo passado)', () => {
     const { sustainability } = run({ invoices: [] });
-    expect(sustainability[1].limit.byCard).toBeNull();
     expect(sustainability[1].limit.combinedCents).toBe(240000);
   });
 
@@ -231,7 +229,6 @@ describe('meta para não usar a reserva', () => {
     const l = sustainability[1].limit;
     expect(l.incomeBelowDirect).toBe(true);
     expect(l.combinedCents).toBe(0);
-    expect(l.byCard).toBeNull();
     expect(sustainability[1].knownResultCents).toBeLessThan(0);
   });
 

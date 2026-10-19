@@ -11,6 +11,12 @@ const monthKey = z.string().refine(isMonthKey, 'Mês inválido (AAAA-MM).');
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (AAAA-MM-DD).');
 const cardId = z.enum(CARD_IDS as unknown as [string, ...string[]]);
 
+export const CardGoalInput = z.object({
+  scope: z.enum(['default', 'month']),
+  month: monthKey,
+  amountCents: positiveCents.max(100_000_000_000, 'Valor alto demais.'),
+});
+
 export const SetBalanceInput = z
   .object({ availableCents: cents.optional(), reserveCents: cents.min(0, 'A reserva não pode ser negativa.').optional() })
   .refine((v) => v.availableCents !== undefined || v.reserveCents !== undefined, 'Informe o saldo ou a reserva.');
@@ -101,6 +107,7 @@ export type FixedIncomeInputT = z.infer<typeof FixedIncomeInput>;
 /** Entrada aberta (strings); a validação de categoria/finalidade acontece no Zod. */
 export type ClassifyInputT = { itemIds: string[]; category?: string | null; purpose?: string | null };
 export type SetBalanceInputT = z.infer<typeof SetBalanceInput>;
+export type CardGoalInputT = z.infer<typeof CardGoalInput>;
 export type TransferInputT = z.infer<typeof TransferInput>;
 export type ReceivableInputT = z.infer<typeof ReceivableInput>;
 export type CommitmentInputT = z.infer<typeof CommitmentInput>;
