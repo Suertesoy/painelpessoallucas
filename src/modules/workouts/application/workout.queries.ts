@@ -9,9 +9,12 @@ import type {
   WorkoutSession,
 } from '../domain/workout.schema';
 import { buildExerciseSeries, previousPerformance, type ExercisePoint } from '../domain/workout-stats';
+import { countCompletedDays, exerciseProgress, sessionProgress, type DaySessionProgress, type ExerciseProgress } from '../domain/workout-progress';
 
 const RECENT_SESSIONS = 60;
 const RECENT_SET_LOGS = 800;
+/** Teto de sessões lidas para contar treinos concluídos (anos de treino cabem folgados). */
+const ALL_SESSIONS = 1000;
 
 export interface RoutineDayView {
   day: WorkoutDay;
@@ -30,7 +33,17 @@ export interface RoutineView {
 
 export interface AthleteOverview {
   athlete: WorkoutAthlete;
-  days: Array<{ day: WorkoutDay; exerciseCount: number; lastDoneOn?: string; loggedInActive: number }>;
+  days: Array<{
+    day: WorkoutDay;
+    exerciseCount: number;
+    /** Última EXECUÇÃO: último dia com séries registradas deste treino (sessão não cancelada). */
+    lastDoneOn?: string;
+    loggedInActive: number;
+    /** Quantas vezes este treino foi CONCLUÍDO por este atleta (sessões encerradas; ver `countCompletedDays`). */
+    completedCount: number;
+    /** Data da última sessão em que o treino contou como concluído. */
+    lastCompletedOn?: string;
+  }>;
   activeSession: WorkoutSession | null;
   recentSessions: WorkoutSession[];
 }
@@ -41,6 +54,8 @@ export interface SessionExerciseView {
   currentLoad?: ExerciseLoad;
   /** Séries já registradas NESTA sessão. */
   logs: SetLog[];
+  /** Progresso do atleta da sessão neste exercício, vindo dos registros reais. */
+  progress: ExerciseProgress;
   /** Última vez que este atleta fez o exercício. */
   previous: { date: string; sets: SetLog[] } | null;
   /** Carga atual de CADA pessoa (para treinar junto e ver/editar a do outro). */
@@ -63,6 +78,8 @@ export interface SessionView {
   /** Séries registradas por treino (dia) nesta sessão. */
   setsByDay: Record<string, number>;
   exercises: SessionExerciseView[];
+  /** Exercícios concluídos no treino em foco (para o indicador do topo). */
+  dayProgress: DaySessionProgress;
 }
 
 /** Um treino (A–E) para consultar SEM iniciar nada. */
@@ -118,13 +135,15 @@ export class WorkoutQueries {
   }
 
   async getAthleteOverview(athleteId: string): Promise<AthleteOverview | null> {
-    const [athletes, days, exercises, active, recent, logs] = await Promise.all([
+    const [athletes, days, exercises, active, recent, logs, allSessions, touches] = await Promise.all([
       this.repo.listAthletes(),
       this.repo.listDays(),
       this.repo.listExercises(),
       this.repo.findActiveSession(athleteId),
       this.repo.listSessions(athleteId, RECENT_SESSIONS),
       this.repo.listSetLogsByAthlete(athleteId, RECENT_SET_LOGS),
+      this.repo.listSessions(athleteId, ALL_SESSIONS),
+      this.repo.listSetLogTouches(athleteId),
     ]);
     const athlete = athletes.find((a) => a.id === athleteId);
     if (!athlete) return null;
@@ -142,6 +161,8 @@ export class WorkoutQueries {
       if (!prev || session.sessionDate > prev) lastDone.set(dayId, session.sessionDate);
       if (active && log.sessionId === active.id) loggedInActive.set(dayId, (loggedInActive.get(dayId) ?? 0) + 1);
     }
+    // Treinos CONCLUÍDOS: calculados do histórico completo (sessões encerradas + séries), nunca de um contador salvo.
+    const completions = countCompletedDays({ sessions: allSessions, touches, exercises });
     return {
       athlete,
       days: days
@@ -151,6 +172,8 @@ export class WorkoutQueries {
           exerciseCount: activeExercises(exercises, day.id).length,
           lastDoneOn: lastDone.get(day.id),
           loggedInActive: loggedInActive.get(day.id) ?? 0,
+          completedCount: completions.get(day.id)?.count ?? 0,
+          lastCompletedOn: completions.get(day.id)?.lastCompletedOn,
         })),
       activeSession: active,
       recentSessions: recent.slice(0, 10),
@@ -213,6 +236,26 @@ export class WorkoutQueries {
       .filter((e) => e.dayId === day.id && ((!e.removedAt && !e.hiddenAt) || loggedIds.has(e.id)))
       .sort((a, b) => a.position - b.position);
 
+    const exerciseViews: SessionExerciseView[] = dayExercises.map((exercise) => {
+      const loadsByAthlete: SessionExerciseView['loadsByAthlete'] = {};
+      const previousByAthlete: SessionExerciseView['previousByAthlete'] = {};
+      for (const a of athletes) {
+        loadsByAthlete[a.id] = loads.find((l) => l.exerciseId === exercise.id && l.athleteId === a.id);
+        const h = history.get(a.id)!;
+        previousByAthlete[a.id] = previousPerformance(h.logs, h.sessions, exercise.id, sessionId);
+      }
+      const exerciseLogs = logs.filter((l) => l.exerciseId === exercise.id).sort((a, b) => a.setNumber - b.setNumber);
+      return {
+        exercise,
+        currentLoad: loadsByAthlete[athlete.id],
+        logs: exerciseLogs,
+        progress: exerciseProgress(exercise, exerciseLogs),
+        previous: previousByAthlete[athlete.id],
+        loadsByAthlete,
+        previousByAthlete,
+      };
+    });
+
     return {
       session,
       athlete,
@@ -221,23 +264,8 @@ export class WorkoutQueries {
       days: [...days].sort((a, b) => a.position - b.position),
       totalSets: allLogs.length,
       setsByDay,
-      exercises: dayExercises.map((exercise) => {
-        const loadsByAthlete: SessionExerciseView['loadsByAthlete'] = {};
-        const previousByAthlete: SessionExerciseView['previousByAthlete'] = {};
-        for (const a of athletes) {
-          loadsByAthlete[a.id] = loads.find((l) => l.exerciseId === exercise.id && l.athleteId === a.id);
-          const h = history.get(a.id)!;
-          previousByAthlete[a.id] = previousPerformance(h.logs, h.sessions, exercise.id, sessionId);
-        }
-        return {
-          exercise,
-          currentLoad: loadsByAthlete[athlete.id],
-          logs: logs.filter((l) => l.exerciseId === exercise.id).sort((a, b) => a.setNumber - b.setNumber),
-          previous: previousByAthlete[athlete.id],
-          loadsByAthlete,
-          previousByAthlete,
-        };
-      }),
+      exercises: exerciseViews,
+      dayProgress: sessionProgress(exerciseViews.map((v) => v.progress)),
     };
   }
 

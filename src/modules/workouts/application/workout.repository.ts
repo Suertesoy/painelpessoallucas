@@ -24,6 +24,11 @@ export interface WorkoutRepository {
   listExercises(): Promise<WorkoutExercise[]>;
   findExercise(id: string): Promise<WorkoutExercise | null>;
   saveExercises(exercises: WorkoutExercise[]): Promise<void>;
+  /**
+   * Troca SÓ o nome (atualização de uma coluna): mantém id, cargas, séries, descanso e
+   * qualquer edição simultânea da outra pessoa nos demais campos. Devolve o exercício atualizado.
+   */
+  renameExercise(id: string, name: string): Promise<WorkoutExercise | null>;
 
   // Cargas atuais por atleta
   listLoads(): Promise<ExerciseLoad[]>;
@@ -40,6 +45,11 @@ export interface WorkoutRepository {
   listSetLogsBySession(sessionId: string): Promise<SetLog[]>;
   /** Mais recentes primeiro, limitadas — base de última carga e gráficos. */
   listSetLogsByAthlete(athleteId: string, limit: number): Promise<SetLog[]>;
+  /**
+   * Pares (sessão, exercício) com ao menos uma série de TODO o histórico do atleta —
+   * base da contagem de treinos concluídos (sem o teto das listas recentes).
+   */
+  listSetLogTouches(athleteId: string): Promise<Array<{ sessionId: string; exerciseId: string }>>;
   saveSetLog(log: SetLog): Promise<void>;
   deleteSetLog(id: string): Promise<void>;
 

@@ -248,6 +248,22 @@ export class WorkoutCommands {
     return exercise;
   }
 
+  /**
+   * Renomeia o exercício da ficha COMPARTILHADA (Lucas e Matheus veem o mesmo nome). Altera
+   * só a coluna do nome: o id, as cargas de cada atleta, as séries e o histórico, o descanso
+   * e a ordem permanecem intactos — nada é recriado.
+   */
+  async renameExercise(exerciseId: string, name: string): Promise<WorkoutExercise> {
+    const trimmed = WorkoutExerciseSchema.shape.name.parse(name);
+    const existing = await this.repo.findExercise(exerciseId);
+    if (!existing || existing.removedAt) throw new Error('Exercício não encontrado');
+    if (existing.name === trimmed) return existing;
+    const updated = await this.repo.renameExercise(exerciseId, trimmed);
+    if (!updated) throw new Error('Exercício não encontrado');
+    await this.emit(existing.workspaceId, 'workout.exercise.renamed', existing.id, { dayId: existing.dayId }, new Date().toISOString());
+    return updated;
+  }
+
   /** Remove da rotina sem apagar o histórico de séries. */
   async removeExercise(exerciseId: string): Promise<WorkoutExercise> {
     const existing = await this.repo.findExercise(exerciseId);

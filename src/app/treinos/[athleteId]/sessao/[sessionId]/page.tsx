@@ -12,6 +12,8 @@ import { RestTimerBar } from '@/components/workouts/rest-timer-bar';
 import { AthleteSwitch } from '@/components/workouts/athlete-switch';
 import { LoadField } from '@/components/workouts/load-field';
 import { SessionClock } from '@/components/workouts/session-clock';
+import { ExerciseCard, useOpenExercise } from '@/components/workouts/exercise-card';
+import { defaultOpenExerciseId, sessionProgressLabel } from '@/modules/workouts/domain/workout-progress';
 import { unlockAudio } from '@/lib/beep';
 import { loadForSet } from '@/modules/workouts/domain/workout-stats';
 import {
@@ -43,6 +45,7 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
   const [extraSets, setExtraSets] = useState<Record<string, number>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [storedOpen, setOpen] = useOpenExercise(sessionId, data?.day.id ?? '');
 
   if (error) {
     return (
@@ -61,7 +64,9 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
     );
   }
 
-  const { session, athlete, athletes, day, days, exercises, totalSets, setsByDay } = data;
+  const { session, athlete, athletes, day, days, exercises, totalSets, setsByDay, dayProgress } = data;
+  // Aberto por escolha do usuário; sem escolha, só o exercício EM ANDAMENTO (nenhum, se não houver).
+  const openId = storedOpen !== undefined ? storedOpen : defaultOpenExerciseId(exercises.map((v) => ({ id: v.exercise.id, progress: v.progress })));
   const readOnly = session.status !== 'in_progress';
   const currentView = viewId ?? athlete.id;
   const viewed = athletes.find((a) => a.id === currentView) ?? athlete;
@@ -102,6 +107,8 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
       // A carga é a do exercício (uma só). Corrigir uma série já feita não reinicia o descanso.
       // Série nova usa a carga atual; série já feita preserva a carga com que foi feita.
       await cmds.completeSet(session.id, { exerciseId: view.exercise.id, setNumber: n, loadKg: loadForSet(logged, effectiveLoad(view)), reps }, logged ? undefined : rest);
+      // Concluir uma série NÃO recolhe o card; só a última série (exercício concluído) o recolhe.
+      if (!logged && view.progress.done + 1 >= view.exercise.sets) setOpen(null);
       setRepsDraft((d) => {
         const copy = { ...d };
         delete copy[repsKey(view.exercise.id, n)];
@@ -180,6 +187,9 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
       <div className="mt-1">
         <SessionClock startedAt={session.startedAt} running={!readOnly} />
       </div>
+      <p data-testid="day-progress" aria-live="polite" className="mt-1 text-sm font-medium text-gray-700">
+        {sessionProgressLabel(day.code, dayProgress)}
+      </p>
 
       {/* Trocar de treino não encerra nada: o cronômetro e as séries continuam */}
       <nav aria-label="Trocar de treino" className="mt-3 flex flex-wrap gap-2">
@@ -211,18 +221,24 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
 
       {message && <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{message}</p>}
 
-      <ol className="mt-5 space-y-4">
+      <ol className="mt-5 space-y-3">
         {exercises.map((view) => {
           const { exercise } = view;
           const rest = exercise.restSeconds ?? DEFAULT_REST_SECONDS;
           const savedLoad = view.loadsByAthlete[viewed.id];
           const prev = view.previousByAthlete[viewed.id];
           const setCount = Math.max(exercise.sets, ...view.logs.map((l) => l.setNumber)) + (extraSets[exercise.id] ?? 0);
-          const done = view.logs.length >= exercise.sets;
           return (
-            <li key={exercise.id} className={`rounded-3xl border bg-white p-4 ${isOwn && done ? 'border-emerald-300' : 'border-gray-200'}`}>
-              <h2 className="font-semibold text-gray-900">{exercise.name}</h2>
-              <p className="mt-0.5 text-sm text-gray-600">{formatPrescription(exercise)}</p>
+            <ExerciseCard
+              key={exercise.id}
+              name={exercise.name}
+              progress={isOwn ? view.progress : null}
+              summary={`${formatPrescription(exercise)}`}
+              open={openId === exercise.id}
+              onToggle={() => setOpen(openId === exercise.id ? null : exercise.id)}
+              onRename={async (name) => { await cmds.renameExercise(exercise.id, name); }}
+            >
+              <p className="text-sm text-gray-600">{formatPrescription(exercise)}</p>
 
               {/* Carga: uma só por exercício */}
               <div className="mt-3">
@@ -367,7 +383,7 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
                   )}
                 </>
               )}
-            </li>
+            </ExerciseCard>
           );
         })}
       </ol>

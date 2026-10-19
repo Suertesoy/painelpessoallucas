@@ -3,7 +3,6 @@
 import { use, useState } from 'react';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
-import { ptBR } from 'date-fns/locale/pt-BR';
 import { ChevronRight, LineChart as ChartIcon, Play } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
@@ -16,6 +15,11 @@ import { DataErrorNotice } from '@/components/data-error-notice';
  * o A, o B, voltar, sem iniciar nada e sem cancelar nada. Só "Começar treino",
  * dentro do dia, entra no fluxo ativo.
  */
+/** 2026-10-16 → 16/10/2026 (sem passar por Date UTC). */
+function formatDate(day: string): string {
+  return format(parseISO(`${day}T00:00:00`), 'dd/MM/yyyy');
+}
+
 export default function AtletaPage({ params }: { params: Promise<{ athleteId: string }> }) {
   const { athleteId } = use(params);
   const { workout: queries } = useQueries();
@@ -111,7 +115,7 @@ export default function AtletaPage({ params }: { params: Promise<{ athleteId: st
       )}
 
       <div className="mt-5 grid grid-cols-1 gap-3">
-        {data.days.map(({ day, exerciseCount, lastDoneOn, loggedInActive }) => (
+        {data.days.map(({ day, exerciseCount, lastDoneOn, loggedInActive, completedCount, lastCompletedOn }) => (
           <Link
             key={day.id}
             href={`/treinos/${athleteId}/dia/${day.id}`}
@@ -127,13 +131,23 @@ export default function AtletaPage({ params }: { params: Promise<{ athleteId: st
                 {loggedInActive > 0 && <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">{loggedInActive} séries hoje</span>}
               </span>
               <span className="block text-xs text-gray-500">
-                {exerciseCount} {exerciseCount === 1 ? 'exercício' : 'exercícios'} ·{' '}
-                {exerciseCount === 0
-                  ? 'monte a rotina'
-                  : lastDoneOn
-                    ? `último: ${format(parseISO(`${lastDoneOn}T00:00:00`), "d 'de' MMM", { locale: ptBR })}`
-                    : 'ainda não feito'}
+                {exerciseCount} {exerciseCount === 1 ? 'exercício' : 'exercícios'}
+                {exerciseCount === 0 && ' · monte a rotina'}
               </span>
+              {exerciseCount > 0 && (
+                <span className="block text-xs text-gray-600">
+                  {lastDoneOn ? `Última execução: ${formatDate(lastDoneOn)}` : 'Ainda não executado'}
+                  {' · '}
+                  {completedCount > 0 ? (
+                    <strong className="font-semibold text-gray-900" title="Vezes que este treino foi concluído">
+                      {completedCount}×<span className="sr-only"> concluído</span>
+                    </strong>
+                  ) : (
+                    <span>ainda não concluído</span>
+                  )}
+                  {lastCompletedOn && lastCompletedOn !== lastDoneOn && <span className="block">Última conclusão: {formatDate(lastCompletedOn)}</span>}
+                </span>
+              )}
             </span>
             <ChevronRight size={18} className="shrink-0 text-gray-400" />
           </Link>

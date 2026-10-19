@@ -240,6 +240,19 @@ export class SupabaseWorkoutRepository implements WorkoutRepository {
     this.notifier.notify();
   }
 
+  async renameExercise(id: string, name: string): Promise<WorkoutExercise | null> {
+    const { data, error } = await this.supabase
+      .from('workout_exercises')
+      .update({ name })
+      .eq('id', id)
+      .eq('workspace_id', this.workspaceId)
+      .select('*')
+      .maybeSingle();
+    if (error) this.fail('renomear o exercício', error);
+    this.notifier.notify();
+    return data ? exerciseFromRow(data) : null;
+  }
+
   // --- Cargas ----------------------------------------------------------------------------
 
   async listLoads(): Promise<ExerciseLoad[]> {
@@ -340,6 +353,31 @@ export class SupabaseWorkoutRepository implements WorkoutRepository {
       .limit(limit);
     if (error) this.fail('carregar o histórico de séries', error);
     return (data ?? []).map(setLogFromRow);
+  }
+
+  async listSetLogTouches(athleteId: string): Promise<Array<{ sessionId: string; exerciseId: string }>> {
+    // O PostgREST devolve no máximo 1.000 linhas por pedido: pagina até acabar, para a
+    // contagem não perder histórico antigo.
+    const PAGE = 1000;
+    const seen = new Set<string>();
+    const out: Array<{ sessionId: string; exerciseId: string }> = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await this.supabase
+        .from('workout_set_logs')
+        .select('session_id, exercise_id')
+        .eq('athlete_id', athleteId)
+        .order('id')
+        .range(from, from + PAGE - 1);
+      if (error) this.fail('carregar o histórico de séries', error);
+      for (const r of data ?? []) {
+        const key = `${r.session_id}:${r.exercise_id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ sessionId: r.session_id as string, exerciseId: r.exercise_id as string });
+      }
+      if ((data ?? []).length < PAGE) break;
+    }
+    return out;
   }
 
   async saveSetLog(log: SetLog): Promise<void> {

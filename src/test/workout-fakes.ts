@@ -26,6 +26,13 @@ export class FakeWorkoutRepository implements WorkoutRepository {
   async listExercises() { return [...this.exercises.values()]; }
   async findExercise(id: string) { return this.exercises.get(id) ?? null; }
   async saveExercises(e: WorkoutExercise[]) { e.forEach((x) => this.exercises.set(x.id, x)); }
+  async renameExercise(id: string, name: string) {
+    const e = this.exercises.get(id);
+    if (!e) return null;
+    const updated = { ...e, name };
+    this.exercises.set(id, updated);
+    return updated;
+  }
   async listLoads() { return [...this.loads.values()]; }
   async saveLoads(l: ExerciseLoad[]) { l.forEach((x) => this.loads.set(`${x.exerciseId}:${x.athleteId}`, x)); }
   async findSession(id: string) { return this.sessions.get(id) ?? null; }
@@ -45,6 +52,16 @@ export class FakeWorkoutRepository implements WorkoutRepository {
       .filter((l) => l.athleteId === athleteId)
       .sort((a, b) => (a.completedAt < b.completedAt ? 1 : -1))
       .slice(0, limit);
+  }
+  async listSetLogTouches(athleteId: string) {
+    const seen = new Set<string>();
+    const out: Array<{ sessionId: string; exerciseId: string }> = [];
+    for (const l of this.setLogs.values()) {
+      if (l.athleteId !== athleteId || seen.has(`${l.sessionId}:${l.exerciseId}`)) continue;
+      seen.add(`${l.sessionId}:${l.exerciseId}`);
+      out.push({ sessionId: l.sessionId, exerciseId: l.exerciseId });
+    }
+    return out;
   }
   async saveSetLog(l: SetLog) { this.setLogs.set(l.id, l); }
   async deleteSetLog(id: string) { this.setLogs.delete(id); }

@@ -105,3 +105,11 @@ Com a tela bloqueada ou o app suspenso, o JavaScript para: o bipe/vibração do 
 ## 9. Conferência read-only em produção
 
 `supabase/tests/consultas-producao-somente-leitura.sql` (8 consultas curtas, nenhuma altera dados).
+
+## 7. Treinos — fichas em cards, ficha compartilhada e contador (rodada de refinamento)
+- **Cards expansíveis** na sessão: recolhido mostra nome, `n/N séries · Não iniciado | Em andamento | Concluído` e o chevron; expandido mostra carga, descanso, séries e "Como fazer". Um card aberto por vez; concluir série não recolhe, concluir a última recolhe. A escolha do card aberto sobrevive a navegar (sessionStorage da aba). O progresso vem das séries registradas (`workout-progress.ts`), nunca de contador visual.
+- **Indicador no topo:** "Treino A · 4 de 7 exercícios concluídos", ao lado do cronômetro geral.
+- **Editar nome:** `WorkoutCommands.renameExercise` altera só a coluna `name` (atualização de uma coluna): id, cargas, séries, descanso e ordem permanecem; funciona para os dois porque a ficha é do workspace.
+- **Ficha compartilhada (auditoria):** `workout_days`/`workout_exercises` pertencem ao **workspace**; Lucas e Matheus são linhas de `workout_athletes` dentro dele. Cargas (`workout_exercise_loads`), sessões, séries e peso corporal referenciam o **atleta**. No banco de produção a casa compartilhada tem os dois membros no mesmo workspace e a ficha de 38 exercícios é única; o outro workspace (pessoal, 1 membro) tem a estrutura A–E vazia — nada foi mesclado nem migrado.
+- **Contador de treinos concluídos:** derivado do histórico (`countCompletedDays`): sessão com status concluído em que pelo menos metade dos exercícios do treino tiveram séries. Em andamento e canceladas nunca contam; cada sessão conta uma vez por treino; sessão concluída sem séries do treino não é adivinhada. Exibido como "Última execução: dd/mm/aaaa · N×" (e "Última conclusão" quando difere).
+- **Live Activity / Dynamic Island:** auditoria e plano em `docs/TREINOS_LIVE_ACTIVITY_IOS.md` (pendente de autorização nativa).
