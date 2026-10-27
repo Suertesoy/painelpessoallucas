@@ -80,6 +80,7 @@ import { WorkoutRepository } from '@/modules/workouts/application/workout.reposi
 import { WorkoutCommands } from '@/modules/workouts/application/workout.commands';
 import { WorkoutQueries } from '@/modules/workouts/application/workout.queries';
 import { SharingService } from '@/modules/sharing/application/sharing.service';
+import { browserRestAlertScheduler } from '@/platform/workouts/rest-scheduler-client';
 import { useAuth } from './auth.provider';
 
 interface RepositoryContextType {
@@ -209,7 +210,7 @@ export function RepositoryProvider({ children }: { children: ReactNode }) {
       practiceCommands: new PracticeCommands(practiceRepo, eventRepo),
       practiceQueries: new PracticeQueries(learningContentRepo, lessonProgressRepo, practiceRepo),
       workoutRepository: workoutRepo,
-      workoutCommands: new WorkoutCommands(workoutRepo, eventRepo),
+      workoutCommands: new WorkoutCommands(workoutRepo, eventRepo, browserRestAlertScheduler),
       workoutQueries: new WorkoutQueries(workoutRepo),
       reminderRepository: reminderRepo,
       reminderCommands: new ReminderCommands(reminderRepo, eventRepo),

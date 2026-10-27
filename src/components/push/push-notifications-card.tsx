@@ -210,6 +210,15 @@ export function PushNotificationsCard() {
               Avisar quando uma captura precisar de atenção
             </label>
 
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={push.preferences.workoutRestEnabled}
+                onChange={(e) => void push.updatePreferences({ workoutRestEnabled: e.target.checked })}
+              />
+              Avisar quando o descanso dos treinos terminar
+            </label>
+
             <label className="flex items-center gap-2 border-t border-gray-100 pt-3">
               <input
                 type="checkbox"

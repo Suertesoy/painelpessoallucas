@@ -5,7 +5,7 @@
  * tarefa, e só quando o dispositivo autorizou "Mostrar detalhes".
  */
 
-export type PushCategory = 'task_reminder' | 'daily_planning' | 'weekly_review' | 'capture_failure';
+export type PushCategory = 'task_reminder' | 'daily_planning' | 'weekly_review' | 'capture_failure' | 'workout_rest';
 
 const GENERIC_TITLE = 'Lutheus';
 const MAX_DETAIL_LENGTH = 140;
@@ -37,6 +37,11 @@ function genericContentFor(category: PushCategory): NotificationContent {
         title: 'Uma captura precisa de atenção',
         body: 'Não foi possível organizar uma captura. O conteúdo original está preservado.',
       };
+    case 'workout_rest':
+      return {
+        title: 'Lutheus 🏡',
+        body: 'Descanso concluído! 💪 Hora da próxima série.',
+      };
   }
 }
 
@@ -66,5 +71,7 @@ export function targetUrlForCategory(category: PushCategory, itemId?: string): s
       return '/hoje';
     case 'weekly_review':
       return '/revisao';
+    case 'workout_rest':
+      return '/treinos';
   }
 }

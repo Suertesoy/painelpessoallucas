@@ -26,7 +26,7 @@ async function loadOwnedSubscription(
   const { data } = await admin
     .from('push_subscriptions')
     .select(
-      'id, device_name, platform, task_reminders_enabled, daily_planning_enabled, daily_planning_time, weekly_review_enabled, weekly_review_day, weekly_review_time, capture_failure_enabled, show_details_enabled, timezone'
+      'id, device_name, platform, task_reminders_enabled, daily_planning_enabled, daily_planning_time, weekly_review_enabled, weekly_review_day, weekly_review_time, capture_failure_enabled, workout_rest_enabled, show_details_enabled, timezone'
     )
     .eq('id', id)
     .eq('workspace_id', workspaceId)
@@ -78,7 +78,7 @@ export async function PUT(request: Request) {
     .update(patch)
     .eq('id', id)
     .select(
-      'device_name, platform, task_reminders_enabled, daily_planning_enabled, daily_planning_time, weekly_review_enabled, weekly_review_day, weekly_review_time, capture_failure_enabled, show_details_enabled, timezone'
+      'device_name, platform, task_reminders_enabled, daily_planning_enabled, daily_planning_time, weekly_review_enabled, weekly_review_day, weekly_review_time, capture_failure_enabled, workout_rest_enabled, show_details_enabled, timezone'
     )
     .single();
 

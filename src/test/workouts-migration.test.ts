@@ -43,3 +43,31 @@ describe('migration de Estudos', () => {
     expect(sql).toContain('unique (workspace_id, course_id, kind, subject)');
   });
 });
+
+describe('migration de Web Push para descanso nos Treinos', () => {
+  const sql = read('20261026120000_workout_rest_push.sql');
+
+  it('é aditiva e define colunas com default seguro', () => {
+    expect(sql).not.toMatch(/drop (table|column)/i);
+    expect(sql).toContain('add column if not exists workout_rest_enabled boolean not null default false');
+    expect(sql).toContain('add column if not exists rest_nonce uuid');
+  });
+
+  it('a geração do descanso é carimbada pelo banco, não pelo cliente', () => {
+    expect(sql).toMatch(/create trigger workout_sessions_rest_nonce\s+before insert or update on public\.workout_sessions/);
+    expect(sql).toContain('new.rest_nonce := gen_random_uuid()');
+    expect(sql).toContain('new.rest_nonce := old.rest_nonce');
+  });
+
+  it('o navegador não vincula atleta a conta; um usuário por atleta no workspace', () => {
+    expect(sql).toMatch(/coalesce\(auth\.role\(\), ''\) in \('anon', 'authenticated'\)/);
+    expect(sql).toMatch(/unique index if not exists workout_athletes_user_unique_idx\s+on public\.workout_athletes \(workspace_id, user_id\)/);
+  });
+
+  it('envio idempotente por (sessão, geração, aparelho), só para o servidor', () => {
+    expect(sql).toContain('unique (session_id, rest_nonce, subscription_id)');
+    expect(sql).toContain('alter table public.workout_rest_push_deliveries enable row level security');
+    expect(sql).not.toMatch(/create policy[^;]*workout_rest_push_deliveries/i);
+    expect(sql).not.toMatch(/grant[^;]*workout_rest_push_deliveries[^;]*authenticated/i);
+  });
+});

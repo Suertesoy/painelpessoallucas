@@ -107,6 +107,35 @@ describe('service worker — push', () => {
     expect(sw.showNotification).toHaveBeenCalledWith('X', expect.objectContaining({ data: { url: '/' } }));
   });
 
+  describe('fim de descanso com o Lutheus aberto', () => {
+    const restPayload = { title: 'Lutheus 🏡', body: 'Descanso concluído! 💪 Hora da próxima série.', url: '/treinos/a/sessao/s', tag: 'workout-rest:s', kind: 'workout_rest' };
+    const client = (visibilityState: string, focused: boolean) => ({ url: `${ORIGIN}/treinos/a/sessao/s`, focus: vi.fn(), visibilityState, focused });
+
+    it('janela visível e em foco: ainda exibe a notificação (exigência do iOS), mas sem som', async () => {
+      const sw = loadServiceWorker({ existingClients: [client('visible', true)] });
+      const { event, waits } = makePushEvent(restPayload);
+      await sw.emit('push', event);
+      await Promise.all(waits);
+      expect(sw.showNotification).toHaveBeenCalledWith('Lutheus 🏡', expect.objectContaining({ tag: 'workout-rest:s', silent: true }));
+    });
+
+    it('tela bloqueada / app em segundo plano: notificação normal, com som', async () => {
+      const sw = loadServiceWorker({ existingClients: [client('hidden', false)] });
+      const { event, waits } = makePushEvent(restPayload);
+      await sw.emit('push', event);
+      await Promise.all(waits);
+      expect(sw.showNotification).toHaveBeenCalledWith('Lutheus 🏡', expect.not.objectContaining({ silent: true }));
+    });
+
+    it('outras categorias nunca ficam silenciosas, mesmo com o app aberto', async () => {
+      const sw = loadServiceWorker({ existingClients: [client('visible', true)] });
+      const { event, waits } = makePushEvent({ title: 'Lembrete', body: 'x', url: '/entrada', tag: 't' });
+      await sw.emit('push', event);
+      await Promise.all(waits);
+      expect(sw.showNotification).toHaveBeenCalledWith('Lembrete', expect.not.objectContaining({ silent: true }));
+    });
+  });
+
   it('rejeita URL protocol-relative (//evil.example)', async () => {
     const sw = loadServiceWorker();
     const { event, waits } = makePushEvent({ title: 'X', body: 'Y', url: '//evil.example' });

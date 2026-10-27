@@ -13,7 +13,9 @@ import { restCountdownOf, type WorkoutSession } from '@/modules/workouts/domain/
  * então recarregar, navegar para a Home ou voltar ao app mostra o tempo
  * correto. Ao terminar: aviso visual + bipe (+ vibração onde existir).
  * Limite honesto do PWA no iPhone: com a tela bloqueada ou o app em segundo
- * plano o JavaScript é suspenso — o aviso aparece quando você volta ao app.
+ * plano o JavaScript é suspenso — o bipe só toca quando você volta ao app.
+ * Para a tela bloqueada existe o aviso Web Push agendado no servidor
+ * ("Avisar quando o descanso terminar"), que não depende deste componente.
  */
 export function RestTimerBar({ session, onError }: { session: WorkoutSession; onError: (message: string) => void }) {
   const { workout } = useCommands();
@@ -25,6 +27,24 @@ export function RestTimerBar({ session, onError }: { session: WorkoutSession; on
   const phase = countdownPhase(state, now.getTime());
   const remaining = remainingSeconds(state, now.getTime());
   const total = session.restDurationSeconds ?? 0;
+
+  // Recuperação do aviso push: ao abrir/recarregar a tela ou voltar ao app
+  // com um descanso correndo, pede de novo o agendamento. É idempotente no
+  // servidor (mesma geração = mesma mensagem), então cobre só o caso em que o
+  // pedido feito ao iniciar o descanso se perdeu.
+  const latest = useRef(session);
+  useEffect(() => {
+    latest.current = session;
+  }, [session]);
+  useEffect(() => {
+    const ensure = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (countdownPhase(restCountdownOf(latest.current), Date.now()) === 'running') workout.ensureRestAlert(latest.current.id);
+    };
+    ensure();
+    document.addEventListener('visibilitychange', ensure);
+    return () => document.removeEventListener('visibilitychange', ensure);
+  }, [workout]);
 
   // Aviso único por descanso (identificado pelo instante de término).
   useEffect(() => {

@@ -110,8 +110,12 @@ export function usePushNotifications() {
     return () => clearTimeout(timer);
   }, [snapshot.state, subscriptionId, loadPreferences]);
 
-  /** Só deve ser chamado a partir de um clique explícito do usuário. */
-  const activate = useCallback(async () => {
+  /**
+   * Só deve ser chamado a partir de um clique explícito do usuário.
+   * `initialPreferences` é gravado já com o id novo da assinatura (ex.: o
+   * toggle de descanso liga a própria categoria ao ativar).
+   */
+  const activate = useCallback(async (initialPreferences?: UpdatePushPreferencesDTO) => {
     setBusy(true);
     setError(null);
     try {
@@ -133,6 +137,14 @@ export function usePushNotifications() {
       const body = (await res.json()) as { subscriptionId: string };
       storeSubscriptionId(body.subscriptionId);
       setSubscriptionId(body.subscriptionId);
+      if (initialPreferences) {
+        const prefRes = await fetch(`/api/push/preferences?id=${encodeURIComponent(body.subscriptionId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(initialPreferences),
+        });
+        if (!prefRes.ok) setError('Notificações ativadas, mas não foi possível salvar a preferência.');
+      }
       await loadPreferences(body.subscriptionId);
       await loadDevices();
     } catch (e) {

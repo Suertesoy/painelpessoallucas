@@ -51,10 +51,21 @@ export interface ImportRoutineResult {
   needsReview: number;
 }
 
+/**
+ * Agenda o aviso push de fim do descanso que acabou de ser gravado. Só
+ * "garante": o servidor lê prazo e geração do banco e deduplica. Não existe
+ * "cancelar" — pausar, pular ou reiniciar trocam a geração no banco e o
+ * callback antigo é descartado lá.
+ */
+export interface RestAlertScheduler {
+  ensureScheduled(sessionId: string): Promise<void>;
+}
+
 export class WorkoutCommands {
   constructor(
     private repo: WorkoutRepository,
-    private eventRepo: EventRepository
+    private eventRepo: EventRepository,
+    private restAlerts?: RestAlertScheduler
   ) {}
 
   private async emit(workspaceId: string, type: string, entityId: string, payload: Record<string, unknown>, at: string) {
@@ -489,11 +500,18 @@ export class WorkoutCommands {
   async startRest(sessionId: string, seconds: number): Promise<WorkoutSession> {
     const session = await this.loadActiveSession(sessionId);
     const duration = Math.round(Math.min(MAX_REST_SECONDS, Math.max(MIN_REST_SECONDS, seconds)));
-    return this.saveRest(session, {
+    const updated = await this.saveRest(session, {
       restEndsAt: new Date(Date.now() + duration * 1000).toISOString(),
       restDurationSeconds: duration,
       restPausedRemainingSeconds: undefined,
     });
+    this.ensureRestAlert(sessionId);
+    return updated;
+  }
+
+  /** Dispara (sem esperar) o agendamento do aviso push do descanso atual. */
+  ensureRestAlert(sessionId: string): void {
+    void this.restAlerts?.ensureScheduled(sessionId).catch(() => undefined);
   }
 
   /** Reinicia com a duração original do último descanso. */
@@ -514,11 +532,13 @@ export class WorkoutCommands {
     if (countdownPhase(state, nowMs) === 'paused') {
       return this.saveRest(session, { restPausedRemainingSeconds: clamped, restDurationSeconds: duration });
     }
-    return this.saveRest(session, {
+    const updated = await this.saveRest(session, {
       restEndsAt: new Date(nowMs + clamped * 1000).toISOString(),
       restDurationSeconds: duration,
       restPausedRemainingSeconds: undefined,
     });
+    this.ensureRestAlert(sessionId);
+    return updated;
   }
 
   async pauseRest(sessionId: string): Promise<WorkoutSession> {
@@ -534,10 +554,12 @@ export class WorkoutCommands {
   async resumeRest(sessionId: string): Promise<WorkoutSession> {
     const session = await this.loadActiveSession(sessionId);
     if (session.restPausedRemainingSeconds == null) return session;
-    return this.saveRest(session, {
+    const updated = await this.saveRest(session, {
       restEndsAt: new Date(Date.now() + session.restPausedRemainingSeconds * 1000).toISOString(),
       restPausedRemainingSeconds: undefined,
     });
+    this.ensureRestAlert(sessionId);
+    return updated;
   }
 
   async clearRest(sessionId: string): Promise<WorkoutSession> {

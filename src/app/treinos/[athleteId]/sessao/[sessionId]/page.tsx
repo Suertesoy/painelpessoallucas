@@ -9,6 +9,7 @@ import { useCommands, useQueries } from '@/providers/repository.provider';
 import { useWorkspace } from '@/providers/auth.provider';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import { RestTimerBar } from '@/components/workouts/rest-timer-bar';
+import { WorkoutPushToggle } from '@/components/workouts/workout-push-toggle';
 import { AthleteSwitch } from '@/components/workouts/athlete-switch';
 import { LoadField } from '@/components/workouts/load-field';
 import { SessionClock } from '@/components/workouts/session-clock';
@@ -389,13 +390,16 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
       </ol>
 
       {!readOnly && (
-        <div className="mt-6 grid gap-3">
-          <button type="button" disabled={busy} onClick={() => void finish()} className="min-h-14 rounded-2xl bg-emerald-600 text-lg font-semibold text-white disabled:opacity-60">
-            Encerrar academia ({totalLogged} séries)
-          </button>
-          <button type="button" disabled={busy} onClick={() => void cancel()} className="min-h-12 text-sm text-gray-500 hover:text-gray-800">
-            Cancelar sessão
-          </button>
+        <div className="mt-6 space-y-4">
+          <WorkoutPushToggle athleteId={athleteId} />
+          <div className="grid gap-3">
+            <button type="button" disabled={busy} onClick={() => void finish()} className="min-h-14 rounded-2xl bg-emerald-600 text-lg font-semibold text-white disabled:opacity-60">
+              Encerrar academia ({totalLogged} séries)
+            </button>
+            <button type="button" disabled={busy} onClick={() => void cancel()} className="min-h-12 text-sm text-gray-500 hover:text-gray-800">
+              Cancelar sessão
+            </button>
+          </div>
         </div>
       )}
 

@@ -230,6 +230,78 @@ describe('descanso persistido', () => {
     await ctx.cmds.startRest(ctx.s.id, 1);
     expect(await left(ctx)).toBe(5);
   });
+
+  describe('aviso push de fim de descanso', () => {
+    async function withAlerts(ensureScheduled = vi.fn().mockResolvedValue(undefined)) {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-10-15T12:00:00Z'));
+      const repo = new FakeWorkoutRepository();
+      const cmds = new WorkoutCommands(repo, new FakeEventRepository(), { ensureScheduled });
+      const base = await cmds.ensureBase(WS);
+      const lucas = base.athletes.find((a) => a.name === 'Lucas')!;
+      const dayA = base.days.find((d) => d.code === 'A')!;
+      const ex = await cmds.saveExercise(WS, { dayId: dayA.id, name: 'Leg', sets: 3, restSeconds: 90 });
+      const s = await cmds.startSession(WS, lucas.id, dayA.id);
+      return { cmds, repo, s, ex, ensureScheduled };
+    }
+
+    it('agenda depois de gravar: concluir série, ajustar, retomar e reiniciar', async () => {
+      const ctx = await withAlerts();
+      // O agendamento roda depois que o prazo já está persistido (o servidor lê do banco).
+      ctx.ensureScheduled.mockImplementation(async (id: string) => {
+        expect((await ctx.repo.findSession(id))?.restEndsAt).toBeDefined();
+      });
+
+      await ctx.cmds.completeSet(ctx.s.id, { exerciseId: ctx.ex.id, setNumber: 1, loadKg: 50, reps: 10 }, 90);
+      expect(ctx.ensureScheduled).toHaveBeenCalledTimes(1);
+      expect(ctx.ensureScheduled).toHaveBeenLastCalledWith(ctx.s.id);
+
+      await ctx.cmds.adjustRest(ctx.s.id, 15);
+      expect(ctx.ensureScheduled).toHaveBeenCalledTimes(2);
+
+      await ctx.cmds.pauseRest(ctx.s.id);
+      expect(ctx.ensureScheduled).toHaveBeenCalledTimes(2);
+
+      await ctx.cmds.adjustRest(ctx.s.id, 15); // ajuste com o descanso pausado: nada a agendar
+      expect(ctx.ensureScheduled).toHaveBeenCalledTimes(2);
+
+      await ctx.cmds.resumeRest(ctx.s.id);
+      expect(ctx.ensureScheduled).toHaveBeenCalledTimes(3);
+
+      await ctx.cmds.restartRest(ctx.s.id);
+      expect(ctx.ensureScheduled).toHaveBeenCalledTimes(4);
+    });
+
+    it('pular, encerrar e cancelar não agendam (a invalidação é feita pelo banco)', async () => {
+      const ctx = await withAlerts();
+      await ctx.cmds.startRest(ctx.s.id, 60);
+      ctx.ensureScheduled.mockClear();
+      await ctx.cmds.clearRest(ctx.s.id);
+      await ctx.cmds.adjustRest(ctx.s.id, -1000);
+      await ctx.cmds.finishSession(ctx.s.id);
+      expect(ctx.ensureScheduled).not.toHaveBeenCalled();
+    });
+
+    it('série concluída sem descanso não agenda', async () => {
+      const ctx = await withAlerts();
+      await ctx.cmds.completeSet(ctx.s.id, { exerciseId: ctx.ex.id, setNumber: 1, loadKg: 50, reps: 10 });
+      expect(ctx.ensureScheduled).not.toHaveBeenCalled();
+    });
+
+    it('falha do agendamento nunca quebra o treino nem o cronômetro', async () => {
+      const ctx = await withAlerts(vi.fn().mockRejectedValue(new Error('offline')));
+      await expect(ctx.cmds.startRest(ctx.s.id, 60)).resolves.toMatchObject({ restDurationSeconds: 60 });
+      expect((await ctx.repo.findSession(ctx.s.id))?.restEndsAt).toBe('2026-10-15T12:01:00.000Z');
+    });
+
+    it('sem agendador (testes/infra ausente) tudo funciona igual', async () => {
+      vi.useFakeTimers();
+      const { cmds, lucas, dayA } = await setup();
+      const s = await cmds.startSession(WS, lucas.id, dayA.id);
+      await expect(cmds.startRest(s.id, 60)).resolves.toBeDefined();
+      expect(() => cmds.ensureRestAlert(s.id)).not.toThrow();
+    });
+  });
 });
 
 describe('peso corporal', () => {

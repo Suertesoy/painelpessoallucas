@@ -19,6 +19,7 @@ export const PushPreferencesSchema = z.object({
   weeklyReviewDay: z.number().int().min(0).max(6),
   weeklyReviewTime: z.string().regex(TIME_REGEX),
   captureFailureEnabled: z.boolean(),
+  workoutRestEnabled: z.boolean(),
   showDetailsEnabled: z.boolean(),
   timezone: z.string().min(1).max(100),
 });
@@ -52,6 +53,7 @@ export function toPreferencesDTO(row: {
   weekly_review_day: number;
   weekly_review_time: string;
   capture_failure_enabled: boolean;
+  workout_rest_enabled: boolean;
   show_details_enabled: boolean;
   timezone: string;
 }): PushPreferences {
@@ -65,6 +67,7 @@ export function toPreferencesDTO(row: {
     weeklyReviewDay: row.weekly_review_day,
     weeklyReviewTime: row.weekly_review_time.slice(0, 5),
     captureFailureEnabled: row.capture_failure_enabled,
+    workoutRestEnabled: row.workout_rest_enabled,
     showDetailsEnabled: row.show_details_enabled,
     timezone: row.timezone,
   };
@@ -82,6 +85,7 @@ export function fromPreferencesPatch(patch: UpdatePushPreferencesDTO): Record<st
   if (patch.weeklyReviewDay !== undefined) out.weekly_review_day = patch.weeklyReviewDay;
   if (patch.weeklyReviewTime !== undefined) out.weekly_review_time = patch.weeklyReviewTime;
   if (patch.captureFailureEnabled !== undefined) out.capture_failure_enabled = patch.captureFailureEnabled;
+  if (patch.workoutRestEnabled !== undefined) out.workout_rest_enabled = patch.workoutRestEnabled;
   if (patch.showDetailsEnabled !== undefined) out.show_details_enabled = patch.showDetailsEnabled;
   if (patch.timezone !== undefined) out.timezone = patch.timezone;
   return out;

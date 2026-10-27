@@ -9,6 +9,7 @@ import { useCommands, useQueries } from '@/providers/repository.provider';
 import { useWorkspace } from '@/providers/auth.provider';
 import { SessionClock } from '@/components/workouts/session-clock';
 import { DataErrorNotice } from '@/components/data-error-notice';
+import { WorkoutPushToggle } from '@/components/workouts/workout-push-toggle';
 
 /**
  * Escolher o treino: cada dia (A–E) abre uma tela de consulta — dá para olhar
@@ -113,6 +114,10 @@ export default function AtletaPage({ params }: { params: Promise<{ athleteId: st
           <Play size={20} /> Iniciar academia (cronômetro)
         </button>
       )}
+
+      <div className="mt-5">
+        <WorkoutPushToggle athleteId={athleteId} />
+      </div>
 
       <div className="mt-5 grid grid-cols-1 gap-3">
         {data.days.map(({ day, exerciseCount, lastDoneOn, loggedInActive, completedCount, lastCompletedOn }) => (

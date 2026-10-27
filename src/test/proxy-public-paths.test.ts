@@ -16,11 +16,12 @@ describe('Proxy — rotas públicas e recursos PWA', () => {
     expect(isPublicPath('/offline.html')).toBe(true);
   });
 
-  it('permite rotas de autenticação, cron e health', () => {
+  it('permite rotas de autenticação, cron, health e callback assinado do QStash', () => {
     expect(isPublicPath('/login')).toBe(true);
     expect(isPublicPath('/auth/callback')).toBe(true);
     expect(isPublicPath('/api/cron/tick')).toBe(true);
     expect(isPublicPath('/api/health')).toBe(true);
+    expect(isPublicPath('/api/workouts/rest-callback')).toBe(true);
   });
 
   it('bloqueia e exige autenticação em rotas privadas de páginas e APIs sensíveis', () => {
@@ -28,6 +29,7 @@ describe('Proxy — rotas públicas e recursos PWA', () => {
     expect(isPublicPath('/configuracoes')).toBe(false);
     expect(isPublicPath('/financas')).toBe(false);
     expect(isPublicPath('/treinos')).toBe(false);
+    expect(isPublicPath('/api/workouts/rest-schedule')).toBe(false);
     expect(isPublicPath('/api/push/test')).toBe(false);
     expect(isPublicPath('/api/push/subscribe')).toBe(false);
     expect(isPublicPath('/api/push/preferences')).toBe(false);

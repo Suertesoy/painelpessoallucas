@@ -6,6 +6,9 @@ import { NextResponse, type NextRequest } from 'next/server';
  * - /login, /auth/*: autenticação de usuários.
  * - /api/cron/*: rotas de automação protegidas por CRON_SECRET no handler.
  * - /api/health: monitoramento de integridade da aplicação.
+ * - /api/workouts/rest-callback: chamado pelo Upstash QStash (sem cookie);
+ *   o handler só aceita a assinatura criptográfica do QStash. As demais rotas
+ *   de treinos (incluindo /api/workouts/rest-schedule) continuam privadas.
  * - /sw.js, /manifest.webmanifest, /manifest.json, /offline.html: recursos
  *   estáticos da PWA para instalação no iPhone e modo offline. Não devem ser
  *   redirecionados para login para não quebrar a instalação no iOS nem o
@@ -16,6 +19,7 @@ export const PUBLIC_PATHS = [
   '/auth',
   '/api/cron',
   '/api/health',
+  '/api/workouts/rest-callback',
   '/sw.js',
   '/manifest.webmanifest',
   '/manifest.json',

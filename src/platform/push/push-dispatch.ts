@@ -37,6 +37,7 @@ const PREFERENCE_COLUMN: Record<PushCategory, string> = {
   daily_planning: 'daily_planning_enabled',
   weekly_review: 'weekly_review_enabled',
   capture_failure: 'capture_failure_enabled',
+  workout_rest: 'workout_rest_enabled',
 };
 
 interface NotificationParams {

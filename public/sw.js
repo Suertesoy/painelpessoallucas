@@ -148,13 +148,28 @@ async function handlePush(event) {
   const tag =
     (payload && typeof payload.tag === 'string' && payload.tag.trim()) || 'painel-lucas-notificacao';
 
+  // Fim de descanso com o Lutheus aberto na tela: o cronômetro já bipou,
+  // então a notificação entra sem som. Ela ainda é exibida — o iOS revoga a
+  // assinatura de quem recebe push sem mostrar notificação.
+  const silent = payload && payload.kind === 'workout_rest' ? await hasFocusedWindow() : false;
+
   await self.registration.showNotification(title, {
     body,
     tag,
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     data: { url },
+    ...(silent ? { silent: true } : {}),
   });
+}
+
+async function hasFocusedWindow() {
+  try {
+    const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    return allClients.some((client) => client.visibilityState === 'visible' && client.focused);
+  } catch {
+    return false;
+  }
 }
 
 self.addEventListener('notificationclick', (event) => {
