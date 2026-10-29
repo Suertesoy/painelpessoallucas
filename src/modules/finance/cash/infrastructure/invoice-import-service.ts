@@ -44,6 +44,8 @@ function toPreviewItem(row: { date: string; description: string; amountCents: nu
 const toExisting = (r: Row): ExistingInvoiceItem => ({
   id: r.id, date: r.purchase_date, normalizedDescription: r.normalized_description, amountCents: Number(r.amount_cents),
   kind: r.kind, occurrenceIndex: r.occurrence_index, status: r.status,
+  installmentNo: r.installment_no ?? null, installmentTotal: r.installment_total ?? null,
+  classificationKey: `${r.category ?? ''}|${r.commitment_id ?? ''}`,
 });
 
 interface LoadedContext {
@@ -128,6 +130,7 @@ export async function buildPreview(
   const afterItems: { kind: InvoiceItemKind; amountCents: number }[] = [
     ...result.recognized.map((r) => ({ kind: r.existing.kind, amountCents: r.existing.amountCents })),
     ...result.newRows.map((n) => ({ kind: n.row.kind, amountCents: n.row.amountCents })),
+    ...result.updates.map((u) => ({ kind: u.row.kind, amountCents: u.row.amountCents })),
     ...result.divergences.map((d) => ({ kind: d.incoming.kind, amountCents: d.incoming.amountCents })),
     ...result.missing.map((m) => ({ kind: m.kind, amountCents: m.amountCents })),
   ];
@@ -194,7 +197,7 @@ export async function buildPreview(
   }
 
   const noChanges =
-    result.newRows.length === 0 && result.divergences.length === 0 && result.missing.length === 0 && paymentMatches.length === 0;
+    result.newRows.length === 0 && result.updates.length === 0 && result.divergences.length === 0 && result.missing.length === 0 && paymentMatches.length === 0;
 
   return {
     fileName,
@@ -216,9 +219,17 @@ export async function buildPreview(
       rows: ctx.incoming.length,
       recognized: result.recognized.length,
       new: result.newRows.length,
+      updated: result.updates.length,
+      ambiguous: result.ambiguous.length,
       divergences: result.divergences.length,
       missing: result.missing.length,
     },
+    updatedItems: result.updates.map((u) => ({
+      basis: u.basis,
+      before: toPreviewItem({ date: u.existing.date, description: ctx.existingAll.find((r) => r.id === u.existing.id)!.description, amountCents: u.existing.amountCents, kind: u.existing.kind }),
+      after: toPreviewItem(u.row),
+    })),
+    ambiguousItems: result.ambiguous.map((e) => toPreviewItem({ date: e.date, description: ctx.existingAll.find((r) => r.id === e.id)!.description, amountCents: e.amountCents, kind: e.kind })),
     amountAfterCents: invoiceAmountCents(afterItems),
     paymentsInFileCents: ctx.incoming.filter((r) => r.kind === 'payment').reduce((s, r) => s + Math.abs(r.amountCents), 0),
     newItems: result.newRows.map((n) => toPreviewItem(n.row)),
@@ -237,6 +248,30 @@ export async function buildPreview(
     possibleWrongTarget,
     noChanges,
   };
+}
+
+/** Traduz a falha da RPC em categoria acionável, sem expor SQL nem dados. */
+export function mapRpcError(error: { message?: string; code?: string }): ImportError {
+  const message = error.message ?? '';
+  const code = error.code ?? '';
+  // Só o SQLSTATE vai para o log: nunca mensagem/detalhe (podem conter valores).
+  console.error('[finance-cash] falha ao aplicar importação', code);
+  if (message.includes('STALE_INVOICE')) {
+    return new ImportError(409, 'stale', 'A fatura mudou desde a pré-visualização. Envie o arquivo de novo para revisar.');
+  }
+  if (code === '23505') {
+    return new ImportError(409, 'conflict', 'Dois lançamentos ficariam idênticos na conciliação. Nada foi alterado. Envie o arquivo de novo para uma nova revisão.');
+  }
+  if (code === '22023' || code === '22P02' || code === '23514' || code === '23502') {
+    return new ImportError(400, 'invalid_data', 'O arquivo contém dados que não puderam ser aplicados. Nada foi alterado.');
+  }
+  if (code === '42501') {
+    return new ImportError(403, 'forbidden', 'Você não tem permissão para alterar esta fatura.');
+  }
+  if (!code && /fetch failed|network|timeout|ECONN|ETIMEDOUT/i.test(message)) {
+    return new ImportError(503, 'temporary', 'Falha temporária de conexão. Nada foi alterado; tente confirmar novamente.');
+  }
+  return new ImportError(500, 'server_error', 'Erro interno ao salvar a importação. Nada foi alterado.');
 }
 
 export async function applyImport(
@@ -302,13 +337,7 @@ export async function applyImport(
     p_file_sha256: await sha256Hex(buffer),
     p_plan: plan,
   });
-  if (error) {
-    if (error.message.includes('STALE_INVOICE')) {
-      throw new ImportError(409, 'stale', 'A fatura mudou desde a pré-visualização. Envie o arquivo de novo para revisar.');
-    }
-    console.error('[finance-cash] falha ao aplicar importação', error.code ?? '');
-    throw new ImportError(500, 'server_error', 'Não foi possível salvar a importação. Nada foi alterado.');
-  }
+  if (error) throw mapRpcError(error);
   const row = Array.isArray(data) ? data[0] : data;
   // Regras aprendidas: só preenchem lançamentos SEM categoria, nunca sobrescrevem e são
   // idempotentes. Melhor esforço: uma falha aqui não desfaz nem invalida a importação.

@@ -37,36 +37,62 @@ export class FakeWorkoutRepository implements WorkoutRepository {
   }
   async listLoads() { return [...this.loads.values()]; }
   async saveLoads(l: ExerciseLoad[]) { l.forEach((x) => this.loads.set(`${x.exerciseId}:${x.athleteId}`, x)); }
-  async findSession(id: string) { return this.sessions.get(id) ?? null; }
+  async findSession(id: string) {
+    const s = this.sessions.get(id);
+    return s && !s.deletedAt ? s : null;
+  }
+  private deletedIds(athleteId: string) {
+    return new Set([...this.sessions.values()].filter((s) => s.athleteId === athleteId && s.deletedAt).map((s) => s.id));
+  }
+  async setSessionDeleted(athleteId: string, sessionId: string, deleted: boolean) {
+    const s = this.sessions.get(sessionId);
+    if (!s) return null;
+    if (s.athleteId !== athleteId) throw new Error('Esta sessão não pertence a esta pessoa.');
+    if (deleted && s.status === 'in_progress') throw new Error('Encerre o treino em andamento antes de excluí-lo.');
+    const updated = { ...s, deletedAt: deleted ? (s.deletedAt ?? new Date().toISOString()) : undefined };
+    this.sessions.set(sessionId, updated);
+    return updated;
+  }
+  async listDeletedSessions(athleteId: string, limit: number) {
+    return [...this.sessions.values()]
+      .filter((s) => s.athleteId === athleteId && s.deletedAt)
+      .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))
+      .slice(0, limit);
+  }
   async findActiveSession(athleteId: string) {
     return [...this.sessions.values()].find((s) => s.athleteId === athleteId && s.status === 'in_progress') ?? null;
   }
   async listSessions(athleteId: string, limit: number) {
     return [...this.sessions.values()]
-      .filter((s) => s.athleteId === athleteId)
+      .filter((s) => s.athleteId === athleteId && !s.deletedAt)
       .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))
       .slice(0, limit);
   }
   async saveSession(s: WorkoutSession) { this.sessions.set(s.id, s); }
   async listSetLogsBySession(sessionId: string) { return [...this.setLogs.values()].filter((l) => l.sessionId === sessionId); }
   async listSetLogsByAthlete(athleteId: string, limit: number) {
+    const deleted = this.deletedIds(athleteId);
     return [...this.setLogs.values()]
-      .filter((l) => l.athleteId === athleteId)
+      .filter((l) => l.athleteId === athleteId && !deleted.has(l.sessionId))
       .sort((a, b) => (a.completedAt < b.completedAt ? 1 : -1))
       .slice(0, limit);
   }
   async listSetLogTouches(athleteId: string) {
     const seen = new Set<string>();
+    const deleted = this.deletedIds(athleteId);
     const out: Array<{ sessionId: string; exerciseId: string }> = [];
     for (const l of this.setLogs.values()) {
-      if (l.athleteId !== athleteId || seen.has(`${l.sessionId}:${l.exerciseId}`)) continue;
+      if (l.athleteId !== athleteId || deleted.has(l.sessionId) || seen.has(`${l.sessionId}:${l.exerciseId}`)) continue;
       seen.add(`${l.sessionId}:${l.exerciseId}`);
       out.push({ sessionId: l.sessionId, exerciseId: l.exerciseId });
     }
     return out;
   }
   async listSetLogsForSessions(ids: string[]) { return [...this.setLogs.values()].filter((l) => ids.includes(l.sessionId)); }
-  async listDayCompletions(athleteId: string) { return [...this.completions.values()].filter((c) => c.athleteId === athleteId); }
+  async listDayCompletions(athleteId: string) {
+    const deleted = this.deletedIds(athleteId);
+    return [...this.completions.values()].filter((c) => c.athleteId === athleteId && !deleted.has(c.sessionId));
+  }
   async saveDayCompletion(c: DayCompletion) {
     for (const x of this.completions.values()) if (x.sessionId === c.sessionId && x.dayId === c.dayId) return;
     this.completions.set(c.id, c);

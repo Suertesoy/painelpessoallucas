@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { planRuleApplication, type CategoryRule, type RuleTarget } from '../domain/category-rules';
+import { planLearning, type LearnableItem } from '../domain/category-learning-policy';
+import { DEFAULT_CATEGORIES } from '../domain/categories';
 
 /**
  * Persistência das categorias personalizadas e das regras aprendidas.
@@ -94,11 +96,46 @@ export async function countRuleItems(supabase: SupabaseClient, workspaceId: stri
 }
 
 /**
+ * Aprende com as escolhas confirmadas do usuário (ver category-learning-policy):
+ * cria/ajusta/remove regras. Idempotente; nunca toca em categorias confirmadas.
+ * Melhor esforço: sem as colunas de proveniência (migration pendente) não faz nada.
+ */
+export async function learnFromConfirmedChoices(supabase: SupabaseClient, workspaceId: string): Promise<void> {
+  const { data, error } = await supabase.from('finance_invoice_items')
+    .select('id, base_description, amount_cents, category, category_source, category_rule_id')
+    .eq('workspace_id', workspaceId).neq('status', 'removed').neq('kind', 'payment');
+  if (error) {
+    if (error.code && MISSING_SCHEMA.has(error.code)) return;
+    fail('Não foi possível aprender com as categorias', error);
+  }
+  const items: LearnableItem[] = (data ?? []).filter((r: Row) => r.category !== null && r.category !== undefined).map((r: Row) => ({
+    id: r.id, baseDescription: r.base_description, amountCents: Number(r.amount_cents), category: r.category,
+    categorySource: r.category_source ?? null, categoryRuleId: r.category_rule_id ?? null,
+  }));
+  if (items.length === 0) return;
+  const rules = await listCategoryRules(supabase, workspaceId);
+  const { data: cats, error: catError } = await supabase.from('finance_item_categories').select('id').eq('workspace_id', workspaceId);
+  const valid = new Set<string>(catError || !cats || cats.length === 0 ? DEFAULT_CATEGORIES.map((c) => c.id) : cats.map((c: Row) => c.id as string));
+
+  const plan = planLearning(items, rules, valid);
+  for (const id of plan.remove) await deleteCategoryRule(supabase, workspaceId, id, false);
+  for (const r of plan.retarget) await changeRuleCategory(supabase, workspaceId, r.ruleId, r.category);
+  for (const c of plan.create) {
+    try {
+      await saveCategoryRule(supabase, workspaceId, c);
+    } catch {
+      // Corrida com outra aba criando a mesma regra: a chave única protege; ignora.
+    }
+  }
+}
+
+/**
  * Aplica as regras aos lançamentos SEM categoria. Idempotente: a guarda
  * `category IS NULL` no próprio UPDATE impede qualquer sobrescrita, mesmo sob
  * concorrência. Devolve quantos lançamentos foram classificados.
  */
 export async function applyCategoryRules(supabase: SupabaseClient, workspaceId: string): Promise<number> {
+  await learnFromConfirmedChoices(supabase, workspaceId);
   const rules = await listCategoryRules(supabase, workspaceId);
   if (rules.length === 0) return 0;
   const { data, error } = await supabase.from('finance_invoice_items')

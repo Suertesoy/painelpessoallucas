@@ -160,6 +160,8 @@ export const WorkoutSessionSchema = z.object({
   restDurationSeconds: z.number().int().min(0).max(MAX_REST_SECONDS).optional(),
   /** Segundos restantes congelados quando o descanso está pausado. */
   restPausedRemainingSeconds: z.number().int().min(0).max(MAX_REST_SECONDS).optional(),
+  /** Exclusão lógica: a sessão sai do histórico e dos indicadores, mas pode ser restaurada. */
+  deletedAt: isoDateTimeSchema.optional(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });

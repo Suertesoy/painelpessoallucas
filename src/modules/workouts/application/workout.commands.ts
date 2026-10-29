@@ -657,6 +657,24 @@ export class WorkoutCommands {
     return updated;
   }
 
+  /**
+   * Exclusão lógica da sessão INTEIRA (todas as fichas, séries e conclusões ficam preservadas
+   * para restauração). Só do atleta informado e nunca de um treino em andamento.
+   */
+  async deleteSession(athleteId: string, sessionId: string): Promise<WorkoutSession> {
+    const updated = await this.repo.setSessionDeleted(athleteId, sessionId, true);
+    if (!updated) throw new Error('Treino não encontrado');
+    await this.emit(updated.workspaceId, 'workout.session.deleted', sessionId, { athleteId }, new Date().toISOString());
+    return updated;
+  }
+
+  async restoreSession(athleteId: string, sessionId: string): Promise<WorkoutSession> {
+    const updated = await this.repo.setSessionDeleted(athleteId, sessionId, false);
+    if (!updated) throw new Error('Treino não encontrado');
+    await this.emit(updated.workspaceId, 'workout.session.restored', sessionId, { athleteId }, new Date().toISOString());
+    return updated;
+  }
+
   // --- Peso corporal ----------------------------------------------------------------------------
 
   /** Um registro por atleta por dia local: registrar de novo no mesmo dia corrige o valor. */

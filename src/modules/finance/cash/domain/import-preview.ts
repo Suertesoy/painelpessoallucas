@@ -25,7 +25,11 @@ export interface ImportPreview {
     manualAmountCents: number | null;
     lastImportedAt: string | null;
   };
-  counts: { rows: number; recognized: number; new: number; divergences: number; missing: number };
+  counts: { rows: number; recognized: number; new: number; updated: number; ambiguous: number; divergences: number; missing: number };
+  /** Atualizações de data seguras, aplicadas sem decisão. */
+  updatedItems: { basis: 'installment' | 'single_match'; before: PreviewItem; after: PreviewItem }[];
+  /** Lançamentos antigos com mais de um candidato no arquivo: nada foi casado. */
+  ambiguousItems: PreviewItem[];
   /** Valor da fatura se todas as divergências forem "o mesmo lançamento". */
   amountAfterCents: number;
   paymentsInFileCents: number;

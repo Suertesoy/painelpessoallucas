@@ -100,6 +100,7 @@ function sessionFromRow(r: Row): WorkoutSession {
     restEndsAt: r.rest_ends_at ?? undefined,
     restDurationSeconds: r.rest_duration_seconds ?? undefined,
     restPausedRemainingSeconds: r.rest_paused_remaining_seconds ?? undefined,
+    deletedAt: r.deleted_at ?? undefined,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   });
@@ -285,7 +286,7 @@ export class SupabaseWorkoutRepository implements WorkoutRepository {
   // --- Sessões -----------------------------------------------------------------------------
 
   async findSession(id: string): Promise<WorkoutSession | null> {
-    const { data, error } = await this.supabase.from('workout_sessions').select('*').eq('id', id).maybeSingle();
+    const { data, error } = await this.supabase.from('workout_sessions').select('*').eq('id', id).is('deleted_at', null).maybeSingle();
     if (error) this.fail('carregar o treino', error);
     return data ? sessionFromRow(data) : null;
   }
@@ -306,10 +307,51 @@ export class SupabaseWorkoutRepository implements WorkoutRepository {
       .from('workout_sessions')
       .select('*')
       .eq('athlete_id', athleteId)
+      .is('deleted_at', null)
       .order('started_at', { ascending: false })
       .limit(limit);
     if (error) this.fail('carregar o histórico de treinos', error);
     return (data ?? []).map(sessionFromRow);
+  }
+
+  async listDeletedSessions(athleteId: string, limit: number): Promise<WorkoutSession[]> {
+    const { data, error } = await this.supabase
+      .from('workout_sessions')
+      .select('*')
+      .eq('athlete_id', athleteId)
+      .not('deleted_at', 'is', null)
+      .order('started_at', { ascending: false })
+      .limit(limit);
+    if (error) this.fail('carregar os treinos excluídos', error);
+    return (data ?? []).map(sessionFromRow);
+  }
+
+  /** Ids das sessões excluídas do atleta: séries e conclusões delas não entram em nenhum indicador. */
+  private async deletedSessionIds(athleteId: string): Promise<Set<string>> {
+    const { data, error } = await this.supabase
+      .from('workout_sessions')
+      .select('id')
+      .eq('athlete_id', athleteId)
+      .not('deleted_at', 'is', null);
+    if (error) this.fail('carregar os treinos excluídos', error);
+    return new Set((data ?? []).map((r) => r.id as string));
+  }
+
+  async setSessionDeleted(athleteId: string, sessionId: string, deleted: boolean): Promise<WorkoutSession | null> {
+    const { data, error } = await this.supabase.rpc('workout_set_session_deleted', {
+      p_session_id: sessionId,
+      p_athlete_id: athleteId,
+      p_deleted: deleted,
+    });
+    if (error) {
+      if (error.code === 'P0002') return null;
+      if (error.message.includes('SESSION_IN_PROGRESS')) throw new Error('Encerre o treino em andamento antes de excluí-lo.');
+      if (error.message.includes('ATHLETE_MISMATCH')) throw new Error('Esta sessão não pertence a esta pessoa.');
+      this.fail(deleted ? 'excluir o treino' : 'restaurar o treino', error);
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    this.notifier.notify();
+    return row ? sessionFromRow(row) : null;
   }
 
   async saveSession(session: WorkoutSession): Promise<void> {
@@ -347,12 +389,10 @@ export class SupabaseWorkoutRepository implements WorkoutRepository {
   }
 
   async listSetLogsByAthlete(athleteId: string, limit: number): Promise<SetLog[]> {
-    const { data, error } = await this.supabase
-      .from('workout_set_logs')
-      .select('*')
-      .eq('athlete_id', athleteId)
-      .order('completed_at', { ascending: false })
-      .limit(limit);
+    const deleted = await this.deletedSessionIds(athleteId);
+    let q = this.supabase.from('workout_set_logs').select('*').eq('athlete_id', athleteId);
+    if (deleted.size > 0) q = q.not('session_id', 'in', '(' + [...deleted].join(',') + ')');
+    const { data, error } = await q.order('completed_at', { ascending: false }).limit(limit);
     if (error) this.fail('carregar o histórico de séries', error);
     return (data ?? []).map(setLogFromRow);
   }
@@ -361,6 +401,7 @@ export class SupabaseWorkoutRepository implements WorkoutRepository {
     // O PostgREST devolve no máximo 1.000 linhas por pedido: pagina até acabar, para a
     // contagem não perder histórico antigo.
     const PAGE = 1000;
+    const deleted = await this.deletedSessionIds(athleteId);
     const seen = new Set<string>();
     const out: Array<{ sessionId: string; exerciseId: string }> = [];
     for (let from = 0; ; from += PAGE) {
@@ -372,6 +413,7 @@ export class SupabaseWorkoutRepository implements WorkoutRepository {
         .range(from, from + PAGE - 1);
       if (error) this.fail('carregar o histórico de séries', error);
       for (const r of data ?? []) {
+        if (deleted.has(r.session_id as string)) continue;
         const key = `${r.session_id}:${r.exercise_id}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -404,7 +446,8 @@ export class SupabaseWorkoutRepository implements WorkoutRepository {
       .eq('athlete_id', athleteId)
       .order('completed_at');
     if (error) this.fail('carregar os treinos concluídos', error);
-    return (data ?? []).map((r) =>
+    const deleted = await this.deletedSessionIds(athleteId);
+    return (data ?? []).filter((r) => !deleted.has(r.session_id as string)).map((r) =>
       DayCompletionSchema.parse({
         id: r.id,
         workspaceId: r.workspace_id,

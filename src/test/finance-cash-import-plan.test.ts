@@ -1,4 +1,4 @@
-// @vitest-environment node
+﻿// @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { parseNubankInvoiceCsv } from '@/modules/finance/cash/domain/nubank-invoice-csv';
 import { reconcileInvoice, type ExistingInvoiceItem } from '@/modules/finance/cash/domain/reconcile';
@@ -44,7 +44,7 @@ describe('plano de importação', () => {
     const after = parse(csv('2026-10-01,Mercado,"12,00"'));
     const result = reconcileInvoice(asExisting(before), after);
     const plan = buildImportPlan(result, asExisting(before), 1, { divergences: { e0: 'same' }, missing: {} }, [], []);
-    expect(plan.update).toEqual([{ id: 'e0', purchase_date: '2026-10-01', amount_cents: 1200 }]);
+    expect(plan.update).toEqual([{ id: 'e0', purchase_date: '2026-10-01', amount_cents: 1200, occurrence_index: 0 }]);
     expect(plan.insert).toEqual([]);
     expect(plan.counts.changed).toBe(1);
   });
@@ -88,3 +88,4 @@ describe('plano de importação', () => {
     expect(plan.pay_invoice_ids).toEqual(['inv-set']);
   });
 });
+

@@ -270,13 +270,33 @@ describe('comandos: classificar e aprender', () => {
     await expect(commands.createCategory('x')).rejects.toThrow(/2 a 40/);
   });
 
-  it('classificar à mão NÃO aprende nada (opt-in) e marca como confirmada', async () => {
+  it('classificar à mão aprende sozinho: intermediador só por valor exato; o outro valor fica para sugestão', async () => {
     const id = await commands.createCategory('Armazenamento');
     await commands.classifyItems({ itemIds: [UA], category: id });
     expect(cat(UA)).toBe('armazenamento');
     expect(src(UA)).toBe('user');
-    expect(cat(UB)).toBeNull();
-    expect(db.tables.finance_category_rules ?? []).toHaveLength(0);
+    expect([cat(UB), src(UB)]).toEqual(['armazenamento', 'rule']);
+    expect(cat(UC)).toBeNull();
+    expect(db.tables.finance_category_rules).toHaveLength(1);
+    expect(db.tables.finance_category_rules[0]).toMatchObject({ merchant_key: 'apple com bill', amount_cents: 6690 });
+  });
+
+  it('estabelecimento comum: uma escolha vira regra ampla e a escolha manual de outro item não é sobrescrita', async () => {
+    await commands.classifyItems({ itemIds: [UN], category: 'streaming' });
+    expect(db.tables.finance_category_rules).toHaveLength(1);
+    expect(db.tables.finance_category_rules[0]).toMatchObject({ merchant_key: 'netflix', amount_cents: null, category: 'streaming' });
+    expect(src(UN)).toBe('user');
+  });
+
+  it('corrigir uma classificação automática remove a regra ampla contraditória e mantém os itens', async () => {
+    await commands.classifyItems({ itemIds: [UN], category: 'streaming' });
+    db.tables.finance_invoice_items.push(item('00000000-0000-4000-8000-0000000000f1', 'netflix', 5590));
+    await commands.applyCategoryRules();
+    expect(cat('00000000-0000-4000-8000-0000000000f1')).toBe('streaming');
+    await commands.classifyItems({ itemIds: ['00000000-0000-4000-8000-0000000000f1'], category: 'leisure' });
+    expect(db.tables.finance_category_rules.some((r) => r.merchant_key === 'netflix' && r.amount_cents === null)).toBe(false);
+    expect(cat(UN)).toBe('streaming');
+    expect(cat('00000000-0000-4000-8000-0000000000f1')).toBe('leisure');
   });
 
   it('rejeita categoria inexistente do workspace', async () => {

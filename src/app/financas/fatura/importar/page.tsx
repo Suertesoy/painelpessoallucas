@@ -116,7 +116,10 @@ function ImportFlow() {
       financeCashRepository.notifyChanged();
       setStep('done');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao salvar a importação.');
+      // fetch rejeitado (TypeError) = sem conexão; o mesmo requestId é reaproveitado, então repetir não duplica.
+      setError(e instanceof TypeError
+        ? 'Falha temporária de conexão. Confirme novamente: se a importação já foi salva, ela não será duplicada.'
+        : e instanceof Error ? e.message : 'Erro ao salvar a importação.');
     } finally {
       setBusy(false);
     }
@@ -182,10 +185,11 @@ function ImportFlow() {
             <p className="mt-1 text-xs text-[var(--text-muted)]">
               Confira: este arquivo vai para a fatura do cartão <strong>{CARD_FULL_LABELS[preview.card]}</strong> de {monthLabel(preview.month)}. Se não for esse, volte e corrija.
             </p>
-            <div className="mt-2 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+            <div className="mt-2 grid grid-cols-2 gap-3 text-sm md:grid-cols-5">
               <Stat label="Novos" value={preview.counts.new} />
               <Stat label="Já reconhecidos" value={preview.counts.recognized} />
-              <Stat label="Alterados" value={preview.counts.divergences} warn={preview.counts.divergences > 0} />
+              <Stat label="Atualizados (data)" value={preview.counts.updated} />
+              <Stat label="Para decidir" value={preview.counts.divergences} warn={preview.counts.divergences > 0} />
               <Stat label="Ausentes do arquivo" value={preview.counts.missing} warn={preview.counts.missing > 0} />
             </div>
             <div className="mt-4 space-y-1 text-sm">
@@ -223,6 +227,30 @@ function ImportFlow() {
                 {preview.parseErrors.slice(0, 10).map((e) => <li key={e.line}>Linha {e.line}: {e.message}</li>)}
               </ul>
               <p className="mt-2 text-xs text-[var(--text-muted)]">Corrija o arquivo e envie de novo. Nada foi salvo.</p>
+            </Card>
+          )}
+
+          {preview.updatedItems.length > 0 && (
+            <Card>
+              <Eyebrow>Atualizados automaticamente ({preview.updatedItems.length})</Eyebrow>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">Mesmo lançamento e mesmo valor, só a data mudou (ex.: parcelas). Categoria e vínculos são mantidos. Nada a decidir.</p>
+              <details className="mt-2">
+                <summary className="cursor-pointer text-sm font-medium">Ver atualizações</summary>
+                <ul className="mt-2 divide-y divide-[var(--line)]">
+                  {preview.updatedItems.map((u, idx) => (
+                    <li key={idx}><ItemLine item={u.after} /><p className="pb-1 text-xs text-[var(--text-muted)]">antes: {formatDateBR(u.before.date)}</p></li>
+                  ))}
+                </ul>
+              </details>
+            </Card>
+          )}
+
+          {preview.ambiguousItems.length > 0 && (
+            <Card>
+              <Eyebrow>Casos ambíguos ({preview.ambiguousItems.length})</Eyebrow>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
+                Há mais de um candidato possível no arquivo, então nada foi casado automaticamente: as linhas do arquivo entram como novas e estes lançamentos antigos aparecem em “Estavam na fatura e não vieram”. Remova os que forem repetidos.
+              </p>
             </Card>
           )}
 

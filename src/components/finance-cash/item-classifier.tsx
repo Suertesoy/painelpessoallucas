@@ -116,57 +116,19 @@ function NewCategoryForm({ onCreate, onCancel, disabled }: { onCreate: (label: s
   );
 }
 
-/** Opção voluntária (desligada por padrão) de aprender a categoria para lançamentos semelhantes. */
-function LearnOption({ item, category, classification }: { item: InvoiceItem; category: string; classification: Classification }) {
-  const [enabled, setEnabled] = useState(false);
-  const [mode, setMode] = useState<LearnMode>('amount');
-  const [done, setDone] = useState<number | null>(null);
-  const key = merchantKey(item.baseDescription);
-  const ambiguous = isAmbiguousMerchant(key);
-
+/** Aprendizado automático: só informa o que o painel vai lembrar; não pede segunda confirmação. */
+function LearnNote({ item, category, classification }: { item: InvoiceItem; category: string; classification: Classification }) {
+  const ambiguous = isAmbiguousMerchant(merchantKey(item.baseDescription));
   const rule = classification.ruleFor(item);
   if (rule && rule.category === category) {
-    return (
-      <p className="text-sm text-[var(--text-muted)]">
-        Regra ativa: {describeRule(rule, centsToBRL)}.
-      </p>
-    );
+    return <p className="text-sm text-[var(--text-muted)]">Lembrado: {describeRule(rule, centsToBRL)}. Gerencie em “Regras aprendidas”.</p>;
   }
-
   return (
-    <div className="space-y-2">
-      <label className="flex min-h-11 items-center gap-2 text-sm text-[var(--text-muted)]">
-        <input type="checkbox" checked={enabled} onChange={(e) => { setEnabled(e.target.checked); setDone(null); }} />
-        Usar esta categoria em lançamentos semelhantes
-      </label>
-      {enabled && (
-        <div className="space-y-2 rounded-xl border border-[var(--line)] p-3 text-sm">
-          <label className="flex min-h-11 items-center gap-2">
-            <input type="radio" name={`learn-${item.id}`} checked={mode === 'amount'} onChange={() => setMode('amount')} />
-            <span>Mesmo estabelecimento e mesmo valor ({centsToBRL(item.amountCents)}) <span className="text-[var(--text-muted)]">— recomendado</span></span>
-          </label>
-          <label className="flex min-h-11 items-center gap-2">
-            <input type="radio" name={`learn-${item.id}`} checked={mode === 'merchant'} onChange={() => setMode('merchant')} />
-            <span>Qualquer valor deste estabelecimento</span>
-          </label>
-          {mode === 'merchant' && ambiguous && (
-            <p className="text-[var(--money-warning)]">
-              Atenção: este estabelecimento cobra serviços diferentes. Valer para qualquer valor pode classificar errado.
-            </p>
-          )}
-          <p className="text-[var(--text-muted)]">Só preenche lançamentos sem categoria; o que você já classificou não muda. Dá para desfazer em “Regras aprendidas”.</p>
-          <button
-            type="button"
-            className={buttonSecondary}
-            disabled={classification.pending}
-            onClick={async () => { setDone(await classification.learn(item, category, mode)); }}
-          >
-            Salvar regra
-          </button>
-          {done !== null && <p role="status" className="text-[var(--money-positive)]">Regra salva. {done} outro{done === 1 ? '' : 's'} lançamento{done === 1 ? '' : 's'} classificado{done === 1 ? '' : 's'}.</p>}
-        </div>
-      )}
-    </div>
+    <p className="text-sm text-[var(--text-muted)]">
+      {ambiguous
+        ? `Este estabelecimento cobra serviços diferentes: o painel lembra esta escolha só para o mesmo valor (${centsToBRL(item.amountCents)}).`
+        : 'O painel lembra esta escolha para lançamentos equivalentes deste estabelecimento.'}
+    </p>
   );
 }
 
@@ -211,7 +173,7 @@ export function ClassifierControls({ item, classification }: { item: InvoiceItem
         </button>
       )}
 
-      {current && !byRule && <LearnOption item={item} category={current} classification={classification} />}
+      {current && !byRule && <LearnNote item={item} category={current} classification={classification} />}
     </div>
   );
 }

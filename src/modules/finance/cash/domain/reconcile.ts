@@ -7,10 +7,19 @@ import type { InvoiceItemKind, ParsedInvoiceRow } from './nubank-invoice-csv';
  *  1. Identidade = (data, descrição normalizada, valor) + n-ésima ocorrência.
  *     Duas compras idênticas no mesmo dia são DUAS linhas, nunca fundidas.
  *  2. Itens com a mesma identidade são "reconhecidos" — nada é reinserido.
- *  3. Sobras dos dois lados com a mesma descrição e só data OU valor
- *     diferente viram "divergências": o usuário decide se é o mesmo
- *     lançamento alterado ou lançamentos distintos. Nada é decidido sozinho.
- *  4. Item conhecido que sumiu do arquivo e não tem par é "ausente": continua
+ *  3. Atualização confiável (automática, sem perguntar): sobras com mesma
+ *     descrição, tipo e VALOR, só a data diferente, quando a cardinalidade
+ *     fecha (n existentes = n do arquivo) e
+ *       - são parcelas ("Parcela N/M"): a data de parcela no CSV do Nubank
+ *         muda entre exportações, então a identidade é descrição+parcela+valor; ou
+ *       - é 1 para 1 e a data mudou até 3 dias.
+ *     Com n > 1 exige categoria/vínculo idênticos entre os existentes (assim
+ *     nenhum id/categoria troca de lugar). Valor diferente NUNCA é automático.
+ *  4. Sobras com mesma descrição e só data OU valor diferente viram
+ *     "divergências" SOMENTE se o par for mútuo e único (um candidato para
+ *     cada lado). Qualquer concorrência vira "ambígua": não se casa nada,
+ *     as linhas entram como novas e as antigas ficam ausentes para revisão.
+ *  5. Item conhecido que sumiu do arquivo e não tem par é "ausente": continua
  *     contando até o usuário confirmar a remoção (nunca some em silêncio).
  */
 
@@ -24,6 +33,16 @@ export interface ExistingInvoiceItem {
   kind: InvoiceItemKind;
   occurrenceIndex: number;
   status: ExistingItemStatus;
+  installmentNo?: number | null;
+  installmentTotal?: number | null;
+  /** Categoria + vínculo atuais; usado só para não trocar classificações de lugar. */
+  classificationKey?: string;
+}
+
+export interface TrustedUpdate {
+  existing: ExistingInvoiceItem;
+  row: ParsedInvoiceRow;
+  basis: 'installment' | 'single_match';
 }
 
 export interface Divergence {
@@ -42,6 +61,10 @@ export interface NewInvoiceRow {
 
 export interface ReconcileResult {
   recognized: { existing: ExistingInvoiceItem; row: ParsedInvoiceRow }[];
+  /** Atualizações de data seguras, aplicadas sem decisão do usuário. */
+  updates: TrustedUpdate[];
+  /** Existentes sem par único (concorrência entre candidatos): revisão obrigatória. */
+  ambiguous: ExistingInvoiceItem[];
   /** Linhas sem correspondência e sem par de divergência. */
   newRows: NewInvoiceRow[];
   /** Itens conhecidos ausentes do arquivo, sem par de divergência. */
@@ -99,39 +122,54 @@ export function reconcileInvoice(existing: readonly ExistingInvoiceItem[], incom
     leftoverIncoming.push(...inc.slice(paired));
   }
 
-  // Divergências: mesma descrição, só data OU valor mudou. Pareamento guloso
-  // determinístico pela menor distância de datas; sempre exige decisão.
-  const divergences: Divergence[] = [];
+  // Atualizações confiáveis (só a data muda; ver cabeçalho).
+  const updates: TrustedUpdate[] = [];
   const usedIncoming = new Set<ParsedInvoiceRow>();
   const pairedExisting = new Set<ExistingInvoiceItem>();
-  const orderedExisting = leftoverExisting
-    .slice()
-    .sort((a, b) => a.date.localeCompare(b.date) || a.occurrenceIndex - b.occurrenceIndex);
-  for (const e of orderedExisting) {
-    let best: ParsedInvoiceRow | null = null;
-    let bestDistance = Infinity;
-    for (const r of leftoverIncoming) {
-      if (usedIncoming.has(r)) continue;
-      if (r.normalizedDescription !== e.normalizedDescription || r.kind !== e.kind) continue;
-      const sameDate = r.date === e.date;
-      const sameAmount = r.amountCents === e.amountCents;
-      if (!(sameDate !== sameAmount)) continue;
-      const distance = dayDistance(r.date, e.date);
-      if (distance < bestDistance) {
-        best = r;
-        bestDistance = distance;
-      }
-    }
-    if (best) {
-      usedIncoming.add(best);
+  const groupKey = (kind: string, norm: string, amount: number) => `${kind}|${norm}|${amount}`;
+  const exGroups = new Map<string, ExistingInvoiceItem[]>();
+  const inGroups = new Map<string, ParsedInvoiceRow[]>();
+  for (const e of leftoverExisting) {
+    const k = groupKey(e.kind, e.normalizedDescription, e.amountCents);
+    exGroups.set(k, [...(exGroups.get(k) ?? []), e]);
+  }
+  for (const r of leftoverIncoming) {
+    const k = groupKey(r.kind, r.normalizedDescription, r.amountCents);
+    inGroups.set(k, [...(inGroups.get(k) ?? []), r]);
+  }
+  for (const [k, ex] of exGroups) {
+    const inc = inGroups.get(k);
+    if (!inc || ex.length !== inc.length || ex[0].kind !== 'purchase') continue;
+    const isInstallment = inc.every((r) => r.installmentNo !== null);
+    if (!isInstallment && !(ex.length === 1 && dayDistance(ex[0].date, inc[0].date) <= 3)) continue;
+    if (ex.length > 1 && new Set(ex.map((e) => e.classificationKey ?? '')).size > 1) continue;
+    const exSorted = ex.slice().sort((a, b) => a.date.localeCompare(b.date) || a.occurrenceIndex - b.occurrenceIndex);
+    const inSorted = inc.slice().sort((a, b) => a.date.localeCompare(b.date) || a.rowIndex - b.rowIndex);
+    exSorted.forEach((e, i) => {
+      updates.push({ existing: e, row: inSorted[i], basis: isInstallment ? 'installment' : 'single_match' });
       pairedExisting.add(e);
-      divergences.push({
-        key: e.id,
-        existing: e,
-        incoming: best,
-        reason: best.date === e.date ? 'amount_changed' : 'date_changed',
-      });
+      usedIncoming.add(inSorted[i]);
+    });
+  }
+
+  // Divergências: par mútuo e único (só data OU só valor mudou). Concorrência = ambígua.
+  const divergences: Divergence[] = [];
+  const ambiguous: ExistingInvoiceItem[] = [];
+  const restExisting = leftoverExisting.filter((e) => !pairedExisting.has(e));
+  const restIncoming = leftoverIncoming.filter((r) => !usedIncoming.has(r));
+  const plausible = (e: ExistingInvoiceItem, r: ParsedInvoiceRow) =>
+    r.normalizedDescription === e.normalizedDescription && r.kind === e.kind && (r.date === e.date) !== (r.amountCents === e.amountCents);
+  for (const e of restExisting.slice().sort((a, b) => a.date.localeCompare(b.date) || a.occurrenceIndex - b.occurrenceIndex)) {
+    const cands = restIncoming.filter((r) => plausible(e, r));
+    if (cands.length === 0) continue;
+    if (cands.length > 1 || restExisting.filter((o) => plausible(o, cands[0])).length > 1) {
+      ambiguous.push(e);
+      continue;
     }
+    const best = cands[0];
+    usedIncoming.add(best);
+    pairedExisting.add(e);
+    divergences.push({ key: e.id, existing: e, incoming: best, reason: best.date === e.date ? 'amount_changed' : 'date_changed' });
   }
 
   const missing = leftoverExisting.filter((e) => !pairedExisting.has(e));
@@ -146,7 +184,7 @@ export function reconcileInvoice(existing: readonly ExistingInvoiceItem[], incom
     nextFree.set(key, next + 1);
   }
 
-  return { recognized, newRows, missing, divergences };
+  return { recognized, updates, ambiguous, newRows, missing, divergences };
 }
 
 export function describeReconcile(result: ReconcileResult) {
@@ -154,6 +192,8 @@ export function describeReconcile(result: ReconcileResult) {
     recognized: result.recognized.length,
     new: result.newRows.length,
     missing: result.missing.length,
+    updated: result.updates.length,
+    ambiguous: result.ambiguous.length,
     divergences: result.divergences.length,
     needsReview: result.divergences.length + result.missing.length,
   };

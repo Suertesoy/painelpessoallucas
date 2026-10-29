@@ -41,6 +41,14 @@ export interface WorkoutRepository {
   /** Mais recentes primeiro. */
   listSessions(athleteId: string, limit: number): Promise<WorkoutSession[]>;
   saveSession(session: WorkoutSession): Promise<void>;
+  /**
+   * Exclusão lógica da sessão INTEIRA (todas as fichas) de um atleta; `deleted=false` restaura.
+   * Devolve null se a sessão não existe. Erra se for de outro atleta ou estiver em andamento.
+   * Sessões excluídas somem de findSession, listSessions, séries e conclusões do atleta.
+   */
+  setSessionDeleted(athleteId: string, sessionId: string, deleted: boolean): Promise<WorkoutSession | null>;
+  /** Sessões excluídas do atleta, mais recentes primeiro (para restaurar). */
+  listDeletedSessions(athleteId: string, limit: number): Promise<WorkoutSession[]>;
 
   // Séries
   listSetLogsBySession(sessionId: string): Promise<SetLog[]>;

@@ -200,6 +200,8 @@ export class FinanceCashCommands {
     const v = ClassifyInput.parse(input);
     if (v.category) await this.assertKnownCategory(v.category);
     await this.repo.classifyItems(v.itemIds, { category: v.category, purpose: v.purpose });
+    // Escolher a categoria é o aprendizado: sem segunda confirmação. A política só cria regra com evidência consistente.
+    try { await this.repo.applyCategoryRules(); } catch { /* melhor esforço: a classificação já foi salva */ }
     await this.emit('finance.invoice_items_classified', v.itemIds[0], { count: v.itemIds.length });
   }
 

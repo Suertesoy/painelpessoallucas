@@ -42,7 +42,8 @@ export interface ImportPlan {
     commitment_id: string | null;
   }[];
   recognize: string[];
-  update: { id: string; purchase_date: string; amount_cents: number }[];
+  /** occurrence_index novo e livre: evita colisão na chave única ao mudar a data. */
+  update: { id: string; purchase_date: string; amount_cents: number; occurrence_index: number }[];
   missing: string[];
   remove: string[];
   link: { item_id: string; commitment_id: string }[];
@@ -117,6 +118,14 @@ export function buildImportPlan(
   }
   plan.counts.recognized = result.recognized.length;
 
+  // Atualizações confiáveis (só data): índice livre na nova chave.
+  for (const u of result.updates) {
+    plan.update.push({ id: u.existing.id, purchase_date: u.row.date, amount_cents: u.row.amountCents, occurrence_index: reserve(u.row) });
+    plan.counts.changed += 1;
+    const linked = linkByRef.get(`existing:${u.existing.id}`);
+    if (linked) plan.link.push({ item_id: u.existing.id, commitment_id: linked });
+  }
+
   for (const n of result.newRows) {
     // Os índices de ocorrência já vêm livres da conciliação; reserva garante
     // consistência com os usados por divergências 'different'.
@@ -126,7 +135,7 @@ export function buildImportPlan(
   for (const d of result.divergences) {
     const decision = decisions.divergences[d.key];
     if (decision === 'same') {
-      plan.update.push({ id: d.existing.id, purchase_date: d.incoming.date, amount_cents: d.incoming.amountCents });
+      plan.update.push({ id: d.existing.id, purchase_date: d.incoming.date, amount_cents: d.incoming.amountCents, occurrence_index: reserve(d.incoming) });
       plan.counts.changed += 1;
       const linked = linkByRef.get(`existing:${d.existing.id}`);
       if (linked) plan.link.push({ item_id: d.existing.id, commitment_id: linked });

@@ -43,7 +43,12 @@ const CATEGORY_ID = /^[a-z_]{2,40}$/;
 export const isValidCategoryId = (v: string) => CATEGORY_ID.test(v);
 
 /** Estabelecimentos que cobram serviços diferentes: por padrão a regra exige o mesmo valor. */
-const AMBIGUOUS_MERCHANTS = ['apple', 'google', 'amazon', 'microsoft', 'paypal', 'mercadopago', 'pagseguro', 'pagbank', 'picpay', 'mp '];
+const AMBIGUOUS_MERCHANTS = [
+  'apple', 'google', 'amazon', 'microsoft', 'paypal', 'mercadopago', 'pagseguro', 'pagbank', 'picpay', 'mp ',
+  // Marketplaces e intermediadores de pagamento: o mesmo nome cobre compras de natureza diferente.
+  'mercadolivre', 'mercado livre', 'shopee', 'magalu', 'aliexpress', 'shein', 'americanas', 'sumup', 'stone', 'cielo',
+  'getnet', 'ton ', 'pix', 'hotmart', 'eduzz', 'kiwify', 'stripe', 'ebanx', 'paddle', 'pag*', 'iz*', 'zig*',
+];
 
 export function isAmbiguousMerchant(key: string): boolean {
   const padded = `${key} `;

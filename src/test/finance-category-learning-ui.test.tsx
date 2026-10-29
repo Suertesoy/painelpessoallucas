@@ -26,41 +26,31 @@ function fakeClassification(over: Partial<Classification> = {}): Classification 
   } as unknown as Classification;
 }
 
-describe('aprender com lançamentos semelhantes (interface)', () => {
-  it('a opção é voluntária: vem desligada e não mostra nada além do rótulo', () => {
+describe('aprendizado automático (interface)', () => {
+  it('não pede segunda confirmação: sem caixa nem botão de salvar regra', () => {
     render(<ClassifierControls item={baseItem} classification={fakeClassification()} />);
-    const box = screen.getByLabelText('Usar esta categoria em lançamentos semelhantes') as HTMLInputElement;
-    expect(box.checked).toBe(false);
+    expect(screen.queryByLabelText('Usar esta categoria em lançamentos semelhantes')).toBeNull();
     expect(screen.queryByText('Salvar regra')).toBeNull();
   });
 
-  it('ao ativar, o padrão é estabelecimento + mesmo valor e salvar aprende com "amount"', async () => {
-    const classification = fakeClassification();
-    render(<ClassifierControls item={baseItem} classification={classification} />);
-    fireEvent.click(screen.getByLabelText('Usar esta categoria em lançamentos semelhantes'));
-    expect((screen.getByLabelText(/Mesmo estabelecimento e mesmo valor/) as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(screen.getByText('Salvar regra'));
-    await waitFor(() => expect(classification.learn).toHaveBeenCalledWith(baseItem, 'armazenamento', 'amount'));
-    expect(await screen.findByRole('status')).toHaveProperty('textContent', expect.stringContaining('3 outros lançamentos classificados'));
+  it('estabelecimento ambíguo (Apple) avisa que só o mesmo valor é lembrado', () => {
+    render(<ClassifierControls item={baseItem} classification={fakeClassification()} />);
+    expect(screen.getByText(/só para o mesmo valor/)).toBeTruthy();
   });
 
-  it('qualquer valor é escolha explícita e avisa quando o estabelecimento é ambíguo (Apple)', () => {
-    const classification = fakeClassification();
-    render(<ClassifierControls item={baseItem} classification={classification} />);
-    fireEvent.click(screen.getByLabelText('Usar esta categoria em lançamentos semelhantes'));
-    expect(screen.queryByText(/cobra serviços diferentes/)).toBeNull();
-    fireEvent.click(screen.getByLabelText('Qualquer valor deste estabelecimento'));
-    expect(screen.getByText(/cobra serviços diferentes/)).toBeTruthy();
-    fireEvent.click(screen.getByText('Salvar regra'));
-    expect(classification.learn).toHaveBeenCalledWith(baseItem, 'armazenamento', 'merchant');
+  it('estabelecimento comum avisa que lembra para lançamentos equivalentes', () => {
+    render(<ClassifierControls item={{ ...baseItem, baseDescription: 'Padaria Central' }} classification={fakeClassification()} />);
+    expect(screen.getByText(/lembra esta escolha para lançamentos equivalentes/)).toBeTruthy();
   });
 
-  it('sem categoria não oferece aprender; lançamento classificado por regra mostra a marca "por regra"', () => {
-    const { rerender } = render(<ClassifierControls item={{ ...baseItem, category: null, categorySource: null }} classification={fakeClassification()} />);
-    expect(screen.queryByLabelText('Usar esta categoria em lançamentos semelhantes')).toBeNull();
+  it('regra ativa é exibida; item de regra mostra a marca "por regra" e sem categoria nada é dito', () => {
+    const rule = { id: 'r', merchantKey: 'apple com bill', amountCents: 6690, category: 'armazenamento' };
+    const { rerender } = render(<ClassifierControls item={baseItem} classification={fakeClassification({ ruleFor: () => rule } as never)} />);
+    expect(screen.getByText(/Lembrado:/)).toBeTruthy();
     rerender(<ClassifierControls item={{ ...baseItem, categorySource: 'rule' }} classification={fakeClassification()} />);
     expect(screen.getByText('por regra')).toBeTruthy();
-    expect(screen.queryByLabelText('Usar esta categoria em lançamentos semelhantes')).toBeNull();
+    rerender(<ClassifierControls item={{ ...baseItem, category: null, categorySource: null }} classification={fakeClassification()} />);
+    expect(screen.queryByText(/lembra/)).toBeNull();
   });
 
   it('criar categoria nova pelo seletor abre o campo de nome e classifica com ela', async () => {

@@ -335,6 +335,17 @@ export class WorkoutQueries {
     return { athlete, entries: buildHistory({ sessions: page, logs, exercises, days, completions, athleteId }), hasMore: sessions.length > limit };
   }
 
+  /** Treinos excluídos (restauráveis), com o resumo das séries de cada um. */
+  async getDeletedWorkouts(athleteId: string, limit = 30): Promise<HistoryEntry[]> {
+    const [days, exercises, sessions] = await Promise.all([
+      this.repo.listDays(),
+      this.repo.listExercises(),
+      this.repo.listDeletedSessions(athleteId, limit),
+    ]);
+    const logs = await this.repo.listSetLogsForSessions(sessions.map((s) => s.id));
+    return buildHistory({ sessions, logs, exercises, days, completions: [], athleteId });
+  }
+
   async getEvolution(athleteId: string): Promise<EvolutionView | null> {
     const [athletes, days, exercises, logs, sessions, bodyWeights] = await Promise.all([
       this.repo.listAthletes(),
