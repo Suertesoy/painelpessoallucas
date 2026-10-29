@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Upload } from 'lucide-react';
+import { FileUp, PencilLine } from 'lucide-react';
 import { useCommands } from '@/providers/repository.provider';
 import { effectiveInvoiceAmount, invoiceAmountsDiverge, type CardInvoice } from '@/modules/finance/cash/domain/types';
 import { InvoiceStatusChip, InvoiceStatusDialog } from './invoice-status';
@@ -49,11 +49,44 @@ function InvoiceEditor({ card, month, invoice, onDone }: { card: CardId; month: 
   );
 }
 
-function CardInvoiceBlock({ card, month, invoice, missingCount }: { card: CardId; month: MonthKey; invoice: CardInvoice | null; missingCount: number }) {
-  const [editing, setEditing] = useState(false);
+/**
+ * Ponto ÚNICO de entrada: escolhe titular e mês de vencimento e então importa o CSV
+ * (tela de revisão) ou informa só o valor. Os cartões continuam separados nos resultados.
+ */
+function AddInvoiceDialog({ open, onClose, defaultMonth, invoices }: { open: boolean; onClose: () => void; defaultMonth: MonthKey; invoices: CardInvoice[] }) {
+  const [card, setCard] = useState<CardId>('nubank_1');
+  const [month, setMonth] = useState<MonthKey>(defaultMonth);
+  const [manual, setManual] = useState(false);
+  const invoice = invoices.find((i) => i.card === card && i.month === month) ?? null;
+  return (
+    <Dialog open={open} title="Adicionar ou importar fatura" onClose={onClose}>
+      <div className="space-y-4">
+        <Field label="Titular da fatura">
+          {(id) => (
+            <select id={id} className={inputClass} value={card} onChange={(e) => setCard(e.target.value as CardId)}>
+              {CARD_IDS.map((c) => <option key={c} value={c}>{CARD_FULL_LABELS[c]}</option>)}
+            </select>
+          )}
+        </Field>
+        <Field label="Mês de vencimento" hint={invoice ? 'Já existe uma fatura deste titular neste mês: será atualizada, não duplicada.' : 'Será criada uma fatura nova.'}>
+          {(id) => <input id={id} type="month" className={inputClass} value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />}
+        </Field>
+        {!manual ? (
+          <div className="flex flex-wrap gap-2">
+            <Link href={`/financas/fatura/importar?card=${card}&month=${month}`} className={buttonPrimary}><FileUp size={14} /> Importar CSV Nubank</Link>
+            <button type="button" className={buttonSecondary} onClick={() => setManual(true)}><PencilLine size={14} /> Informar só o valor</button>
+          </div>
+        ) : (
+          <InvoiceEditor key={`${card}-${month}`} card={card} month={month} invoice={invoice} onDone={onClose} />
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+function CardInvoiceBlock({ card, invoice, missingCount }: { card: CardId; invoice: CardInvoice | null; missingCount: number }) {
   const [statusOpen, setStatusOpen] = useState(false);
   const amount = invoice ? effectiveInvoiceAmount(invoice) : null;
-  const importHref = `/financas/fatura/importar?card=${card}&month=${month}`;
 
   return (
     <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-inset)] p-3.5">
@@ -88,17 +121,12 @@ function CardInvoiceBlock({ card, month, invoice, missingCount }: { card: CardId
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
-        <Link href={importHref} className={buttonSecondary}><Upload size={14} /> Importar CSV</Link>
         {invoice && <button type="button" className={buttonSecondary} onClick={() => setStatusOpen(true)} aria-label={`Situação da fatura ${CARD_FULL_LABELS[card]}`}>Situação</button>}
-        <button type="button" className={buttonSecondary} onClick={() => setEditing(true)}>{invoice ? 'Editar' : 'Informar valor'}</button>
         {invoice && invoice.importedAmountCents !== null && (
           <Link href={`/financas/fatura/${invoice.id}`} className={buttonGhost}>Ver lançamentos</Link>
         )}
       </div>
       {invoice && statusOpen && <InvoiceStatusDialog invoice={invoice} open onClose={() => setStatusOpen(false)} />}
-      <Dialog open={editing} title={`Fatura ${CARD_FULL_LABELS[card]}`} onClose={() => setEditing(false)}>
-        <InvoiceEditor card={card} month={month} invoice={invoice} onDone={() => setEditing(false)} />
-      </Dialog>
     </div>
   );
 }
@@ -168,6 +196,7 @@ export function CardsSection({ invoices, view, currentMonth, missingByInvoice, o
   invoices: CardInvoice[]; view: MonthView; currentMonth: MonthKey; missingByInvoice: Record<string, number>; onSelectMonth: (m: MonthKey) => void;
 }) {
   const selected = view.month;
+  const [adding, setAdding] = useState(false);
   const find = (card: CardId, month: MonthKey) => invoices.find((i) => i.card === card && i.month === month) ?? null;
 
   const byMonth = new Map<MonthKey, CardInvoice[]>();
@@ -180,6 +209,10 @@ export function CardsSection({ invoices, view, currentMonth, missingByInvoice, o
       <Eyebrow>Faturas e parcelas</Eyebrow>
       <p className="mt-1 text-sm font-semibold">{titleMonth(selected)}</p>
       <p className="text-xs text-[var(--text-muted)]">Faturas com vencimento neste mês</p>
+      <div className="mt-3">
+        <button type="button" className={buttonPrimary} onClick={() => setAdding(true)}><FileUp size={14} /> Adicionar ou importar fatura</button>
+      </div>
+      {adding && <AddInvoiceDialog open onClose={() => setAdding(false)} defaultMonth={selected} invoices={invoices} />}
 
       {stale.length > 0 && (
         <div role="status" className="mt-3 rounded-xl border border-[var(--money-warning)] p-3 text-sm">
@@ -198,7 +231,7 @@ export function CardsSection({ invoices, view, currentMonth, missingByInvoice, o
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         {CARD_IDS.map((card) => {
           const inv = find(card, selected);
-          return <CardInvoiceBlock key={`${card}-${selected}`} card={card} month={selected} invoice={inv} missingCount={missingByInvoice[inv?.id ?? ''] ?? 0} />;
+          return <CardInvoiceBlock key={`${card}-${selected}`} card={card} invoice={inv} missingCount={missingByInvoice[inv?.id ?? ''] ?? 0} />;
         })}
       </div>
 

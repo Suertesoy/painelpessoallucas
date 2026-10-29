@@ -65,7 +65,8 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
     );
   }
 
-  const { session, athlete, athletes, day, days, exercises, totalSets, setsByDay, dayProgress } = data;
+  const { session, athlete, athletes, day, days, exercises, totalSets, setsByDay, dayProgress, completedDayIds } = data;
+  const dayDone = completedDayIds.includes(day.id);
   // Aberto por escolha do usuário; sem escolha, só o exercício EM ANDAMENTO (nenhum, se não houver).
   const openId = storedOpen !== undefined ? storedOpen : defaultOpenExerciseId(exercises.map((v) => ({ id: v.exercise.id, progress: v.progress })));
   const readOnly = session.status !== 'in_progress';
@@ -148,6 +149,20 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
       router.push(`/treinos/${athleteId}`);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : 'Não foi possível concluir.');
+      setBusy(false);
+    }
+  };
+
+  /** "Concluir Treino X": registra a conclusão da ficha; a academia (cronômetro) continua. */
+  const completeDay = async () => {
+    if (busy || dayDone) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await cmds.completeDay(session.id, day.id);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Não foi possível concluir o treino.');
+    } finally {
       setBusy(false);
     }
   };
@@ -393,6 +408,17 @@ export default function SessaoPage({ params }: { params: Promise<{ athleteId: st
         <div className="mt-6 space-y-4">
           <WorkoutPushToggle athleteId={athleteId} />
           <div className="grid gap-3">
+            <button
+              type="button"
+              disabled={busy || dayDone}
+              onClick={() => void completeDay()}
+              className={`min-h-14 rounded-2xl border-2 text-lg font-semibold disabled:opacity-100 ${dayDone ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-emerald-600 bg-white text-emerald-700 disabled:opacity-60'}`}
+            >
+              {dayDone ? `Treino ${day.code} concluído ✓` : `Concluir Treino ${day.code}`}
+            </button>
+            <p className="-mt-1 text-xs text-gray-500">
+              {dayDone ? 'A academia segue em andamento.' : 'Conta o Treino ' + day.code + ' como feito, mesmo que você tenha pulado exercícios. A academia continua até “Encerrar academia”.'}
+            </p>
             <button type="button" disabled={busy} onClick={() => void finish()} className="min-h-14 rounded-2xl bg-emerald-600 text-lg font-semibold text-white disabled:opacity-60">
               Encerrar academia ({totalLogged} séries)
             </button>

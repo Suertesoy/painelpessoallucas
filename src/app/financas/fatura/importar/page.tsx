@@ -52,6 +52,7 @@ function ImportFlow() {
   const [dueDate, setDueDate] = useState('');
   const [paidOn, setPaidOn] = useState(() => todayDateStr());
   const [result, setResult] = useState<ConfirmResult | null>(null);
+  const [wrongTargetOk, setWrongTargetOk] = useState(false);
 
   function upload(url: string, extra?: ConfirmPayload) {
     const form = new FormData();
@@ -74,6 +75,7 @@ function ImportFlow() {
       setPreview(p);
       setRequestId(crypto.randomUUID());
       setDivergences({});
+      setWrongTargetOk(false);
       setMissing({});
       setLinks(Object.fromEntries(p.linkSuggestions.map((s) => [s.ref, s.confidence === 'high'])));
       setPay(Object.fromEntries(p.paymentMatches.map((m) => [m.invoiceId, true])));
@@ -121,17 +123,18 @@ function ImportFlow() {
   }
 
   const undecided = preview ? preview.divergences.filter((d) => !divergences[d.key]).length : 0;
-  const canConfirm = Boolean(preview) && preview!.parseErrors.length === 0 && undecided === 0 && preview!.invoice.status !== 'paid' && !busy;
+  const wrongTargetBlocked = Boolean(preview?.possibleWrongTarget) && !wrongTargetOk;
+  const canConfirm = Boolean(preview) && preview!.parseErrors.length === 0 && undecided === 0 && preview!.invoice.status !== 'paid' && !wrongTargetBlocked && !busy;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 pb-24 md:p-8">
       <Link href="/financas" className="inline-flex items-center gap-1 text-sm text-[var(--accent)]"><ArrowLeft size={14} /> Finanças</Link>
-      <h1 className="text-2xl font-bold">Importar fatura</h1>
+      <h1 className="text-2xl font-bold">Adicionar ou importar fatura</h1>
 
       {step === 'form' && (
         <Card>
           <div className="space-y-4">
-            <Field label="Cartão">
+            <Field label="Titular da fatura" hint="Escolha de quem é a fatura. O nome do arquivo não define o titular.">
               {(id) => (
                 <select id={id} className={inputClass} value={card} onChange={(e) => setCard(e.target.value as CardId)}>
                   {CARD_IDS.map((c) => <option key={c} value={c}>{CARD_FULL_LABELS[c]}</option>)}
@@ -160,10 +163,14 @@ function ImportFlow() {
                 />
               )}
             </Field>
+            {file && <p className="text-xs text-[var(--text-muted)]">Arquivo selecionado: <strong>{file.name}</strong></p>}
             <ErrorText message={error} />
             <button type="button" className={buttonPrimary} disabled={!file || busy || !isMonthKey(month)} onClick={() => void onPreview()}>
               <FileUp size={15} /> {busy ? 'Lendo…' : 'Pré-visualizar'}
             </button>
+            <p className="text-xs text-[var(--text-muted)]">
+              Sem arquivo? Informe só o valor da fatura em <Link href="/financas" className="underline">Finanças</Link> › Adicionar ou importar fatura.
+            </p>
           </div>
         </Card>
       )}
@@ -171,7 +178,7 @@ function ImportFlow() {
       {step === 'review' && preview && (
         <>
           <Card>
-            <Eyebrow>{CARD_FULL_LABELS[preview.card]} · vencimento em {monthLabel(preview.month)}</Eyebrow>
+            <Eyebrow>Titular: {CARD_FULL_LABELS[preview.card]} · vencimento em {monthLabel(preview.month)}</Eyebrow>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
               Confira: este arquivo vai para a fatura do cartão <strong>{CARD_FULL_LABELS[preview.card]}</strong> de {monthLabel(preview.month)}. Se não for esse, volte e corrija.
             </p>
@@ -191,6 +198,19 @@ function ImportFlow() {
             </div>
             {preview.invoice.lastImportedAt && (
               <p className="mt-2 text-xs text-[var(--text-muted)]">Última importação desta fatura: {formatDateTimeBR(preview.invoice.lastImportedAt)}.</p>
+            )}
+            {preview.possibleWrongTarget && (
+              <div role="alert" className="mt-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                <p className="font-medium">Possível destino errado.</p>
+                <p className="mt-1">
+                  {preview.possibleWrongTarget.matchedRows} de {preview.possibleWrongTarget.totalRows} compras deste arquivo já existem, idênticas, em <strong>{preview.possibleWrongTarget.invoiceLabel}</strong>.
+                  Importar aqui pode duplicar despesas. Volte e confira o titular e o mês.
+                </p>
+                <label className="mt-2 flex items-start gap-2">
+                  <input type="checkbox" className="mt-1" checked={wrongTargetOk} onChange={(e) => setWrongTargetOk(e.target.checked)} />
+                  <span>Conferi: é outra fatura mesmo (compras repetidas legítimas). Continuar.</span>
+                </label>
+              </div>
             )}
             {preview.noChanges && <p className="mt-3 rounded-lg bg-[var(--surface-inset)] p-3 text-sm">Nada novo: este arquivo já está refletido na fatura. Confirmar não altera os valores.</p>}
             {preview.invoice.status === 'paid' && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">Esta fatura está marcada como paga. Para reimportar, mude a situação em Finanças › Faturas › Situação (nada é apagado). A importação nunca altera uma fatura paga.</p>}
@@ -322,6 +342,9 @@ function ImportFlow() {
       {step === 'done' && result && (
         <Card>
           <Eyebrow>Importação concluída</Eyebrow>
+          <p role="status" className="mt-2 text-base font-semibold">
+            Fatura de {CARD_FULL_LABELS[card]} — <span className="capitalize">{monthLabel(month)}</span> atualizada.
+          </p>
           <p className="mt-2 text-sm">
             {result.alreadyApplied ? 'Esta importação já havia sido aplicada — nada foi duplicado.' : (
               <>Novos: {result.counts.new} · reconhecidos: {result.counts.recognized} · atualizados: {result.counts.changed} · ausentes/removidos: {result.counts.missing}.</>
@@ -329,7 +352,7 @@ function ImportFlow() {
           </p>
           <div className="mt-4 flex gap-2">
             <Link href={`/financas/fatura/${result.invoiceId}`} className={buttonPrimary}>Ver lançamentos</Link>
-            <Link href="/financas" className={buttonSecondary}>Voltar a Finanças</Link>
+            <Link href={`/financas?month=${month}`} className={buttonSecondary}>Ver em Finanças ({monthLabel(month)})</Link>
           </div>
         </Card>
       )}

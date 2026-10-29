@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { BarChart3, Eye, EyeOff, PieChart, Tags, Upload, Wallet } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
@@ -8,7 +8,7 @@ import { useQueries } from '@/providers/repository.provider';
 import { DataErrorNotice } from '@/components/data-error-notice';
 import { todayDateStr } from '@/lib/dates';
 import { useHideValuesPreference } from '@/lib/use-hide-values';
-import { monthOf, type MonthKey } from '@/modules/finance/cash/domain/month';
+import { isMonthKey, monthOf, type MonthKey } from '@/modules/finance/cash/domain/month';
 import { buildMonthView, clampMonth } from '@/modules/finance/cash/domain/month-view';
 import { AvailableBalanceCard, ReserveCard } from '@/components/finance-cash/balance-cards';
 import { ReceivablesSection } from '@/components/finance-cash/receivables-section';
@@ -19,6 +19,12 @@ import { MonthSummaryCard, SustainabilityCard } from '@/components/finance-cash/
 import { MonthNavigator } from '@/components/finance-cash/month-parts';
 import { CardGoalCard } from '@/components/finance-cash/goal-card';
 import { RegisterMovementButton } from '@/components/finance-cash/register-movement';
+
+const subscribeNever = () => () => {};
+function readMonthParam(): MonthKey | null {
+  const requested = new URLSearchParams(window.location.search).get('month');
+  return requested && isMonthKey(requested) ? requested : null;
+}
 
 /** Heurística segura: nunca exibe o erro cru, só decide qual aviso mostrar. */
 function looksLikeMissingMigration(message: string): boolean {
@@ -46,6 +52,13 @@ export default function FinancasPage() {
   const currentMonth = monthOf(today);
   const [selected, setSelected] = useState<MonthKey>(currentMonth);
   const [hidden, toggleHidden] = useHideValuesPreference();
+  // /financas?month=2026-11 abre direto no mês pedido (ex.: depois de importar uma fatura de vencimento futuro).
+  const urlMonth = useSyncExternalStore(subscribeNever, readMonthParam, () => null);
+  const [urlApplied, setUrlApplied] = useState(false);
+  if (urlMonth && !urlApplied) {
+    setUrlApplied(true);
+    setSelected(urlMonth);
+  }
   const { data, isLoading, error, isOffline, refetch } = useReactiveQuery(() => financeCash.getSnapshot(today), [today]);
 
   const month = clampMonth(selected, currentMonth);

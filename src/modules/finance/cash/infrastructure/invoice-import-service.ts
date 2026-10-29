@@ -5,6 +5,7 @@ import {
 } from '../domain/nubank-invoice-csv';
 import { reconcileInvoice, type ExistingInvoiceItem } from '../domain/reconcile';
 import { buildImportPlan, MissingDecisionError, type ImportDecisions } from '../domain/import-plan';
+import { detectMisplacedImport, type OtherInvoiceItem } from '../domain/misplaced-import';
 import { matchPaymentToInvoice, suggestCommitmentLinks } from '../domain/commitment-links';
 import { applyCategoryRules } from './category-learning';
 import type { ConfirmPayload, ConfirmResult, ImportPreview, PreviewItem } from '../domain/import-preview';
@@ -89,6 +90,25 @@ async function loadOtherInvoices(supabase: SupabaseClient, workspaceId: string, 
   return data ?? [];
 }
 
+/** Compras de TODAS as outras faturas do workspace (qualquer cartão), paginadas. */
+async function loadOtherInvoiceItems(supabase: SupabaseClient, workspaceId: string, excludeInvoiceId: string | null): Promise<OtherInvoiceItem[]> {
+  const PAGE = 1000;
+  const out: OtherInvoiceItem[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase.from('finance_invoice_items')
+      .select('invoice_id, purchase_date, normalized_description, amount_cents')
+      .eq('workspace_id', workspaceId).eq('kind', 'purchase').neq('status', 'removed')
+      .order('id').range(from, from + PAGE - 1);
+    if (error) throw new ImportError(500, 'server_error', 'Não foi possível consultar os lançamentos das faturas.');
+    for (const r of data ?? []) {
+      if (r.invoice_id === excludeInvoiceId) continue;
+      out.push({ invoiceId: r.invoice_id as string, date: r.purchase_date as string, normalizedDescription: r.normalized_description as string, amountCents: Number(r.amount_cents) });
+    }
+    if ((data ?? []).length < PAGE) break;
+  }
+  return out;
+}
+
 export async function buildPreview(
   supabase: SupabaseClient, workspaceId: string,
   args: { card: CardId; month: MonthKey; fileName: string; buffer: ArrayBuffer }
@@ -159,6 +179,20 @@ export async function buildPreview(
     reason: s.reason,
   }));
 
+  const otherItems = await loadOtherInvoiceItems(supabase, workspaceId, ctx.invoice?.id ?? null);
+  const suspicion = detectMisplacedImport(ctx.incoming, result.recognized.length, otherItems);
+  let possibleWrongTarget: ImportPreview['possibleWrongTarget'] = null;
+  if (suspicion) {
+    const { data: inv } = await supabase.from('finance_card_invoices').select('card, month').eq('workspace_id', workspaceId).eq('id', suspicion.invoiceId).maybeSingle();
+    if (inv) {
+      possibleWrongTarget = {
+        invoiceLabel: `${CARD_FULL_LABELS[inv.card as CardId]} — vencimento em ${monthLabel(inv.month as string)}`,
+        matchedRows: suspicion.matchedRows,
+        totalRows: suspicion.totalRows,
+      };
+    }
+  }
+
   const noChanges =
     result.newRows.length === 0 && result.divergences.length === 0 && result.missing.length === 0 && paymentMatches.length === 0;
 
@@ -200,6 +234,7 @@ export async function buildPreview(
     })),
     paymentMatches,
     linkSuggestions,
+    possibleWrongTarget,
     noChanges,
   };
 }

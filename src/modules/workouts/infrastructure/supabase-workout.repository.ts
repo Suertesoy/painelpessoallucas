@@ -6,6 +6,8 @@ import { WorkoutRepository } from '../application/workout.repository';
 import {
   BodyWeightLog,
   BodyWeightLogSchema,
+  DayCompletion,
+  DayCompletionSchema,
   ExerciseLoad,
   ExerciseLoadSchema,
   SetLog,
@@ -378,6 +380,58 @@ export class SupabaseWorkoutRepository implements WorkoutRepository {
       if ((data ?? []).length < PAGE) break;
     }
     return out;
+  }
+
+  async listSetLogsForSessions(sessionIds: string[]): Promise<SetLog[]> {
+    const out: SetLog[] = [];
+    // Em blocos: mantém cada pedido abaixo do teto de 1.000 linhas do PostgREST.
+    for (let i = 0; i < sessionIds.length; i += 20) {
+      const { data, error } = await this.supabase
+        .from('workout_set_logs')
+        .select('*')
+        .in('session_id', sessionIds.slice(i, i + 20))
+        .order('completed_at');
+      if (error) this.fail('carregar as séries do histórico', error);
+      out.push(...(data ?? []).map(setLogFromRow));
+    }
+    return out;
+  }
+
+  async listDayCompletions(athleteId: string): Promise<DayCompletion[]> {
+    const { data, error } = await this.supabase
+      .from('workout_day_completions')
+      .select('*')
+      .eq('athlete_id', athleteId)
+      .order('completed_at');
+    if (error) this.fail('carregar os treinos concluídos', error);
+    return (data ?? []).map((r) =>
+      DayCompletionSchema.parse({
+        id: r.id,
+        workspaceId: r.workspace_id,
+        athleteId: r.athlete_id,
+        sessionId: r.session_id,
+        dayId: r.day_id,
+        completedAt: r.completed_at,
+        createdAt: r.created_at,
+      })
+    );
+  }
+
+  async saveDayCompletion(c: DayCompletion): Promise<void> {
+    // ignoreDuplicates => ON CONFLICT DO NOTHING: tocar de novo nunca reescreve a conclusão original.
+    const { error } = await this.supabase.from('workout_day_completions').upsert(
+      {
+        id: c.id,
+        workspace_id: c.workspaceId,
+        athlete_id: c.athleteId,
+        session_id: c.sessionId,
+        day_id: c.dayId,
+        completed_at: c.completedAt,
+      },
+      { onConflict: 'session_id,day_id', ignoreDuplicates: true }
+    );
+    if (error) this.fail('concluir o treino', error);
+    this.notifier.notify();
   }
 
   async saveSetLog(log: SetLog): Promise<void> {

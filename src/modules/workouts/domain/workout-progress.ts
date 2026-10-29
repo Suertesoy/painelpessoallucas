@@ -1,4 +1,4 @@
-import type { SetLog, WorkoutExercise, WorkoutSession } from './workout.schema';
+import type { DayCompletion, SetLog, WorkoutExercise, WorkoutSession } from './workout.schema';
 
 /**
  * Progresso de exercícios e contagem de treinos concluídos — funções puras.
@@ -68,7 +68,41 @@ export function defaultOpenExerciseId(items: readonly { id: string; progress: Ex
 /* ------------------------------------------------------------------ */
 
 /**
- * Regra de "treino concluído" (A–E), derivada só do histórico:
+ * Regra ATUAL: a ficha só conta quando há uma conclusão EXPLÍCITA (toque em
+ * "Concluir Treino"). A heurística abaixo é LEGADA: serve só para sessões até
+ * `LEGACY_COMPLETION_CUTOFF`, anteriores ao botão, e é exibida separada
+ * ("anteriores, estimado") — nunca vira conclusão inventada.
+ */
+export const LEGACY_COMPLETION_CUTOFF = '2026-10-28';
+
+export interface ExplicitCompletion {
+  count: number;
+  lastCompletedOn?: string;
+}
+
+/** Conclusões explícitas por ficha. `sessions` fornece a data local de cada sessão. */
+export function countExplicitCompletions(
+  completions: readonly Pick<DayCompletion, 'sessionId' | 'dayId' | 'completedAt'>[],
+  sessions: readonly Pick<WorkoutSession, 'id' | 'sessionDate'>[]
+): Map<string, ExplicitCompletion> {
+  const dateOf = new Map(sessions.map((s) => [s.id, s.sessionDate]));
+  const seen = new Set<string>();
+  const result = new Map<string, ExplicitCompletion>();
+  for (const c of completions) {
+    const key = `${c.sessionId}:${c.dayId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const current = result.get(c.dayId) ?? { count: 0 };
+    current.count += 1;
+    const date = dateOf.get(c.sessionId);
+    if (date && (!current.lastCompletedOn || date > current.lastCompletedOn)) current.lastCompletedOn = date;
+    result.set(c.dayId, current);
+  }
+  return result;
+}
+
+/**
+ * LEGADO — heurística antiga de "treino concluído" (A–E), derivada do histórico:
  *  - a SESSÃO precisa estar concluída (encerrada pelo usuário); em andamento ou
  *    cancelada nunca conta;
  *  - o treino conta se, nessa sessão, pelo menos METADE dos exercícios dele
@@ -81,7 +115,7 @@ export function defaultOpenExerciseId(items: readonly { id: string; progress: Ex
  */
 export const DAY_COMPLETION_RATIO = 0.5;
 
-export interface DayCompletion {
+export interface DayCompletionCount {
   count: number;
   lastCompletedOn?: string;
 }
@@ -91,7 +125,11 @@ export function countCompletedDays(input: {
   /** Pares (sessão, exercício) com ao menos uma série registrada. */
   touches: readonly { sessionId: string; exerciseId: string }[];
   exercises: readonly Pick<WorkoutExercise, 'id' | 'dayId' | 'removedAt' | 'hiddenAt'>[];
-}): Map<string, DayCompletion> {
+  /** Sessões posteriores a esta data (YYYY-MM-DD) não entram na heurística legada. */
+  legacyUntil?: string;
+  /** `sessão:ficha` já concluídos explicitamente — não contam de novo como legado. */
+  explicit?: ReadonlySet<string>;
+}): Map<string, DayCompletionCount> {
   const dayOf = new Map(input.exercises.map((e) => [e.id, e.dayId]));
   const activeByDay = new Map<string, number>();
   for (const e of input.exercises) {
@@ -113,10 +151,12 @@ export function countCompletedDays(input: {
     touched.set(t.sessionId, perDay);
   }
 
-  const result = new Map<string, DayCompletion>();
+  const result = new Map<string, DayCompletionCount>();
   for (const [sessionId, perDay] of touched) {
     const session = completed.get(sessionId)!;
+    if (input.legacyUntil && session.sessionDate > input.legacyUntil) continue;
     for (const [dayId, exerciseIds] of perDay) {
+      if (input.explicit?.has(`${sessionId}:${dayId}`)) continue;
       const active = activeByDay.get(dayId) ?? 0;
       const needed = Math.max(1, Math.ceil(active * DAY_COMPLETION_RATIO));
       if (exerciseIds.size < needed) continue;

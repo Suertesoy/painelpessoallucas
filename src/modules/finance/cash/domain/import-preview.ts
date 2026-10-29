@@ -46,6 +46,8 @@ export interface ImportPreview {
     confidence: 'high' | 'low';
     reason: 'name_and_amount' | 'name_only' | 'amount_only';
   }[];
+  /** Maioria das compras do arquivo já existe, idêntica, em OUTRA fatura: possível destino errado (cartão/mês). */
+  possibleWrongTarget: { invoiceLabel: string; matchedRows: number; totalRows: number } | null;
   /** Nada a fazer: arquivo já refletido na fatura. */
   noChanges: boolean;
 }

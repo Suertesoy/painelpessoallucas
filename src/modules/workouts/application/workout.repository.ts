@@ -1,5 +1,6 @@
 import type {
   BodyWeightLog,
+  DayCompletion,
   ExerciseLoad,
   SetLog,
   WorkoutAthlete,
@@ -52,6 +53,14 @@ export interface WorkoutRepository {
   listSetLogTouches(athleteId: string): Promise<Array<{ sessionId: string; exerciseId: string }>>;
   saveSetLog(log: SetLog): Promise<void>;
   deleteSetLog(id: string): Promise<void>;
+
+  /** Séries de várias sessões (histórico). */
+  listSetLogsForSessions(sessionIds: string[]): Promise<SetLog[]>;
+
+  // Conclusões explícitas de ficha
+  listDayCompletions(athleteId: string): Promise<DayCompletion[]>;
+  /** Idempotente por (sessão, ficha): se já existe, mantém a original. */
+  saveDayCompletion(completion: DayCompletion): Promise<void>;
 
   // Peso corporal
   listBodyWeights(athleteId: string): Promise<BodyWeightLog[]>;

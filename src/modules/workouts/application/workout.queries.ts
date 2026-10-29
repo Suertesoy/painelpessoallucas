@@ -9,7 +9,8 @@ import type {
   WorkoutSession,
 } from '../domain/workout.schema';
 import { buildExerciseSeries, previousPerformance, type ExercisePoint } from '../domain/workout-stats';
-import { countCompletedDays, exerciseProgress, sessionProgress, type DaySessionProgress, type ExerciseProgress } from '../domain/workout-progress';
+import { buildHistory, type HistoryEntry } from '../domain/workout-history';
+import { LEGACY_COMPLETION_CUTOFF, countCompletedDays, countExplicitCompletions, exerciseProgress, sessionProgress, type DaySessionProgress, type ExerciseProgress } from '../domain/workout-progress';
 
 const RECENT_SESSIONS = 60;
 const RECENT_SET_LOGS = 800;
@@ -39,10 +40,13 @@ export interface AthleteOverview {
     /** Última EXECUÇÃO: último dia com séries registradas deste treino (sessão não cancelada). */
     lastDoneOn?: string;
     loggedInActive: number;
-    /** Quantas vezes este treino foi CONCLUÍDO por este atleta (sessões encerradas; ver `countCompletedDays`). */
+    /** Quantas vezes este treino foi CONCLUÍDO explicitamente ("Concluir Treino") por este atleta. */
     completedCount: number;
-    /** Data da última sessão em que o treino contou como concluído. */
+    /** Data da última sessão com conclusão explícita. */
     lastCompletedOn?: string;
+    /** LEGADO: conclusões estimadas de sessões anteriores ao botão (heurística antiga); separado de `completedCount`. */
+    legacyCompletedCount?: number;
+    legacyLastCompletedOn?: string;
   }>;
   activeSession: WorkoutSession | null;
   recentSessions: WorkoutSession[];
@@ -80,6 +84,8 @@ export interface SessionView {
   exercises: SessionExerciseView[];
   /** Exercícios concluídos no treino em foco (para o indicador do topo). */
   dayProgress: DaySessionProgress;
+  /** Fichas já concluídas explicitamente nesta sessão. */
+  completedDayIds: string[];
 }
 
 /** Um treino (A–E) para consultar SEM iniciar nada. */
@@ -135,7 +141,7 @@ export class WorkoutQueries {
   }
 
   async getAthleteOverview(athleteId: string): Promise<AthleteOverview | null> {
-    const [athletes, days, exercises, active, recent, logs, allSessions, touches] = await Promise.all([
+    const [athletes, days, exercises, active, recent, logs, allSessions, touches, completionRows] = await Promise.all([
       this.repo.listAthletes(),
       this.repo.listDays(),
       this.repo.listExercises(),
@@ -144,6 +150,7 @@ export class WorkoutQueries {
       this.repo.listSetLogsByAthlete(athleteId, RECENT_SET_LOGS),
       this.repo.listSessions(athleteId, ALL_SESSIONS),
       this.repo.listSetLogTouches(athleteId),
+      this.repo.listDayCompletions(athleteId),
     ]);
     const athlete = athletes.find((a) => a.id === athleteId);
     if (!athlete) return null;
@@ -162,7 +169,14 @@ export class WorkoutQueries {
       if (active && log.sessionId === active.id) loggedInActive.set(dayId, (loggedInActive.get(dayId) ?? 0) + 1);
     }
     // Treinos CONCLUÍDOS: calculados do histórico completo (sessões encerradas + séries), nunca de um contador salvo.
-    const completions = countCompletedDays({ sessions: allSessions, touches, exercises });
+    const explicit = countExplicitCompletions(completionRows, allSessions);
+    const legacy = countCompletedDays({
+      sessions: allSessions,
+      touches,
+      exercises,
+      legacyUntil: LEGACY_COMPLETION_CUTOFF,
+      explicit: new Set(completionRows.map((c) => `${c.sessionId}:${c.dayId}`)),
+    });
     return {
       athlete,
       days: days
@@ -172,8 +186,10 @@ export class WorkoutQueries {
           exerciseCount: activeExercises(exercises, day.id).length,
           lastDoneOn: lastDone.get(day.id),
           loggedInActive: loggedInActive.get(day.id) ?? 0,
-          completedCount: completions.get(day.id)?.count ?? 0,
-          lastCompletedOn: completions.get(day.id)?.lastCompletedOn,
+          completedCount: explicit.get(day.id)?.count ?? 0,
+          lastCompletedOn: explicit.get(day.id)?.lastCompletedOn,
+          legacyCompletedCount: legacy.get(day.id)?.count,
+          legacyLastCompletedOn: legacy.get(day.id)?.lastCompletedOn,
         })),
       activeSession: active,
       recentSessions: recent.slice(0, 10),
@@ -229,6 +245,7 @@ export class WorkoutQueries {
     const logs = allLogs;
     if (!athlete || !day) return null;
     const history = await this.perAthleteHistory(athletes);
+    const completedDayIds = (await this.repo.listDayCompletions(session.athleteId)).filter((c) => c.sessionId === sessionId).map((c) => c.dayId);
 
     // Exercícios do dia + qualquer exercício removido que já tenha série nesta sessão.
     const loggedIds = new Set(logs.map((l) => l.exerciseId));
@@ -266,6 +283,7 @@ export class WorkoutQueries {
       setsByDay,
       exercises: exerciseViews,
       dayProgress: sessionProgress(exerciseViews.map((v) => v.progress)),
+      completedDayIds,
     };
   }
 
@@ -299,6 +317,22 @@ export class WorkoutQueries {
         return { exercise, loadsByAthlete, previousByAthlete };
       }),
     };
+  }
+
+  /** Histórico de treinos do atleta (mais recente primeiro), com as séries reais de cada sessão. */
+  async getWorkoutHistory(athleteId: string, limit = 30): Promise<{ athlete: WorkoutAthlete; entries: HistoryEntry[]; hasMore: boolean } | null> {
+    const [athletes, days, exercises, sessions, completions] = await Promise.all([
+      this.repo.listAthletes(),
+      this.repo.listDays(),
+      this.repo.listExercises(),
+      this.repo.listSessions(athleteId, limit + 1),
+      this.repo.listDayCompletions(athleteId),
+    ]);
+    const athlete = athletes.find((a) => a.id === athleteId);
+    if (!athlete) return null;
+    const page = sessions.slice(0, limit);
+    const logs = await this.repo.listSetLogsForSessions(page.map((s) => s.id));
+    return { athlete, entries: buildHistory({ sessions: page, logs, exercises, days, completions, athleteId }), hasMore: sessions.length > limit };
   }
 
   async getEvolution(athleteId: string): Promise<EvolutionView | null> {

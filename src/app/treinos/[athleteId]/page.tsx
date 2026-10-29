@@ -3,7 +3,7 @@
 import { use, useState } from 'react';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
-import { ChevronRight, LineChart as ChartIcon, Play } from 'lucide-react';
+import { ChevronRight, History as HistoryIcon, LineChart as ChartIcon, Play } from 'lucide-react';
 import { useReactiveQuery } from '@/lib/hooks';
 import { useCommands, useQueries } from '@/providers/repository.provider';
 import { useWorkspace } from '@/providers/auth.provider';
@@ -120,7 +120,7 @@ export default function AtletaPage({ params }: { params: Promise<{ athleteId: st
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-3">
-        {data.days.map(({ day, exerciseCount, lastDoneOn, loggedInActive, completedCount, lastCompletedOn }) => (
+        {data.days.map(({ day, exerciseCount, lastDoneOn, loggedInActive, completedCount, lastCompletedOn, legacyCompletedCount }) => (
           <Link
             key={day.id}
             href={`/treinos/${athleteId}/dia/${day.id}`}
@@ -150,6 +150,11 @@ export default function AtletaPage({ params }: { params: Promise<{ athleteId: st
                   ) : (
                     <span>ainda não concluído</span>
                   )}
+                  {!!legacyCompletedCount && (
+                    <span className="block text-gray-500" title="Estimativa das sessões anteriores ao botão Concluir Treino">
+                      +{legacyCompletedCount} anterior{legacyCompletedCount === 1 ? '' : 'es'} (estimado)
+                    </span>
+                  )}
                   {lastCompletedOn && lastCompletedOn !== lastDoneOn && <span className="block">Última conclusão: {formatDate(lastCompletedOn)}</span>}
                 </span>
               )}
@@ -160,8 +165,14 @@ export default function AtletaPage({ params }: { params: Promise<{ athleteId: st
       </div>
 
       <Link
-        href={`/treinos/${athleteId}/evolucao`}
+        href={`/treinos/${athleteId}/historico`}
         className="mt-6 flex min-h-14 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-800 hover:bg-gray-50"
+      >
+        <HistoryIcon size={18} aria-hidden="true" /> Histórico de treinos
+      </Link>
+      <Link
+        href={`/treinos/${athleteId}/evolucao`}
+        className="mt-3 flex min-h-14 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-800 hover:bg-gray-50"
       >
         <ChartIcon size={18} aria-hidden="true" /> Evolução e peso corporal
       </Link>

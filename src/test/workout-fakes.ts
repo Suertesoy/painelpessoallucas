@@ -1,6 +1,7 @@
 import type { WorkoutRepository } from '@/modules/workouts/application/workout.repository';
 import type {
   BodyWeightLog,
+  DayCompletion,
   ExerciseLoad,
   SetLog,
   WorkoutAthlete,
@@ -18,6 +19,7 @@ export class FakeWorkoutRepository implements WorkoutRepository {
   sessions = new Map<string, WorkoutSession>();
   setLogs = new Map<string, SetLog>();
   weights = new Map<string, BodyWeightLog>();
+  completions = new Map<string, DayCompletion>();
 
   async listAthletes() { return [...this.athletes.values()]; }
   async saveAthletes(a: WorkoutAthlete[]) { a.forEach((x) => this.athletes.set(x.id, x)); }
@@ -62,6 +64,12 @@ export class FakeWorkoutRepository implements WorkoutRepository {
       out.push({ sessionId: l.sessionId, exerciseId: l.exerciseId });
     }
     return out;
+  }
+  async listSetLogsForSessions(ids: string[]) { return [...this.setLogs.values()].filter((l) => ids.includes(l.sessionId)); }
+  async listDayCompletions(athleteId: string) { return [...this.completions.values()].filter((c) => c.athleteId === athleteId); }
+  async saveDayCompletion(c: DayCompletion) {
+    for (const x of this.completions.values()) if (x.sessionId === c.sessionId && x.dayId === c.dayId) return;
+    this.completions.set(c.id, c);
   }
   async saveSetLog(l: SetLog) { this.setLogs.set(l.id, l); }
   async deleteSetLog(id: string) { this.setLogs.delete(id); }

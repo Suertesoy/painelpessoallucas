@@ -40,7 +40,7 @@ function buildView(): SessionView {
   });
   return {
     session, athlete: lucas, athletes: [lucas, matheus], day: dayA, days: [dayA, dayB], totalSets: logs.length, setsByDay: { [dayA.id]: logs.length },
-    exercises: views, dayProgress: sessionProgress(views.map((v) => v.progress)),
+    exercises: views, dayProgress: sessionProgress(views.map((v) => v.progress)), completedDayIds: [],
   };
 }
 

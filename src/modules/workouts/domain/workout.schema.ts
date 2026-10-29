@@ -197,6 +197,20 @@ export const LogSetSchema = z.object({
 });
 export type LogSetDTO = z.input<typeof LogSetSchema>;
 
+// --- Conclusão explícita de ficha (A–E) -----------------------------------------------
+
+/** Uma linha por toque em "Concluir Treino" (idempotente por sessão + ficha). */
+export const DayCompletionSchema = z.object({
+  id: z.string().uuid(),
+  workspaceId: z.string().uuid(),
+  athleteId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  dayId: z.string().uuid(),
+  completedAt: isoDateTimeSchema,
+  createdAt: isoDateTimeSchema,
+});
+export type DayCompletion = z.infer<typeof DayCompletionSchema>;
+
 // --- Peso corporal --------------------------------------------------------------------
 
 export const BodyWeightLogSchema = z.object({

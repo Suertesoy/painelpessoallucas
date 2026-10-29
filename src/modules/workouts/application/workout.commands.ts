@@ -6,6 +6,8 @@ import type { WorkoutRepository } from './workout.repository';
 import {
   BodyWeightLog,
   BodyWeightLogSchema,
+  DayCompletion,
+  DayCompletionSchema,
   DEFAULT_WORKOUT_DAY_CODES,
   ExerciseLoad,
   ExerciseLoadSchema,
@@ -569,6 +571,33 @@ export class WorkoutCommands {
       restDurationSeconds: undefined,
       restPausedRemainingSeconds: undefined,
     });
+  }
+
+  // --- Conclusão explícita de ficha -------------------------------------------------------------
+
+  /**
+   * "Concluir Treino A–E": o ÚNICO jeito de uma ficha contar como concluída.
+   * Não exige porcentagem de exercícios, não encerra a sessão geral nem o
+   * cronômetro. Idempotente por (sessão, ficha): tocar de novo devolve a conclusão original.
+   */
+  async completeDay(sessionId: string, dayId: string): Promise<DayCompletion> {
+    const session = await this.loadActiveSession(sessionId);
+    if (!(await this.repo.listDays()).some((d) => d.id === dayId)) throw new Error('Treino não encontrado');
+    const existing = (await this.repo.listDayCompletions(session.athleteId)).find((c) => c.sessionId === sessionId && c.dayId === dayId);
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    const completion = DayCompletionSchema.parse({
+      id: await deterministicUuid(`${sessionId}:day-completion:${dayId}`),
+      workspaceId: session.workspaceId,
+      athleteId: session.athleteId,
+      sessionId,
+      dayId,
+      completedAt: now,
+      createdAt: now,
+    });
+    await this.repo.saveDayCompletion(completion);
+    await this.emit(session.workspaceId, 'workout.day.completed', completion.id, { athleteId: session.athleteId, sessionId, dayId }, now);
+    return completion;
   }
 
   // --- Encerramento -------------------------------------------------------------------------
